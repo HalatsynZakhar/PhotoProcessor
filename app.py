@@ -628,29 +628,34 @@ with st.sidebar:
                  pr_h = st.number_input("Макс. Высота (px)", 0, 10000, value=get_setting('preprocessing.preresize_height', 2500), step=10, key='pre_h')
                  set_setting('preprocessing.preresize_height', pr_h)
 
-    with st.expander("2. Отбеливание периметра", expanded=False):
-        # === РАСКОММЕНТИРОВАНО ===
+    with st.expander("2. Отбеливание", expanded=False):
+        # === ЧЕКБОКС ВКЛЮЧЕНИЯ ===
         enable_whitening = st.checkbox("Включить ", value=get_setting('whitening.enable_whitening', False), key='white_enable') # Пробел в лейбле для уникальности
         set_setting('whitening.enable_whitening', enable_whitening)
         if enable_whitening:
-             # === ИСПРАВЛЕН ДИАПАЗОН ===
-             wc_thr = st.slider("Порог отмены (сумма RGB)", 0, 765, 
-                                value=get_setting('whitening.cancel_threshold_sum', 5), 
-                                step=5, # Увеличим шаг для удобства
-                                key='white_thr', 
-                                help="Отбеливание не будет применяться, если самый темный пиксель на границе светлее этого значения (0-765).")
-             # ==========================
-             set_setting('whitening.cancel_threshold_sum', wc_thr)
-        # =========================
+            # === ПРОСТОЙ ПРОЦЕНТНЫЙ СЛАЙДЕР ===
+            # Порог светлости периметра для отбеливания
+            # При пороге 50% отбеливаются изображения с периметром светлее 50% (серый)
+            wc_percent = st.slider("Максимальная темнота периметра", 0, 100, 
+                                  value=30, # По умолчанию 30%
+                                  step=1, 
+                                  key='white_thr', 
+                                  format="%d%%",
+                                  help="Изображение будет отбелено, если периметр ТЕМНЕЕ указанного значения. 0% - отбеливать только белый периметр, 100% - отбеливать даже черный периметр.")
+            
+            # Преобразуем проценты в абсолютный порог для функции отбеливания
+            adjusted_threshold = int((100 - wc_percent) * 7.65)  # Инвертируем для логического соответствия
+            set_setting('whitening.cancel_threshold_sum', adjusted_threshold)
+    # =========================
 
     with st.expander("3. Удаление фона и обрезка", expanded=False):
         # === РАСКОММЕНТИРОВАНО ===
         enable_bg_crop = st.checkbox("Включить ", value=get_setting('background_crop.enable_bg_crop', False), key='bgc_enable') # Пробел в лейбле
         set_setting('background_crop.enable_bg_crop', enable_bg_crop)
         if enable_bg_crop:
-            bgc_tol = st.slider("Допуск белого фона", 0, 255, value=get_setting('background_crop.white_tolerance', 10), key='bgc_tol', help="Насколько цвет может отличаться от чисто белого, чтобы считаться фоном.")
+            bgc_tol = st.slider("Допуск белого фона", 0, 255, value=get_setting('background_crop.white_tolerance', 10), key='bgc_tol', help="Насколько цвет может отличаться от чисто белого, чтобы считаться фоном. Рекомендуется не выше 20. Если используется отбеливание, не выше 5")
             set_setting('background_crop.white_tolerance', bgc_tol)
-            bgc_per = st.checkbox("Проверять периметр", value=get_setting('background_crop.check_perimeter', True), key='bgc_perimeter', help="Обрезать только если фон доходит до краев изображения.")
+            bgc_per = st.checkbox("Проверять периметр", value=get_setting('background_crop.check_perimeter', True), key='bgc_perimeter', help="Обрезать только если изображение не доходит до краев изображения. Условная проверка чтобы не обрезать картинки без белого фона")
             set_setting('background_crop.check_perimeter', bgc_per)
             bgc_abs = st.checkbox("Абсолютно симм. обрезка", value=get_setting('background_crop.crop_symmetric_absolute', False), key='bgc_abs')
             set_setting('background_crop.crop_symmetric_absolute', bgc_abs)
@@ -700,11 +705,9 @@ with st.sidebar:
 
         if check_perimeter_selected:
             st.caption("Настройки проверки периметра:")
-            pad_m = st.number_input("Толщина проверки периметра (px)", 1, 100, # Минимальное значение 1, если проверяем
-                                   value=get_setting('padding.perimeter_margin', 5), 
-                                   step=1, key='pad_margin_conditional',
-                                   help="Ширина зоны у края изображения для проверки цвета (мин. 1).")
-            set_setting('padding.perimeter_margin', pad_m)
+            # Удалено: Толщина проверки периметра всегда равна 1px
+            # Устанавливаем значение 1 для perimeter_margin
+            set_setting('padding.perimeter_margin', 1)
 
             # === НОВЫЙ НЕЗАВИСИМЫЙ ДОПУСК БЕЛОГО ===
             pad_tol = st.slider("Допуск белого для проверки периметра", 0, 255, 

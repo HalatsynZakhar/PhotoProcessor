@@ -43,6 +43,12 @@ def whiten_image_by_darkest_perimeter(img, cancel_threshold_sum):
     Whitens an image using the darkest perimeter pixel (1px border)
     as the white reference. Checks the threshold before whitening.
     Works on a copy. Returns a new image object or the original if cancelled/error.
+    
+    Args:
+        img: PIL Image object
+        cancel_threshold_sum: Value from 0 to 765
+                              0 = only whiten if perimeter is pure white (lightness 100%)
+                              765 = always whiten regardless of darkness (even black perimeter)
     """
     log.debug(f"Attempting whitening (perimeter pixel, threshold: {cancel_threshold_sum})...")
     img_copy = None; img_rgb = None; alpha_channel = None; img_whitened_rgb = None
@@ -123,42 +129,71 @@ def whiten_image_by_darkest_perimeter(img, cancel_threshold_sum):
 
         ref_r, ref_g, ref_b = darkest_pixel_rgb
         current_pixel_sum = ref_r + ref_g + ref_b
-        log.debug(f"Darkest perimeter pixel found: RGB=({ref_r},{ref_g},{ref_b}), Sum={current_pixel_sum}")
-        log.debug(f"Whitening cancellation threshold (min sum): {cancel_threshold_sum}")
+        
+        # Рассчитываем "светлость" периметра как процент от максимума
+        # 0 (черный) = 0%, 765 (белый) = 100%
+        perimeter_lightness_percent = (current_pixel_sum / 765.0) * 100
+        
+        # Преобразуем пороговое значение в проценты
+        threshold_percent = (cancel_threshold_sum / 765.0) * 100
+        
+        log.debug(f"Darkest perimeter pixel: RGB=({ref_r},{ref_g},{ref_b}), Lightness={perimeter_lightness_percent:.1f}%")
+        log.debug(f"Whitening threshold: {threshold_percent:.1f}%")
 
-        # Check threshold and if already white
-        if current_pixel_sum < cancel_threshold_sum:
-            log.info(f"Darkest pixel sum ({current_pixel_sum}) is below threshold ({cancel_threshold_sum}). Whitening cancelled.")
-            final_image = img_copy; img_copy = None
-            safe_close(img_rgb); safe_close(alpha_channel)
-            return final_image
+        # Если периметр уже белый, отбеливание не требуется
         if ref_r == 255 and ref_g == 255 and ref_b == 255:
             log.debug("Darkest perimeter pixel is already white. Whitening not needed.")
             final_image = img_copy; img_copy = None
             safe_close(img_rgb); safe_close(alpha_channel)
             return final_image
-
-        # Calculate scaling factors and LUT
-        log.debug(f"Reference for whitening: RGB=({ref_r},{ref_g},{ref_b})")
-        scale_r = 255.0 / max(1.0, float(ref_r))
-        scale_g = 255.0 / max(1.0, float(ref_g))
-        scale_b = 255.0 / max(1.0, float(ref_b))
-        log.debug(f"Scaling factors: R*={scale_r:.3f}, G*={scale_g:.3f}, B*={scale_b:.3f}")
-
-        # Using point operation with separate LUTs per channel is often efficient
+        
+        # Проверяем, достаточно ли светлый периметр для отбеливания
+        # Если светлость периметра ниже порога, отменяем отбеливание
+        if perimeter_lightness_percent < threshold_percent:
+            log.info(f"Периметр слишком темный: светлость {perimeter_lightness_percent:.1f}%, ниже порога {threshold_percent:.1f}%.")
+            final_image = img_copy; img_copy = None
+            safe_close(img_rgb); safe_close(alpha_channel)
+            return final_image
+        
+        log.info(f"Отбеливание применено: светлость периметра {perimeter_lightness_percent:.1f}% выше порога {threshold_percent:.1f}%.")
+        log.debug(f"Самый темный пиксель периметра: RGB=({ref_r},{ref_g},{ref_b})")
+        
+        # Специальная обработка для случаев с нулевыми каналами (например, бирюзовый RGB(0,255,255))
+        if ref_r == 0 or ref_g == 0 or ref_b == 0:
+            log.debug(f"Zero channel detected in perimeter RGB=({ref_r},{ref_g},{ref_b}). Applying safe scaling.")
+            
+            # Заменяем нулевые значения на минимальные для избегания деления на ноль
+            safe_r = max(1, ref_r)
+            safe_g = max(1, ref_g)
+            safe_b = max(1, ref_b)
+            
+            # Рассчитываем коэффициенты масштабирования
+            scale_r = 255.0 / float(safe_r)
+            scale_g = 255.0 / float(safe_g)
+            scale_b = 255.0 / float(safe_b)
+            
+            log.debug(f"Safe scaling factors: R*={scale_r:.2f}, G*={scale_g:.2f}, B*={scale_b:.2f}")
+        else:
+            # Обычный расчет коэффициентов для ненулевых каналов
+            scale_r = 255.0 / max(1.0, float(ref_r))
+            scale_g = 255.0 / max(1.0, float(ref_g))
+            scale_b = 255.0 / max(1.0, float(ref_b))
+            log.debug(f"Scaling factors: R*={scale_r:.2f}, G*={scale_g:.2f}, B*={scale_b:.2f}")
+        
+        # Создаем LUT (Look-Up Table) для быстрого преобразования
         lut_r = bytes([min(255, round(i * scale_r)) for i in range(256)])
         lut_g = bytes([min(255, round(i * scale_g)) for i in range(256)])
         lut_b = bytes([min(255, round(i * scale_b)) for i in range(256)])
 
-        # Split, apply LUT, merge
+        # Применяем LUT ко всем каналам изображения
         r_ch, g_ch, b_ch = img_rgb.split()
         out_r = r_ch.point(lut_r)
         out_g = g_ch.point(lut_g)
         out_b = b_ch.point(lut_b)
         img_whitened_rgb = Image.merge('RGB', (out_r, out_g, out_b))
-        log.debug("LUT applied to RGB channels.")
+        log.debug("LUT applied to all RGB channels.")
 
-        # Reapply alpha if it existed
+        # Восстанавливаем альфа-канал, если он был
         if alpha_channel:
             log.debug("Restoring alpha channel...")
             if img_whitened_rgb.size == alpha_channel.size:

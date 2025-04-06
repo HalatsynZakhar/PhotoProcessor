@@ -264,17 +264,31 @@ def run_individual_processing(**all_settings: Dict[str, Any]):
         preresize_height = int(prep_settings.get('preresize_height', 0)) if enable_preresize else 0
 
         enable_whitening = white_settings.get('enable_whitening', False)
-        whitening_cancel_threshold = int(white_settings.get('whitening_cancel_threshold', 550))
+        whitening_cancel_threshold = int(white_settings.get('whitening_cancel_threshold', 180))
+        
+        # Обратная совместимость со старой шкалой (0-765)
+        # Если значение > 255 (старая шкала), преобразуем в новую шкалу
+        if whitening_cancel_threshold > 255 * 3:
+            whitening_cancel_threshold = 180  # Значение по умолчанию в новой шкале
+            log.warning("Found unusually high whitening threshold value. Reset to default 180.")
+        # Если старое значение было < 60, вероятно это уже новая шкала (0-255), умножаем на 3
+        elif whitening_cancel_threshold < 60:
+            whitening_cancel_threshold = whitening_cancel_threshold * 3
+            log.debug(f"Converting whitening threshold from new scale to internal value: {whitening_cancel_threshold}")
+        # Иначе оставляем как есть (вероятно уже конвертированное значение)
 
         enable_bg_crop = bgc_settings.get('enable_bg_crop', False)
         white_tolerance = int(bgc_settings.get('white_tolerance', 0)) if enable_bg_crop else None # None если выключено
         crop_symmetric_absolute = bool(bgc_settings.get('crop_symmetric_absolute', False)) if enable_bg_crop else False
         crop_symmetric_axes = bool(bgc_settings.get('crop_symmetric_axes', False)) if enable_bg_crop else False
+        check_perimeter = bool(bgc_settings.get('check_perimeter', True)) if enable_bg_crop else False
 
-        enable_padding = pad_settings.get('enable_padding', False)
+        # Обновленные настройки полей
+        padding_mode = pad_settings.get('mode', 'never')
+        enable_padding = padding_mode != 'never' # Включено, если не равно 'never'
         padding_percent = float(pad_settings.get('padding_percent', 0.0)) if enable_padding else 0.0
-        perimeter_margin = int(pad_settings.get('perimeter_margin', 0)) if enable_padding else 0
         allow_expansion = bool(pad_settings.get('allow_expansion', True)) if enable_padding else False
+        perimeter_check_tolerance = int(pad_settings.get('perimeter_check_tolerance', 10)) if enable_padding else 0
 
         # Дополнительная валидация
         if output_format not in ['jpg', 'png']:
@@ -333,9 +347,9 @@ def run_individual_processing(**all_settings: Dict[str, Any]):
     log.info(f"1. Preresize: {'Enabled' if enable_preresize else 'Disabled'} (W:{preresize_width}, H:{preresize_height})")
     log.info(f"2. Whitening: {'Enabled' if enable_whitening else 'Disabled'} (Thresh:{whitening_cancel_threshold})")
     log.info(f"3. BG Removal/Crop: {'Enabled' if enable_bg_crop else 'Disabled'} (Tol:{white_tolerance})")
-    if enable_bg_crop: log.info(f"  Crop Symmetry: Abs={crop_symmetric_absolute}, Axes={crop_symmetric_axes}")
+    if enable_bg_crop: log.info(f"  Crop Symmetry: Abs={crop_symmetric_absolute}, Axes={crop_symmetric_axes}, Check Perimeter={check_perimeter}")
     log.info(f"4. Padding: {'Enabled' if enable_padding else 'Disabled'}" + 
-             (f" (%:{padding_percent:.1f}, Margin:{perimeter_margin}, Expand:{allow_expansion})" if pad_settings.get('enable_padding') else ""))
+             (f" (%:{padding_percent:.1f}, Margin:{1}, Expand:{allow_expansion})" if pad_settings.get('enable_padding') else ""))
     
     # === ВОССТАНОВЛЕН ВЫЗОВ ЯРКОСТИ И КОНТРАСТА ===
     enable_bc = bc_settings.get('enable_bc', False)
@@ -412,14 +426,14 @@ def run_individual_processing(**all_settings: Dict[str, Any]):
             if not img_current: raise ValueError("Image became None after whitening.")
             step_counter += 1
 
-            # Периметр (проверяем, только если включены поля и задан маржин)
+            # Периметр (проверяем, только если включены поля)
             perimeter_is_white = False # Важно инициализировать
-            if enable_padding and perimeter_margin > 0:
-                 log.debug(f"  Step {step_counter}.{1}: Perimeter check (Margin: {perimeter_margin}px)")
-                 current_perimeter_tolerance = white_tolerance if enable_bg_crop and white_tolerance is not None else 0
-                 perimeter_is_white = image_utils.check_perimeter_is_white(img_current, current_perimeter_tolerance, perimeter_margin)
-            # Если padding выключен или margin=0, проверка периметра не выполняется и perimeter_is_white остается False
-            step_counter += 1 
+            if enable_padding and padding_mode != 'always':
+                 log.debug(f"  Step {step_counter}.{1}: Perimeter check (Margin: 1px, Tolerance: {perimeter_check_tolerance})")
+                 perimeter_is_white = image_utils.check_perimeter_is_white(img_current, perimeter_check_tolerance, 1)
+                 log.debug(f"    Perimeter is white: {perimeter_is_white}")
+            # Если padding выключен, проверка периметра не выполняется и perimeter_is_white остается False
+            step_counter += 1
 
             pre_crop_width, pre_crop_height = img_current.size
 
@@ -427,9 +441,22 @@ def run_individual_processing(**all_settings: Dict[str, Any]):
             cropped_image_dimensions = img_current.size # Запомним размер ДО
             if enable_bg_crop:
                 img_original = img_current
-                img_current = image_utils.remove_white_background(img_current, white_tolerance)
-                if not img_current: raise ValueError("Image became None after background removal.")
-                if img_current is not img_original: log.debug("    Background removed/converted.")
+                
+                # Check perimeter before removing background if option enabled
+                should_remove_bg = True
+                if check_perimeter:
+                    log.debug(f"  Checking if image perimeter is white before removing background (tolerance: {white_tolerance})")
+                    perimeter_is_white = image_utils.check_perimeter_is_white(img_current, white_tolerance, 1)  # Check 1px perimeter
+                    if not perimeter_is_white:
+                        log.info("    Background removal skipped: perimeter is NOT white and check_perimeter is enabled")
+                        should_remove_bg = False
+                    else:
+                        log.info("    Background will be removed: perimeter IS white")
+                
+                if should_remove_bg:
+                    img_current = image_utils.remove_white_background(img_current, white_tolerance)
+                    if not img_current: raise ValueError("Image became None after background removal.")
+                    if img_current is not img_original: log.debug("    Background removed/converted.")
 
                 img_original = img_current # Обновляем для сравнения после обрезки
                 img_current = image_utils.crop_image(img_current, crop_symmetric_axes, crop_symmetric_absolute)
@@ -438,35 +465,55 @@ def run_individual_processing(**all_settings: Dict[str, Any]):
                 cropped_image_dimensions = img_current.size # Обновляем размер ПОСЛЕ обрезки
             step_counter += 1
 
-            log.debug(f"  Step {step_counter}: Padding (Mode: {enable_padding})")
+            log.debug(f"  Step {step_counter}: Padding (Mode: {padding_mode})")
             apply_padding = False # По умолчанию не добавляем
             
             if enable_padding:
-                if perimeter_margin > 0:
-                    if not perimeter_is_white:
-                        current_w, current_h = cropped_image_dimensions
-                        if current_w > 0 and current_h > 0 and padding_percent > 0:
-                            padding_pixels = int(round(max(current_w, current_h) * (padding_percent / 100.0)))
-                            if padding_pixels > 0:
-                                potential_padded_w = current_w + 2 * padding_pixels
-                                potential_padded_h = current_h + 2 * padding_pixels
-                                size_check_passed = (potential_padded_w <= pre_crop_width and potential_padded_h <= pre_crop_height)
-                                
-                                if allow_expansion or size_check_passed:
-                                    apply_padding = True # Все проверки пройдены
-                                    log.info("    Padding will be applied (mode condition met, size conditions met).")
+                current_w, current_h = cropped_image_dimensions
+                if current_w > 0 and current_h > 0 and padding_percent > 0:
+                    padding_pixels = int(round(max(current_w, current_h) * (padding_percent / 100.0)))
+                    
+                    if padding_pixels > 0:
+                        # Проверяем условия размера
+                        potential_padded_w = current_w + 2 * padding_pixels
+                        potential_padded_h = current_h + 2 * padding_pixels
+                        size_check_passed = (potential_padded_w <= pre_crop_width and potential_padded_h <= pre_crop_height)
+                        size_ok = allow_expansion or size_check_passed
+                        
+                        # Определяем, нужно ли добавлять поля в зависимости от режима
+                        if padding_mode == 'always':
+                            # Всегда добавляем поля, если размер позволяет
+                            if size_ok:
+                                apply_padding = True
+                                log.info("    Padding will be applied (mode: always, size conditions met).")
+                            else:
+                                log.info("    Padding skipped: Size check failed & expansion disabled.")
+                        else:
+                            # Режимы if_white или if_not_white - нужна проверка периметра
+                            # Используем специальный допуск для проверки периметра
+                            perimeter_is_white = image_utils.check_perimeter_is_white(
+                                img_current, perimeter_check_tolerance, 1)
+                            
+                            if padding_mode == 'if_white' and perimeter_is_white:
+                                if size_ok:
+                                    apply_padding = True
+                                    log.info("    Padding will be applied (mode: if_white, perimeter IS white, size conditions met).")
+                                else:
+                                    log.info("    Padding skipped: Size check failed & expansion disabled.")
+                            elif padding_mode == 'if_not_white' and not perimeter_is_white:
+                                if size_ok:
+                                    apply_padding = True
+                                    log.info("    Padding will be applied (mode: if_not_white, perimeter is NOT white, size conditions met).")
                                 else:
                                     log.info("    Padding skipped: Size check failed & expansion disabled.")
                             else:
-                                log.info("    Padding skipped: Calculated padding is zero pixels.")
-                        else:
-                            log.info("    Padding skipped: Cropped image has zero size.")
-                    else: # perimeter_margin > 0 AND perimeter_is_white is True
-                        log.info("    Padding skipped: Perimeter margin is set, and perimeter is already white.")
-                else: # perimeter_margin <= 0
-                    log.info("    Padding skipped: Perimeter margin is not set (> 0), padding only applied if perimeter is NOT white.")
-            else: # enable_padding is False
-                log.debug("    Padding step skipped: 'enable_padding' is False.")
+                                log.info(f"    Padding skipped: Perimeter condition not met for mode '{padding_mode}' (perimeter_is_white: {perimeter_is_white}).")
+                    else:
+                        log.info("    Padding skipped: Calculated padding is zero pixels.")
+                else:
+                    log.info("    Padding skipped: Invalid image dimensions or padding percent.")
+            else:
+                log.debug("    Padding step skipped: padding mode is 'never'.")
 
             # Вызываем функцию добавления полей, только если флаг установлен
             if apply_padding:
@@ -687,7 +734,18 @@ def _process_image_for_collage(image_path: str, prep_settings, white_settings, b
 
         # 3. Отбеливание (если вкл)
         enable_whitening = white_settings.get('enable_whitening', False)
-        whitening_cancel_threshold = int(white_settings.get('whitening_cancel_threshold', 550))
+        whitening_cancel_threshold = int(white_settings.get('whitening_cancel_threshold', 180))
+        
+        # Обратная совместимость со старой шкалой (0-765)
+        # Если значение > 255 (старая шкала), преобразуем в новую шкалу
+        if whitening_cancel_threshold > 255 * 3:
+            whitening_cancel_threshold = 180  # Значение по умолчанию в новой шкале
+            log.warning("Found unusually high whitening threshold value. Reset to default 180.")
+        # Если старое значение было < 60, вероятно это уже новая шкала (0-255), умножаем на 3
+        elif whitening_cancel_threshold < 60:
+            whitening_cancel_threshold = whitening_cancel_threshold * 3
+            log.debug(f"Converting whitening threshold from new scale to internal value: {whitening_cancel_threshold}")
+        # Иначе оставляем как есть (вероятно уже конвертированное значение)
         if enable_whitening: img_current = image_utils.whiten_image_by_darkest_perimeter(img_current, whitening_cancel_threshold)
         if not img_current: return None
 
@@ -696,21 +754,65 @@ def _process_image_for_collage(image_path: str, prep_settings, white_settings, b
         white_tolerance = int(bgc_settings.get('white_tolerance', 0)) if enable_bg_crop else None
         crop_symmetric_absolute = bool(bgc_settings.get('crop_symmetric_absolute', False)) if enable_bg_crop else False
         crop_symmetric_axes = bool(bgc_settings.get('crop_symmetric_axes', False)) if enable_bg_crop else False
+        check_perimeter = bool(bgc_settings.get('check_perimeter', True)) if enable_bg_crop else False
         if enable_bg_crop:
-            img_current = image_utils.remove_white_background(img_current, white_tolerance)
-            if not img_current: return None
+            # Check perimeter before removing background if option enabled
+            should_remove_bg = True
+            if check_perimeter:
+                log.debug(f"    Checking if image perimeter is white before removing background (tolerance: {white_tolerance})")
+                perimeter_is_white = image_utils.check_perimeter_is_white(img_current, white_tolerance, 1)  # Check 1px perimeter
+                if not perimeter_is_white:
+                    log.info("    Background removal skipped for collage image: perimeter is NOT white and check_perimeter is enabled")
+                    should_remove_bg = False
+                else:
+                    log.info("    Background will be removed for collage image: perimeter IS white")
+            
+            if should_remove_bg:
+                img_current = image_utils.remove_white_background(img_current, white_tolerance)
+                if not img_current: return None
+            
             img_current = image_utils.crop_image(img_current, crop_symmetric_axes, crop_symmetric_absolute)
             if not img_current: return None
 
         # 5. Добавление полей (если вкл)
-        enable_padding = pad_settings.get('enable_padding', False)
+        enable_padding = pad_settings.get('mode', 'never') != 'never' # Включено, если не равно 'never'
+        padding_mode = pad_settings.get('mode', 'never')
         padding_percent = float(pad_settings.get('padding_percent', 0.0)) if enable_padding else 0.0
-        perimeter_margin = int(pad_settings.get('perimeter_margin', 0)) if enable_padding else 0
         allow_expansion = bool(pad_settings.get('allow_expansion', True)) if enable_padding else False
+        perimeter_check_tolerance = int(pad_settings.get('perimeter_check_tolerance', 10)) if enable_padding else 0
+        # perimeter_margin removed, always using 1 px margin
+        
+        # Определяем, нужно ли добавлять поля
+        apply_padding = False
         if enable_padding:
+            if padding_mode == 'always':
+                # Всегда добавляем поля
+                apply_padding = True
+                log.debug(f"    Padding will be applied (mode: always).")
+            else:
+                # Режимы if_white или if_not_white - нужна проверка периметра
+                # Используем специальный допуск для проверки периметра
+                perimeter_is_white = image_utils.check_perimeter_is_white(
+                    img_current, perimeter_check_tolerance, 1)
+                
+                if padding_mode == 'if_white' and perimeter_is_white:
+                    apply_padding = True
+                    log.debug(f"    Padding will be applied (mode: if_white, perimeter IS white).")
+                elif padding_mode == 'if_not_white' and not perimeter_is_white:
+                    apply_padding = True
+                    log.debug(f"    Padding will be applied (mode: if_not_white, perimeter is NOT white).")
+                else:
+                    log.debug(f"    Padding skipped: Perimeter condition not met for mode '{padding_mode}'.")
+        
+        # Применяем padding только если нужно
+        if apply_padding:
             img_current = image_utils.add_padding(img_current, padding_percent)
             if not img_current: return None
             log.debug(f"    Padding applied. New size: {img_current.size}")
+        elif enable_padding:
+            log.debug(f"    Padding skipped based on conditions.")
+        else:
+            log.debug(f"    Padding disabled (mode: never).")
 
         # === ЯРКОСТЬ И КОНТРАСТ (для отдельных фото перед коллажом) ===
         if bc_settings.get('enable_bc'):
@@ -818,7 +920,9 @@ def run_collage_processing(**all_settings: Dict[str, Any]) -> bool:
     log.info(f"Preresize: {'Enabled' if prep_settings.get('enable_preresize') else 'Disabled'}")
     log.info(f"Whitening: {'Enabled' if white_settings.get('enable_whitening') else 'Disabled'}")
     log.info(f"BG Removal/Crop: {'Enabled' if bgc_settings.get('enable_bg_crop') else 'Disabled'}")
-    log.info(f"Padding: {'Enabled' if pad_settings.get('enable_padding') else 'Disabled'}")
+    if bgc_settings.get('enable_bg_crop'): 
+        log.info(f"  Crop Symmetry: Abs={bgc_settings.get('crop_symmetric_absolute', False)}, Axes={bgc_settings.get('crop_symmetric_axes', False)}, Check Perimeter={bgc_settings.get('check_perimeter', True)}")
+    log.info(f"Padding: {'Enabled' if pad_settings.get('mode') != 'never' else 'Disabled'}")
     log.info("-" * 10 + " Collage Assembly " + "-" * 10)
     log.info(f"Proportional Placement: {proportional_placement} (Ratios: {placement_ratios if proportional_placement else 'N/A'})")
     log.info(f"Columns: {forced_cols if forced_cols > 0 else 'Auto'}")
