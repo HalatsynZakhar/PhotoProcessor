@@ -264,7 +264,7 @@ with st.sidebar:
          log.info(f"Processing mode changed to: {processing_mode_selected}")
          st.rerun()
     st.caption("Режим обработки")
-    st.divider()
+    # Divider removed here
 
     # === Управление наборами ===
     st.header("📦 Управление наборами")
@@ -377,7 +377,7 @@ with st.sidebar:
                 log.warning("Create new preset aborted due to autosave failure.")
 
     st.caption("Создать новый набор (со значениями по умолчанию)") # Update caption
-    st.divider()
+    # Divider removed here
 
     # === Блок: Сохранить тек. настройки / Отменить изменения в наборе ===
     settings_save_col, settings_reset_col_moved = st.columns(2) 
@@ -438,7 +438,7 @@ with st.sidebar:
         # st.session_state.reset_profiles_confirmation_pending = False # Flag no longer used
         st.rerun()
     # --------------------------------------------------------------
-    st.divider()
+    # Divider removed here
 
     # --- Логика подтверждений (остается на своем месте) ---
     # === Логика подтверждения для ОТМЕНЫ ИЗМЕНЕНИЙ (СБРОС К УМОЛЧАНИЯМ) ===
@@ -523,7 +523,7 @@ with st.sidebar:
         with settings_confirm_col2:
             if st.button("Отмена ", key="cancel_reset_settings"): # Ключ может остаться
                 st.session_state.reset_settings_confirmation_pending = False; st.rerun()
-    st.divider() # Конец последнего блока логики подтверждения
+    # Divider removed here (was: Конец последнего блока логики подтверждения)
 
     # === Пути ===
     st.header("📂 Пути")
@@ -554,7 +554,7 @@ with st.sidebar:
     if current_mode_local == "Обработка отдельных файлов":
         st.subheader("Пути (Обработка файлов)")
         # --- Output Path --- 
-        current_output_path = get_setting('paths.output_folder_path')
+        current_output_path = get_setting('paths.output_folder_path', '')
         # Подставляем Загрузки/Processed, если путь пустой
         output_path_default_value = current_output_path if current_output_path else os.path.join(user_downloads_folder, "Processed")
         output_path_val = st.text_input(
@@ -611,10 +611,11 @@ with st.sidebar:
         set_setting('paths.output_filename', "collage") # Сбрасываем имя коллажа
         st.toast("Пути сброшены! При следующем обновлении подставятся Загрузки.", icon="🔄"); 
         st.rerun()
-    st.divider()
+    # Divider removed here
 
     # === Остальные Настройки ===
-    st.header("⚙️ Общие настройки обработки")
+    st.header("⚙️ Настройки обработки")
+    st.caption(f"Настройки для режима: **{st.session_state.selected_processing_mode}**")
     with st.expander("1. Предварительный ресайз", expanded=False):
         enable_preresize = st.checkbox("Включить", value=get_setting('preprocessing.enable_preresize', False), key='pre_enable')
         set_setting('preprocessing.enable_preresize', enable_preresize)
@@ -753,12 +754,10 @@ with st.sidebar:
     # ========================
 
     # Настройки, зависящие от режима
-    st.divider()
     current_mode_local_for_settings = st.session_state.selected_processing_mode
 
     if current_mode_local_for_settings == "Обработка отдельных файлов":
         # === ВОЗВРАЩАЕМ HEADER ===
-        st.header("⚙️ Настройки обработки файлов") 
         # === ЭКСПАНДЕР 1 (теперь не вложенный) ===
         with st.expander("Финальный размер и формат", expanded=True):
             # --- Соотношение сторон --- 
@@ -864,7 +863,6 @@ with st.sidebar:
         # === КОНЕЦ УДАЛЕННОГО ОБЩЕГО ЭКСПАНДЕРА ===
 
     elif current_mode_local_for_settings == "Создание коллажей":
-        st.header("🖼️ Настройки коллажа")
         with st.expander("Размер и формат коллажа", expanded=True):
             # --- Соотношение сторон --- 
             enable_ratio_coll = st.checkbox("Принудительное соотношение сторон коллажа", 
