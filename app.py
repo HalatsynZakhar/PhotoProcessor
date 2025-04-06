@@ -420,16 +420,24 @@ with st.sidebar:
     # =====================================================
 
     # === СУЩЕСТВУЮЩИЙ БЛОК КНОПОК СБРОСА ПРОФИЛЕЙ/К ЗАВОДСКИМ ===
-    reset_profiles_col, reset_settings_col = st.columns(2)
-    with reset_profiles_col:
-        if st.button("🗑️ Сбросить профили", key="reset_all_profiles_button", disabled=st.session_state.reset_profiles_confirmation_pending, help="Удалить все пользовательские профили"):
-            st.session_state.reset_profiles_confirmation_pending = True; st.session_state.reset_settings_confirmation_pending = False; st.rerun()
-
-    with reset_settings_col:
-        if st.button("💥 Сбросить все к заводским", key="reset_all_settings_button", 
-                      disabled=st.session_state.reset_settings_confirmation_pending, 
-                      help="Полностью сбросить все настройки к первоначальному состоянию программы."):
-            st.session_state.reset_settings_confirmation_pending = True; st.session_state.reset_profiles_confirmation_pending = False; st.rerun()
+    # --- Removed Reset Profiles Button ---
+    # reset_profiles_col, reset_settings_col = st.columns(2)
+    # with reset_profiles_col:
+    #     if st.button("🗑️ Сбросить профили", key="reset_all_profiles_button", disabled=st.session_state.reset_profiles_confirmation_pending, help="Удалить все пользовательские профили"):
+    #         st.session_state.reset_profiles_confirmation_pending = True; st.session_state.reset_settings_confirmation_pending = False; st.rerun()
+    # --- End Removal ---
+    
+    # --- Keep Factory Reset Button (might adjust layout later) ---
+    if st.button("💥 Сбросить все к заводским", key="reset_all_settings_button", 
+                  disabled=st.session_state.reset_settings_confirmation_pending, 
+                  help="Полностью сбросить все настройки к первоначальному состоянию программы.",
+                  use_container_width=True): # Make it full width for now
+        st.session_state.reset_settings_confirmation_pending = True; 
+        # Ensure other confirmation flags are false
+        st.session_state.reset_active_preset_confirmation_pending = False 
+        # st.session_state.reset_profiles_confirmation_pending = False # Flag no longer used
+        st.rerun()
+    # --------------------------------------------------------------
     st.divider()
 
     # --- Логика подтверждений (остается на своем месте) ---
@@ -458,29 +466,21 @@ with st.sidebar:
                 st.session_state.reset_active_preset_confirmation_pending = False
                 st.rerun()
     # =========================================================
-    # === Логика подтверждения для СБРОСА ПРОФИЛЕЙ ===
-    if st.session_state.reset_profiles_confirmation_pending:
-        st.warning("Удалить ВСЕ пользовательские профили?", icon="⚠️")
-        prof_confirm_col1, prof_confirm_col2 = st.columns(2)
-        with prof_confirm_col1:
-            if st.button("Да, удалить профили", key="confirm_reset_profiles", type="primary"):
-                deleted_count = config_manager.delete_all_custom_presets()
-                if deleted_count is not None:
-                     st.toast(f"Удалено профилей: {deleted_count}.", icon="🗑️")
-                     if st.session_state.active_preset != config_manager.DEFAULT_PRESET_NAME:
-                         st.session_state.active_preset = config_manager.DEFAULT_PRESET_NAME
-                         default_settings = config_manager.load_settings_preset(config_manager.DEFAULT_PRESET_NAME)
-                         if default_settings:
-                             st.session_state.current_settings = default_settings
-                             st.session_state.selected_processing_mode = st.session_state.current_settings.get('processing_mode_selector', "Обработка отдельных файлов")
-                             st.session_state.settings_changed = True
-                else: st.error("Ошибка при удалении профилей.")
-                st.session_state.reset_profiles_confirmation_pending = False; st.rerun()
-        with prof_confirm_col2:
-             if st.button("Отмена ", key="cancel_reset_profiles"): # Добавил пробел для уникальности ключа
-                st.session_state.reset_profiles_confirmation_pending = False; st.rerun()
+    # === Логика подтверждения для СБРОСА ПРОФИЛЕЙ (Удалено) ===
+    # --- Removed Reset Profiles Confirmation Block ---
+    # if st.session_state.reset_profiles_confirmation_pending:
+    #     st.warning("Удалить ВСЕ пользовательские профили?", icon="⚠️")
+    #     prof_confirm_col1, prof_confirm_col2 = st.columns(2)
+    #     with prof_confirm_col1:
+    #         # ... (confirmation button logic) ...
+    #     with prof_confirm_col2:
+    #          if st.button("Отмена ", key="cancel_reset_profiles"): 
+    #             st.session_state.reset_profiles_confirmation_pending = False; st.rerun()
     # =================================================
+    # --- End Removal ---
+    
     # === Логика подтверждения для СБРОСА К ЗАВОДСКИМ ===
+    # ... (Confirmation logic for Factory Reset remains) ...
     if st.session_state.reset_settings_confirmation_pending:
         st.warning("Вы уверены, что хотите сбросить ВСЕ настройки к заводским? Это действие необратимо!", icon="💥")
         settings_confirm_col1, settings_confirm_col2 = st.columns(2)
