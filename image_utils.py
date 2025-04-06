@@ -314,7 +314,7 @@ def remove_white_background(img, tolerance):
 def crop_image(img, symmetric_axes=False, symmetric_absolute=False):
     """
     Crops transparent borders from an image (assuming RGBA).
-    Adds a 1px padding around the non-transparent area.
+    No longer adds a 1px padding around the non-transparent area.
     Includes options for symmetrical cropping.
     """
     crop_mode = "Standard"
@@ -405,12 +405,8 @@ def crop_image(img, symmetric_axes=False, symmetric_absolute=False):
             else:
                 log.warning("Calculated axes symmetric box is invalid. Using standard bbox.")
 
-        # Add 1px padding (but ensure it stays within original bounds)
-        final_left = max(0, crop_l - 1)
-        final_upper = max(0, crop_u - 1)
-        final_right = min(original_width, crop_r + 1)
-        final_lower = min(original_height, crop_b + 1)
-        final_crop_box = (final_left, final_upper, final_right, final_lower)
+        # Use exact crop box without adding 1px padding
+        final_crop_box = (crop_l, crop_u, crop_r, crop_b)
 
         # Check if cropping is actually needed
         if final_crop_box == (0, 0, original_width, original_height):
@@ -418,7 +414,7 @@ def crop_image(img, symmetric_axes=False, symmetric_absolute=False):
             final_image = img_rgba # Return the RGBA copy
             img_rgba = None
         else:
-            log.debug(f"Final crop box (with 1px padding): {final_crop_box}")
+            log.debug(f"Final crop box (exact, no padding): {final_crop_box}")
             try:
                 cropped_img = img_rgba.crop(final_crop_box)
                 log.info(f"Cropped image size: {cropped_img.size}")
