@@ -10,83 +10,90 @@ log = logging.getLogger(__name__)
 
 # Директория для хранения пресетов
 PRESETS_DIR = "settings_presets"
-DEFAULT_PRESET_NAME = "По умолчанию"
+DEFAULT_PRESET_NAME = "Набор 1"
 
 # =============================
 # === НАСТРОЙКИ ПО УМОЛЧАНИЮ ===
 # =============================
 DEFAULT_SETTINGS = {
-    "active_preset": DEFAULT_PRESET_NAME,
+    "active_preset": "Набор 1", 
     "processing_mode_selector": "Обработка отдельных файлов",
     "paths": {
-        # --- ОСТАВЛЯЕМ ПУСТЫМИ --- 
-        # Они будут заполнены путем к Загрузкам в app.py, если останутся пустыми
         "input_folder_path": "", 
         "output_folder_path": "", 
-        "backup_folder_path": "", # Бэкап по умолчанию выключен
-        "output_filename": "collage" # Базовое имя для коллажа без расширения
+        "backup_folder_path": "", # Бэкап по умолчанию выключен (пустой путь)
+        "output_filename": "collage"
     },
-    "preprocessing": {
-        "enable_preresize": False, # Выкл
-        "preresize_width": 2500,
-        "preresize_height": 2500
+    "single": {
+        "enabled_steps": { # Все шаги по умолчанию выключены
+            "resize": False,
+            "padding": False,
+            "border": False,
+            "logo": False
+        },
+        "save_formats": { # Все форматы сохранения по умолчанию выключены
+            "png": False,
+            "jpg": False,
+            "webp": False
+        },
+        "resize": {
+            "mode": "По ширине",
+            "width": 1920,
+            "height": 1080
+        },
+        "padding": {
+            "size_px": 100,
+            "color": "#FFFFFF"
+        },
+        "border": {
+            "width_px": 10,
+            "color": "#000000"
+        },
+        "logo": {
+            "path": "",
+            "position": "bottom-right",
+            "scale": 0.1,
+            "opacity": 0.8,
+            "padding_percent": 5
+        },
+        "save_options": {
+            "jpg_quality": 95,
+            "webp_quality": 90,
+            "webp_lossless": False
+        }
     },
-    "whitening": {
-        "enable_whitening": False, # Выкл
-        "cancel_threshold_sum": 5 # Довольно низкое значение, чтобы срабатывало чаще
-    },
-    "background_crop": {
-        "enable_bg_crop": False, # Выкл
-        "white_tolerance": 10, # Небольшой допуск по умолчанию
-        "check_perimeter": True,
-        "crop_symmetric_absolute": False,
-        "crop_symmetric_axes": False
-    },
-    "padding": {
-        "mode": "never", # ['never', 'always', 'if_white', 'if_not_white']
-        "perimeter_margin": 5,
-        "padding_percent": 5.0,
-        "allow_expansion": True,
-        "perimeter_check_tolerance": 10 # Новый независимый допуск
-    },
-    "brightness_contrast": {
-        "enable_bc": False,
-        "brightness_factor": 1.0,
-        "contrast_factor": 1.0
-    },
-    "individual_mode": {
-        "enable_force_aspect_ratio": False,
-        "force_aspect_ratio": [1.0, 1.0], # W, H
-        "enable_max_dimensions": False,
-        "max_output_width": 1500,
-        "max_output_height": 1500,
-        "enable_exact_canvas": False,
-        "final_exact_width": 1000,
-        "final_exact_height": 1000,
-        "output_format": "jpg",
-        "jpeg_quality": 95,
-        "jpg_background_color": [255, 255, 255],
-        "enable_rename": False,
-        "article_name": "",
-        "delete_originals": False
-    },
-    "collage_mode": {
-        "enable_force_aspect_ratio": False,
-        "force_collage_aspect_ratio": [16.0, 9.0],
-        "enable_max_dimensions": False,
-        "max_collage_width": 1920,
-        "max_collage_height": 1080,
-        "enable_exact_canvas": False,
-        "final_collage_exact_width": 1920,
-        "final_collage_exact_height": 1080,
-        "output_format": "jpg",
-        "jpeg_quality": 95,
-        "jpg_background_color": [255, 255, 255],
-        "enable_forced_cols": False,
-        "forced_cols": 3,
-        "spacing_percent": 2.0,
-        "proportional_placement": False,
-        "placement_ratios": [1.0]
+    "collage": {
+        "enabled_steps": { # Все шаги по умолчанию выключены
+            "margins": False,
+            "square": False,
+            "borders": False
+        },
+        "save_formats": { # Все форматы сохранения по умолчанию выключены
+            "png": False,
+            "jpg": False,
+            "webp": False
+        },
+        "layout": {
+            "rows": 0,
+            "cols": 0,
+            "direction": "auto"
+        },
+        "margins": {
+            "size_px": 50,
+            "color": "#FFFFFF"
+        },
+        "square": {
+            "fill_color": "#FFFFFF"
+        },
+        "borders": {
+            "width_px": 5,
+            "color": "#000000"
+        },
+        "save_options": {
+            "jpg_quality": 95,
+            "webp_quality": 90,
+            "webp_lossless": False
+        }
     }
 }
 
@@ -232,14 +239,9 @@ def get_available_presets() -> List[str]:
 
 def save_settings_preset(settings: Dict[str, Any], preset_name: str) -> bool:
     """Сохраняет словарь настроек как пресет."""
-    if not preset_name or preset_name == DEFAULT_PRESET_NAME:
-        # Перезапись дефолтного пресета через эту функцию не рекомендуется,
-        # но для простоты пока разрешим (кроме пустого имени)
-        if not preset_name:
-             log.warning("Attempted to save preset with empty name. Aborting.")
-             return False
-        # Если имя = DEFAULT_PRESET_NAME, все равно сохраняем, но логируем
-        log.warning(f"Saving over the default preset '{DEFAULT_PRESET_NAME}'. This is allowed but use with caution.")
+    if not preset_name:
+        log.warning("Attempted to save preset with empty name. Aborting.")
+        return False
         
     _ensure_presets_dir_exists()
     preset_path = _get_preset_filepath(preset_name)

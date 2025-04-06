@@ -210,10 +210,12 @@ def check_settings_differ_from_preset(preset_name: str) -> bool:
     return are_different
 # ==============================================
 
-# === Вспомогательная функция для автосохранения (перемещена сюда) ===
+# === Вспомогательная функция для автосохранения ===
 def autosave_active_preset_if_changed():
     active_preset = st.session_state.active_preset
-    if active_preset != config_manager.DEFAULT_PRESET_NAME and st.session_state.settings_changed:
+    # === УБРАНО УСЛОВИЕ ЗАПРЕТА ДЛЯ DEFAULT_PRESET_NAME ===
+    # if active_preset != config_manager.DEFAULT_PRESET_NAME and st.session_state.settings_changed:
+    if st.session_state.settings_changed: # Теперь сохраняем ЛЮБОЙ активный пресет, если есть изменения
         log.info(f"Autosaving changes for preset '{active_preset}'...")
         settings_to_save = st.session_state.current_settings.copy()
         settings_to_save['processing_mode_selector'] = st.session_state.selected_processing_mode
@@ -225,9 +227,10 @@ def autosave_active_preset_if_changed():
             log.error(f"Autosave failed for preset '{active_preset}'.")
             st.toast(f"❌ Ошибка автосохранения набора '{active_preset}'!", icon="⚠️")
             return False
-    elif active_preset == config_manager.DEFAULT_PRESET_NAME:
-        log.debug(f"Autosave skipped: Cannot autosave changes to default preset.")
-        return True # Consider it successful as no action needed
+    # === УБРАН БЛОК ELIF ДЛЯ DEFAULT_PRESET_NAME ===
+    # elif active_preset == config_manager.DEFAULT_PRESET_NAME:
+    #    log.debug(f"Autosave skipped: Cannot autosave changes to default preset.")
+    #    return True 
     else: # Not changed
         log.debug(f"Autosave skipped: No changes detected for preset '{active_preset}'.")
         return True # Consider it successful
@@ -377,32 +380,29 @@ with st.sidebar:
     st.divider()
 
     # === Блок: Сохранить тек. настройки / Отменить изменения в наборе ===
-    # (Перемещен из раздела "Управление настройками")
     settings_save_col, settings_reset_col_moved = st.columns(2) 
     with settings_save_col:
-        # Disable saving for the default preset
-        save_disabled = (st.session_state.active_preset == config_manager.DEFAULT_PRESET_NAME)
-        save_help_text = f"Сохранить текущие настройки UI в активный набор '{st.session_state.active_preset}'" \
-                           if not save_disabled else "Нельзя изменить набор \'По умолчанию\'"
-        if st.button("💾 Сохранить в набор", key="save_active_preset_button", # Changed key and text
+        # === УБРАНО УСЛОВИЕ DISABLED ДЛЯ DEFAULT_PRESET_NAME ===
+        # save_disabled = (st.session_state.active_preset == config_manager.DEFAULT_PRESET_NAME)
+        save_help_text = f"Сохранить текущие настройки UI в активный набор '{st.session_state.active_preset}'"
+        # ======================================================
+        if st.button("💾 Сохранить в набор", key="save_active_preset_button", 
                       help=save_help_text, 
-                      use_container_width=True,
-                      disabled=save_disabled):
-            # --- MODIFIED SAVE LOGIC ---
+                      use_container_width=True):
+                      # disabled=save_disabled): # <-- Убрали disabled
+            # --- Логика сохранения (остается без изменений) ---
             active_preset_name_to_save = st.session_state.active_preset
             settings_to_save_in_preset = st.session_state.current_settings.copy()
-            # Ensure the mode selector reflects the current state in the saved preset
             settings_to_save_in_preset['processing_mode_selector'] = st.session_state.selected_processing_mode
-            
             save_preset_ok = config_manager.save_settings_preset(settings_to_save_in_preset, active_preset_name_to_save)
             if save_preset_ok:
                 log.info(f"Preset '{active_preset_name_to_save}' manually saved.")
                 st.toast(f"✅ Настройки сохранены в набор '{active_preset_name_to_save}'.")
-                st.session_state.settings_changed = False # Settings are now saved relative to the preset
+                st.session_state.settings_changed = False 
             else:
                 log.error(f"Failed to manually save preset '{active_preset_name_to_save}'.")
                 st.toast(f"❌ Ошибка сохранения набора '{active_preset_name_to_save}'!", icon="⚠️")
-            # --- END MODIFIED SAVE LOGIC ---
+            # --- Конец логики сохранения ---
 
     with settings_reset_col_moved:
         # === Используем новую функцию для disabled ===
@@ -410,7 +410,7 @@ with st.sidebar:
         # Используем название "Отменить изменения" и логику сброса к значениям по умолчанию
         if st.button("🔄 Отменить изменения", key="confirm_reset_active_preset_button", # Этот ключ инициирует подтверждение ниже
                       help=f"Сбросить текущие настройки к значениям по умолчанию.",
-                      use_container_width=True): # <- Removed disabled=not settings_differ
+                      use_container_width=True): # <- Removed disabled
         # ============================================
              # Инициируем подтверждение сброса к значениям ПО УМОЛЧАНИЮ
              st.session_state.reset_active_preset_confirmation_pending = True 
@@ -481,20 +481,35 @@ with st.sidebar:
     
     # === Логика подтверждения для СБРОСА К ЗАВОДСКИМ ===
     # ... (Confirmation logic for Factory Reset remains) ...
-    if st.session_state.reset_settings_confirmation_pending:
-        st.warning("Вы уверены, что хотите сбросить ВСЕ настройки к заводским? Это действие необратимо!", icon="💥")
+    if st.session_state.get('reset_settings_confirmation_pending', False):
+        st.warning(f"Удалить ВСЕ наборы кроме '{config_manager.DEFAULT_PRESET_NAME}' и сбросить его к заводским настройкам? Это действие необратимо!", icon="💥")
         settings_confirm_col1, settings_confirm_col2 = st.columns(2)
         with settings_confirm_col1:
-            # Текст кнопки подтверждения
-            if st.button("Да, сбросить к заводским", key="confirm_reset_settings", type="primary"):
-                # === Загружаем САМЫЕ ДЕФОЛТНЫЕ настройки ===
+            if st.button("Да, сбросить всё", key="confirm_reset_settings", type="primary"):
+                # 1. Получаем "чистые" заводские настройки из config_manager
                 hard_default_settings = config_manager.get_default_settings()
-                st.session_state.current_settings = hard_default_settings.copy() # Копируем для безопасности
-                st.session_state.active_preset = config_manager.DEFAULT_PRESET_NAME # Активным делаем "По умолчанию"
+                
+                # === ДОБАВЛЕНО: Заполнение путей по умолчанию ===
+                try: 
+                    downloads_path = get_downloads_folder()
+                    if downloads_path:
+                        log.info(f"Factory reset: Setting default paths based on Downloads folder: {downloads_path}")
+                        hard_default_settings['paths']['input_folder_path'] = downloads_path
+                        hard_default_settings['paths']['output_folder_path'] = os.path.join(downloads_path, "result")
+                        hard_default_settings['paths']['backup_folder_path'] = os.path.join(downloads_path, "backup")
+                    else:
+                         log.warning("Factory reset: Could not determine Downloads folder. Paths will remain empty in defaults.")
+                except Exception as e:
+                    log.error(f"Factory reset: Error getting Downloads folder: {e}. Paths will remain empty in defaults.")
+                # ==============================================
+
+                # 2. Применяем обновленные (с путями) настройки к session_state
+                st.session_state.current_settings = hard_default_settings.copy() 
+                st.session_state.active_preset = config_manager.DEFAULT_PRESET_NAME 
                 st.session_state.selected_processing_mode = st.session_state.current_settings.get('processing_mode_selector', "Обработка отдельных файлов")
-                # Set settings_changed to False after reset
                 st.session_state.settings_changed = False 
-                # === ДОБАВЛЕНО: Удаление всех кастомных пресетов ===
+                
+                # 3. Удаляем кастомные пресеты
                 log.info("Reset to factory: Attempting to delete all custom presets...")
                 deleted_count = config_manager.delete_all_custom_presets()
                 if deleted_count is not None:
