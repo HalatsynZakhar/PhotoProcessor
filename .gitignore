@@ -1,0 +1,33 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Virtual environment
+.venv/
+venv/
+env/
+
+# Distribution / packaging
+*.egg-info/
+.eggs/
+dist/
+build/
+wheels/
+*.egg
+
+# PyCharm files (optional)
+.idea/
+
+# Log files
+*.log
+app.log
+
+# User settings and presets
+settings.json
+settings_presets/
+
+# OS generated files
+.DS_Store
+Thumbs.db 
