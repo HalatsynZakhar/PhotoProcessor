@@ -210,8 +210,44 @@ def check_settings_differ_from_preset(preset_name: str) -> bool:
     return are_different
 # ==============================================
 
+# === Вспомогательная функция для автосохранения (перемещена сюда) ===
+def autosave_active_preset_if_changed():
+    active_preset = st.session_state.active_preset
+    if active_preset != config_manager.DEFAULT_PRESET_NAME and st.session_state.settings_changed:
+        log.info(f"Autosaving changes for preset '{active_preset}'...")
+        settings_to_save = st.session_state.current_settings.copy()
+        settings_to_save['processing_mode_selector'] = st.session_state.selected_processing_mode
+        if config_manager.save_settings_preset(settings_to_save, active_preset):
+            log.info(f"Autosave successful for '{active_preset}'.")
+            st.session_state.settings_changed = False # Reset flag after successful save
+            return True
+        else:
+            log.error(f"Autosave failed for preset '{active_preset}'.")
+            st.toast(f"❌ Ошибка автосохранения набора '{active_preset}'!", icon="⚠️")
+            return False
+    elif active_preset == config_manager.DEFAULT_PRESET_NAME:
+        log.debug(f"Autosave skipped: Cannot autosave changes to default preset.")
+        return True # Consider it successful as no action needed
+    else: # Not changed
+        log.debug(f"Autosave skipped: No changes detected for preset '{active_preset}'.")
+        return True # Consider it successful
+# ====================================================
+
+# === Функция для сохранения и выхода ===
+# --- REMOVED FUNCTION save_state_and_exit() ---
+# def save_state_and_exit():
+#     ...
+# ====================================
+
 # === UI: Боковая Панель ===
 with st.sidebar:
+    # --- Кнопка Выхода (перемещена сюда) ---
+    # --- REMOVED BUTTON ---
+    # if st.button("🚪 Выход", key="exit_button_sidebar", help="Сохранить текущее состояние и подготовиться к выходу"):
+    #     save_state_and_exit()
+    # st.divider() # Добавим разделитель после кнопки
+    # --------------------------------------
+    
     st.header("🎯 Режим работы")
     processing_mode_options = ["Обработка отдельных файлов", "Создание коллажей"]
     current_mode_index = processing_mode_options.index(st.session_state.selected_processing_mode) \
@@ -244,6 +280,10 @@ with st.sidebar:
     with preset_col2:
         can_delete = selected_preset_in_box != config_manager.DEFAULT_PRESET_NAME
         if st.button("🗑️", key="delete_preset_button", help=f"Удалить набор '{selected_preset_in_box}'" if can_delete else "Нельзя удалить набор по умолчанию", disabled=not can_delete):
+            # AUTOSAVE before deleting the selected (potentially active) one
+            if selected_preset_in_box == st.session_state.active_preset:
+                autosave_active_preset_if_changed()
+            # --- End Autosave ---
             if config_manager.delete_settings_preset(selected_preset_in_box):
                 st.toast(f"Набор '{selected_preset_in_box}' удален", icon="✅")
                 if st.session_state.active_preset == selected_preset_in_box:
@@ -252,22 +292,30 @@ with st.sidebar:
                     if default_settings:
                         st.session_state.current_settings = default_settings
                         st.session_state.selected_processing_mode = st.session_state.current_settings.get('processing_mode_selector', "Обработка отдельных файлов")
-                        st.session_state.settings_changed = True
+                        # Changed flag doesn't matter here as we loaded defaults
                 st.rerun()
             else: st.error("Ошибка удаления набора")
     st.caption(f"Активный: **{st.session_state.active_preset}**")
 
+    # Logic for switching presets
     if selected_preset_in_box != st.session_state.active_preset:
-        log.info(f"Preset changed in selectbox from '{st.session_state.active_preset}' to '{selected_preset_in_box}'")
-        preset_settings = config_manager.load_settings_preset(selected_preset_in_box)
-        if preset_settings:
-            st.session_state.current_settings = preset_settings
-            st.session_state.active_preset = selected_preset_in_box
-            st.session_state.selected_processing_mode = st.session_state.current_settings.get('processing_mode_selector', "Обработка отдельных файлов")
-            st.session_state.settings_changed = False
-            st.toast(f"Загружен набор '{selected_preset_in_box}'", icon="🔄")
-            st.rerun()
-        else: st.error(f"Ошибка загрузки набора '{selected_preset_in_box}'")
+        # AUTOSAVE before switching
+        if autosave_active_preset_if_changed(): 
+            log.info(f"Preset changed in selectbox from '{st.session_state.active_preset}' to '{selected_preset_in_box}'")
+            preset_settings = config_manager.load_settings_preset(selected_preset_in_box)
+            if preset_settings:
+                st.session_state.current_settings = preset_settings
+                st.session_state.active_preset = selected_preset_in_box
+                st.session_state.selected_processing_mode = st.session_state.current_settings.get('processing_mode_selector', "Обработка отдельных файлов")
+                st.session_state.settings_changed = False # Reset changed flag after loading new preset
+                st.toast(f"Загружен набор '{selected_preset_in_box}'", icon="🔄")
+                st.rerun()
+            else: st.error(f"Ошибка загрузки набора '{selected_preset_in_box}'")
+        # --- End Autosave ---
+        else:
+            # If autosave failed, maybe prevent switching? Or just show error and continue?
+            # For now, log/toast occurred in autosave function, switching is prevented implicitly by not rerunning.
+            log.warning(f"Preset switch from '{st.session_state.active_preset}' to '{selected_preset_in_box}' aborted due to autosave failure.")
 
     rename_col1, rename_col2 = st.columns([4, 1])
     with rename_col1:
@@ -278,12 +326,19 @@ with st.sidebar:
         )
     with rename_col2:
         if st.button("✏️", key="rename_preset_button", disabled=rename_disabled, help="Переименовать активный набор" if not rename_disabled else "Нельзя переименовать набор по умолчанию"):
-            old_active_name = st.session_state.active_preset
-            if config_manager.rename_settings_preset(old_active_name, new_name_input):
-                st.session_state.active_preset = new_name_input
-                st.toast(f"Набор '{old_active_name}' переименован в '{new_name_input}'", icon="✏️")
-                st.rerun()
-            else: st.error(f"Ошибка переименования (возможно, имя '{new_name_input}' занято?)")
+            # AUTOSAVE before renaming
+            if autosave_active_preset_if_changed():
+                old_active_name = st.session_state.active_preset
+                if config_manager.rename_settings_preset(old_active_name, new_name_input):
+                    st.session_state.active_preset = new_name_input
+                    # No need to reload settings here, just update active preset name
+                    st.toast(f"Набор '{old_active_name}' переименован в '{new_name_input}'", icon="✏️")
+                    st.rerun()
+                else: st.error(f"Ошибка переименования (возможно, имя '{new_name_input}' занято?)")
+            # --- End Autosave ---
+            else:
+                log.warning("Rename aborted due to autosave failure.")
+
     st.caption("Переименовать активный набор")
 
     create_col1, create_col2 = st.columns([4, 1])
@@ -293,44 +348,69 @@ with st.sidebar:
             "Название нового набора:", key="new_preset_name_input", placeholder=default_new_name, label_visibility="collapsed"
         )
     with create_col2:
-        if st.button("➕", key="create_preset_button", help="Создать новый набор с текущими настройками"):
-            preset_name_to_save = new_preset_name_input_val if new_preset_name_input_val else default_new_name
-            if config_manager.save_settings_preset(st.session_state.current_settings, preset_name_to_save):
-                st.session_state.active_preset = preset_name_to_save
-                st.toast(f"Создан и активирован новый набор '{preset_name_to_save}'", icon="✨")
-                st.rerun()
-            else: st.error(f"Ошибка создания набора '{preset_name_to_save}'")
-    st.caption("Создать новый набор (из текущих настроек)")
+        # Update help text for the button
+        if st.button("➕", key="create_preset_button", help="Создать новый набор со значениями по умолчанию"):
+            # AUTOSAVE before creating a new one
+            if autosave_active_preset_if_changed():
+                preset_name_to_save = new_preset_name_input_val if new_preset_name_input_val else default_new_name
+                # --- RE-APPLYING MODIFIED LOGIC ---
+                # Save default settings to the new preset file
+                default_settings_for_new_preset = config_manager.get_default_settings()
+                if config_manager.save_settings_preset(default_settings_for_new_preset, preset_name_to_save):
+                    # Activate the new preset
+                    st.session_state.active_preset = preset_name_to_save
+                    # Load the default settings into the current session state
+                    st.session_state.current_settings = default_settings_for_new_preset.copy() # Use a copy
+                    # Update the processing mode based on the defaults
+                    st.session_state.selected_processing_mode = st.session_state.current_settings.get('processing_mode_selector', "Обработка отдельных файлов")
+                    # Reset the changed flag as this is a fresh preset
+                    st.session_state.settings_changed = False
+                    st.toast(f"Создан и активирован новый набор '{preset_name_to_save}' (со значениями по умолчанию)", icon="✨")
+                    st.rerun()
+                # --- END RE-APPLIED LOGIC ---
+                else: st.error(f"Ошибка создания набора '{preset_name_to_save}'")
+            # --- End Autosave ---
+            else:
+                log.warning("Create new preset aborted due to autosave failure.")
+
+    st.caption("Создать новый набор (со значениями по умолчанию)") # Update caption
     st.divider()
 
     # === Блок: Сохранить тек. настройки / Отменить изменения в наборе ===
     # (Перемещен из раздела "Управление настройками")
     settings_save_col, settings_reset_col_moved = st.columns(2) 
     with settings_save_col:
-        if st.button("💾 Сохранить тек. настройки", key="save_main_settings_button", # Используем оригинальный ключ
-                      help="Сохраняет текущие настройки интерфейса и имя активного пресета в главный файл settings.json.", 
-                      use_container_width=True):
-            # Логика сохранения 
-            current_settings_to_save = st.session_state.current_settings.copy()
-            current_settings_to_save["active_preset"] = st.session_state.active_preset
-            current_settings_to_save["processing_mode_selector"] = st.session_state.selected_processing_mode
-            save_main_ok = config_manager.save_settings(current_settings_to_save, CONFIG_FILE)
-            if save_main_ok:
-                log.info(f"Main settings manually saved to {CONFIG_FILE}.")
-                st.toast("✅ Основные настройки сохранены.")
-                st.session_state.settings_changed = False
+        # Disable saving for the default preset
+        save_disabled = (st.session_state.active_preset == config_manager.DEFAULT_PRESET_NAME)
+        save_help_text = f"Сохранить текущие настройки UI в активный набор '{st.session_state.active_preset}'" \
+                           if not save_disabled else "Нельзя изменить набор \'По умолчанию\'"
+        if st.button("💾 Сохранить в набор", key="save_active_preset_button", # Changed key and text
+                      help=save_help_text, 
+                      use_container_width=True,
+                      disabled=save_disabled):
+            # --- MODIFIED SAVE LOGIC ---
+            active_preset_name_to_save = st.session_state.active_preset
+            settings_to_save_in_preset = st.session_state.current_settings.copy()
+            # Ensure the mode selector reflects the current state in the saved preset
+            settings_to_save_in_preset['processing_mode_selector'] = st.session_state.selected_processing_mode
+            
+            save_preset_ok = config_manager.save_settings_preset(settings_to_save_in_preset, active_preset_name_to_save)
+            if save_preset_ok:
+                log.info(f"Preset '{active_preset_name_to_save}' manually saved.")
+                st.toast(f"✅ Настройки сохранены в набор '{active_preset_name_to_save}'.")
+                st.session_state.settings_changed = False # Settings are now saved relative to the preset
             else:
-                log.error(f"Failed to manually save main settings to {CONFIG_FILE}.")
-                st.toast("❌ Ошибка сохранения основных настроек!")
+                log.error(f"Failed to manually save preset '{active_preset_name_to_save}'.")
+                st.toast(f"❌ Ошибка сохранения набора '{active_preset_name_to_save}'!", icon="⚠️")
+            # --- END MODIFIED SAVE LOGIC ---
 
     with settings_reset_col_moved:
         # === Используем новую функцию для disabled ===
         settings_differ = check_settings_differ_from_preset(st.session_state.active_preset)
         # Используем название "Отменить изменения" и логику сброса к значениям по умолчанию
         if st.button("🔄 Отменить изменения", key="confirm_reset_active_preset_button", # Этот ключ инициирует подтверждение ниже
-                      help=f"Сбросить текущие настройки к значениям по умолчанию.", 
-                      use_container_width=True, 
-                      disabled=not settings_differ): # Отключаем, если настройки НЕ отличаются от пресета? Или всегда вкл? Оставим так.
+                      help=f"Сбросить текущие настройки к значениям по умолчанию.",
+                      use_container_width=True): # <- Removed disabled=not settings_differ
         # ============================================
              # Инициируем подтверждение сброса к значениям ПО УМОЛЧАНИЮ
              st.session_state.reset_active_preset_confirmation_pending = True 
@@ -412,7 +492,8 @@ with st.sidebar:
                 st.session_state.current_settings = hard_default_settings.copy() # Копируем для безопасности
                 st.session_state.active_preset = config_manager.DEFAULT_PRESET_NAME # Активным делаем "По умолчанию"
                 st.session_state.selected_processing_mode = st.session_state.current_settings.get('processing_mode_selector', "Обработка отдельных файлов")
-                st.session_state.settings_changed = True # Отмечаем изменения для UI
+                # Set settings_changed to False after reset
+                st.session_state.settings_changed = False 
                 # === ДОБАВЛЕНО: Удаление всех кастомных пресетов ===
                 log.info("Reset to factory: Attempting to delete all custom presets...")
                 deleted_count = config_manager.delete_all_custom_presets()
@@ -906,7 +987,19 @@ with st.sidebar:
 # === Конец блока with st.sidebar ===
 
 # === ОСНОВНАЯ ОБЛАСТЬ ===
+
+# --- Кнопка Выхода --- 
+# --- REMOVED FROM HERE ---
+# exit_col, title_col = st.columns([1, 10]) # Создаем колонки для размещения кнопки слева
+# with exit_col:
+#     if st.button("🚪 Выход", key="exit_button", help="Сохранить текущее состояние и выйти"):
+#         save_state_and_exit()
+# with title_col:
+#     st.title(f"🖼️ Инструмент Обработки Изображений")
+# -------------------
+# --- Display Title Directly ---
 st.title(f"🖼️ Инструмент Обработки Изображений")
+
 st.markdown(f"**Режим:** {st.session_state.selected_processing_mode} | **Активный набор:** {st.session_state.active_preset}")
 st.divider()
 
