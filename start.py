@@ -4,6 +4,59 @@ import sys
 import os
 import time # Для небольшой паузы
 
+def install_requirements():
+    """
+    Устанавливает необходимые зависимости из файла requirements.txt.
+    Возвращает True, если установка прошла успешно, иначе False.
+    """
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    requirements_path = os.path.join(script_dir, "requirements.txt")
+    
+    if not os.path.isfile(requirements_path):
+        print(f"\n[!!! ОШИБКА !!!]")
+        print(f"Не найден файл зависимостей: {requirements_path}")
+        print("Убедитесь, что 'requirements.txt' находится в той же папке, что и 'start.py'.")
+        return False
+    
+    print("=" * 50)
+    print("Проверка и установка необходимых библиотек...")
+    print(f"Используется файл: {requirements_path}")
+    
+    try:
+        # Используем pip для установки требуемых пакетов
+        install_command = [
+            sys.executable,
+            "-m",
+            "pip",
+            "install",
+            "-r",
+            requirements_path
+        ]
+        
+        print(f"Выполнение команды: {' '.join(install_command)}")
+        process = subprocess.run(install_command, capture_output=True, text=True)
+        
+        if process.returncode != 0:
+            print(f"\n[!!! ОШИБКА УСТАНОВКИ !!!]")
+            print(f"Код ошибки: {process.returncode}")
+            print(f"Сообщение ошибки:\n{process.stderr}")
+            return False
+        
+        # Проверяем, были ли установлены новые пакеты
+        # Если в выводе есть "Successfully installed", значит что-то установилось
+        if "Successfully installed" in process.stdout:
+            print("\n[ИНФОРМАЦИЯ] Были установлены новые библиотеки.")
+            print(f"Подробности:\n{process.stdout}")
+        else:
+            print("\n[ИНФОРМАЦИЯ] Все необходимые библиотеки уже установлены.")
+        
+        return True
+    
+    except Exception as e:
+        print(f"\n[!!! КРИТИЧЕСКАЯ ОШИБКА !!!]")
+        print(f"Ошибка при установке зависимостей: {e}")
+        return False
+
 def main():
     """
     Запускает Streamlit-приложение app.py с помощью команды 'streamlit run'.
@@ -29,6 +82,14 @@ def main():
         # Даем пользователю время прочитать ошибку перед закрытием консоли
         time.sleep(10)
         sys.exit(1) # Выход с кодом ошибки
+    
+    # Устанавливаем зависимости перед запуском
+    print("Установка необходимых зависимостей...")
+    if not install_requirements():
+        print("Не удалось установить необходимые зависимости. Приложение может работать некорректно.")
+        print("=" * 50)
+        time.sleep(5)
+        # Продолжаем выполнение, даже если установка не удалась
 
     # Формируем команду для запуска
     # Используем sys.executable, чтобы гарантировать использование
