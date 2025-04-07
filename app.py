@@ -275,34 +275,6 @@ with st.sidebar:
             counter += 1
         return f"Набор {counter}"
 
-    # === ПЕРЕМЕЩЕНО: Переименование и удаление ===
-    current_mode_for_file_ops = st.session_state.selected_processing_mode
-    if current_mode_for_file_ops == "Обработка отдельных файлов":
-        with st.expander("🏷️ Переименование и удаление", expanded=False):
-            # --- Переименование --- 
-            enable_rename_ind = st.checkbox("Переименовать файлы (по артикулу)",
-                                            value=get_setting('individual_mode.enable_rename', False),
-                                            key='ind_enable_rename',
-                                            help="Позволяет автоматически переименовать все обработанные файлы, используя указанный артикул в качестве основы имени")
-            set_setting('individual_mode.enable_rename', enable_rename_ind)
-            if enable_rename_ind:
-                article_ind = st.text_input("Артикул для переименования",
-                                            value=get_setting('individual_mode.article_name', ''),
-                                            key='ind_article',
-                                            placeholder="Введите артикул...",
-                                            help="Введите артикул или базовое имя для файлов. Первый файл будет назван как артикул, остальные - артикул_1, артикул_2 и т.д.")
-                set_setting('individual_mode.article_name', article_ind)
-                if article_ind: st.caption("Файлы будут вида: [Артикул]_1.jpg, ...")
-                else: st.warning("Введите артикул для переименования.") # Валидация
-            
-            # --- Удаление (без изменений) ---
-            delete_orig_ind = st.checkbox("Удалять оригиналы после обработки?",
-                                          value=get_setting('individual_mode.delete_originals', False),
-                                          key='ind_delete_orig',
-                                          help="Если включено, исходные файлы будут удалены после успешной обработки. Это действие необратимо, поэтому используйте его с осторожностью. Рекомендуется включить бэкап перед использованием этой опции.")
-            set_setting('individual_mode.delete_originals', delete_orig_ind)
-            if delete_orig_ind: st.warning("ВНИМАНИЕ: Удаление необратимо!", icon="⚠️")
-
     # === Наборы настроек (объединенный блок) ===
     st.header("🗄️ Наборы настроек")
     with st.expander("Управление наборами настроек", expanded=True):
@@ -355,8 +327,6 @@ with st.sidebar:
                 else:
                     log.warning(f"Preset switch aborted due to autosave failure.")
 
-        st.divider()
-
         # --- Переименование и создание наборов ---
         st.caption("⚡️ Переименование и создание наборов")
         rename_col1, rename_col2 = st.columns([4, 1])
@@ -400,8 +370,6 @@ with st.sidebar:
                 else:
                     log.warning("Create new preset aborted due to autosave failure.")
 
-        st.divider()
-
         # --- Сохранение и сброс настроек ---
         st.caption("⚡️ Сохранение и сброс настроек")
         settings_save_col, settings_reset_col_moved = st.columns(2)
@@ -438,7 +406,33 @@ with st.sidebar:
     user_downloads_folder = get_downloads_folder()
     log.debug(f"Resolved Downloads Folder: {user_downloads_folder}")
 
-    with st.expander("Настройка путей", expanded=True):
+    with st.expander("Настройка путей и сохранения", expanded=True):
+        current_mode_for_file_ops = st.session_state.selected_processing_mode
+        if current_mode_for_file_ops == "Обработка отдельных файлов":
+            # --- Переименование и удаление --- 
+            st.caption("⚡️ Переименование и удаление")
+            enable_rename_ind = st.checkbox("Переименовать файлы (по артикулу)",
+                                            value=get_setting('individual_mode.enable_rename', False),
+                                            key='ind_enable_rename',
+                                            help="Позволяет автоматически переименовать все обработанные файлы, используя указанный артикул в качестве основы имени")
+            set_setting('individual_mode.enable_rename', enable_rename_ind)
+            if enable_rename_ind:
+                article_ind = st.text_input("Артикул для переименования",
+                                            value=get_setting('individual_mode.article_name', ''),
+                                            key='ind_article',
+                                            placeholder="Введите артикул...",
+                                            help="Введите артикул или базовое имя для файлов. Первый файл будет назван как артикул, остальные - артикул_1, артикул_2 и т.д.")
+                set_setting('individual_mode.article_name', article_ind)
+                if article_ind: st.caption("Файлы будут вида: [Артикул]_1.jpg, ...")
+                else: st.warning("Введите артикул для переименования.") # Валидация
+            
+            delete_orig_ind = st.checkbox("Удалять оригиналы после обработки?",
+                                          value=get_setting('individual_mode.delete_originals', False),
+                                          key='ind_delete_orig',
+                                          help="Если включено, исходные файлы будут удалены после успешной обработки. Это действие необратимо, поэтому используйте его с осторожностью. Рекомендуется включить бэкап перед использованием этой опции.")
+            set_setting('individual_mode.delete_originals', delete_orig_ind)
+            if delete_orig_ind: st.warning("ВНИМАНИЕ: Удаление необратимо!", icon="⚠️")
+
         # --- Input Path ---
         st.caption("Основной путь ввода")
         current_input_path = get_setting('paths.input_folder_path')
@@ -454,8 +448,6 @@ with st.sidebar:
         if input_path_val and os.path.isdir(input_path_val): st.caption(f"✅ Папка найдена: {os.path.abspath(input_path_val)}")
         elif input_path_val: st.caption(f"❌ Папка не найдена: {os.path.abspath(input_path_val)}")
         else: st.caption("ℹ️ Путь не указан.")
-
-        st.divider()
 
         current_mode_local = st.session_state.selected_processing_mode
         if current_mode_local == "Обработка отдельных файлов":
