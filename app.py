@@ -277,7 +277,7 @@ with st.sidebar:
 
     # === Наборы настроек (объединенный блок) ===
     st.header("🗄️ Наборы настроек")
-    with st.expander("Управление наборами настроек", expanded=True):
+    with st.expander("Управление наборами настроек", expanded=False):
         # --- Выбор и управление наборами ---
         st.caption("⚡️ Выбор и управление наборами")
         all_presets = config_manager.get_available_presets()
@@ -406,7 +406,7 @@ with st.sidebar:
     user_downloads_folder = get_downloads_folder()
     log.debug(f"Resolved Downloads Folder: {user_downloads_folder}")
 
-    with st.expander("Настройка путей и сохранения", expanded=True):
+    with st.expander("Настройка путей и сохранения", expanded=False):
         current_mode_for_file_ops = st.session_state.selected_processing_mode
         if current_mode_for_file_ops == "Обработка отдельных файлов":
             # --- Переименование и удаление --- 
@@ -675,7 +675,7 @@ with st.sidebar:
     if current_mode_local_for_settings == "Обработка отдельных файлов":
         # === ВОЗВРАЩАЕМ HEADER ===
         # === ЭКСПАНДЕР 1 (теперь не вложенный) ===
-        with st.expander("Финальный размер и формат", expanded=True):
+        with st.expander("Финальный размер и формат", expanded=False):
             # --- Соотношение сторон --- 
             enable_ratio_ind = st.checkbox("Принудительное соотношение сторон", 
                                            value=get_setting('individual_mode.enable_force_aspect_ratio', False),
@@ -825,7 +825,7 @@ with st.sidebar:
         # === КОНЕЦ УДАЛЕННОГО ОБЩЕГО ЭКСПАНДЕРА ===
 
     elif current_mode_local_for_settings == "Создание коллажей":
-        with st.expander("Размер и формат коллажа", expanded=True):
+        with st.expander("Размер и формат коллажа", expanded=False):
             # --- Соотношение сторон --- 
             enable_ratio_coll = st.checkbox("Принудительное соотношение сторон коллажа", 
                                               value=get_setting('collage_mode.enable_force_aspect_ratio', False),
@@ -1162,7 +1162,7 @@ if show_results and st.session_state.selected_processing_mode == "Создани
         coll_full_path = os.path.abspath(os.path.join(coll_input_path, coll_filename_with_ext))
         log.debug(f"Checking for collage preview at: {coll_full_path}") # Добавим лог
         if os.path.isfile(coll_full_path):
-            with st.expander("🖼️ Предпросмотр коллажа", expanded=True):
+            with st.expander("🖼️ Предпросмотр коллажа", expanded=False):
                 try:
                     # Уникальный ключ не нужен для st.image в данном случае
                     st.image(coll_full_path, use_container_width=True)
@@ -1184,7 +1184,7 @@ elif show_results and st.session_state.selected_processing_mode == "Обрабо
         image_files.sort(key=os.path.getmtime, reverse=True)
         
         if image_files:
-            with st.expander("🖼️ Предпросмотр обработанных фотографий", expanded=True):
+            with st.expander("🖼️ Предпросмотр обработанных фотографий", expanded=False):
                 # Получаем настройки отображения
                 columns_count = get_setting('ui_display.columns_count', 3)
                 show_all_images = get_setting('ui_display.show_all_images', False)
