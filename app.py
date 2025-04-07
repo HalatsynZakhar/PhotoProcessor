@@ -623,12 +623,36 @@ with st.sidebar:
                      help="Установить стандартные пути на основе папки Загрузки вашей системы", 
                      use_container_width=True):
             # При сбросе устанавливаем пустые строки, чтобы при следующем рендере подставились Загрузки
-            set_setting('paths.input_folder_path', "")
-            set_setting('paths.output_folder_path', "")
-            set_setting('paths.backup_folder_path', "")
-            set_setting('paths.output_filename', "collage") # Сбрасываем имя коллажа
-            st.toast("Пути сброшены! При следующем обновлении подставятся Загрузки.", icon="🔄"); 
+            set_setting('paths.input_folder_path', '')
+            set_setting('paths.output_folder_path', '')
+            set_setting('paths.backup_folder_path', '')
+            st.toast("Пути сброшены к значениям по умолчанию", icon="🔄")
             st.rerun()
+
+    # === ВОССТАНОВЛЕН ЭКСПАНДЕР ДЛЯ ПЕРЕИМЕНОВАНИЯ И УДАЛЕНИЯ ===
+    with st.expander("Переименование и удаление", expanded=False):
+        # --- Переименование --- 
+        enable_rename_ind = st.checkbox("Переименовать файлы (по артикулу)",
+                                        value=get_setting('individual_mode.enable_rename', False),
+                                        key='ind_enable_rename')
+        set_setting('individual_mode.enable_rename', enable_rename_ind)
+        if enable_rename_ind:
+            article_ind = st.text_input("Артикул для переименования",
+                                        value=get_setting('individual_mode.article_name', ''),
+                                        key='ind_article',
+                                        placeholder="Введите артикул...")
+            set_setting('individual_mode.article_name', article_ind)
+            if article_ind: st.caption("Файлы будут вида: [Артикул]_1.jpg, ...")
+            else: st.warning("Введите артикул для переименования.") # Валидация
+
+        # --- Удаление оригиналов ---
+        delete_originals = st.checkbox("Удалить оригиналы после обработки",
+                                      value=get_setting('individual_mode.delete_originals', False),
+                                      key='ind_delete_originals',
+                                      help="Удалить исходные файлы после успешной обработки")
+        set_setting('individual_mode.delete_originals', delete_originals)
+        if delete_originals: st.caption("⚠️ Оригиналы будут удалены после успешной обработки")
+    # =============================================================
 
     # === Остальные Настройки ===
     st.header("⚙️ Настройки обработки")
