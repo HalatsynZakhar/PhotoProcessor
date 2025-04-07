@@ -251,278 +251,267 @@ with st.sidebar:
     # st.divider() # Добавим разделитель после кнопки
     # --------------------------------------
     
-    st.header("🎯 Режим работы")
-    processing_mode_options = ["Обработка отдельных файлов", "Создание коллажей"]
-    current_mode_index = processing_mode_options.index(st.session_state.selected_processing_mode) \
-                         if st.session_state.selected_processing_mode in processing_mode_options else 0
-    processing_mode_selected = st.selectbox(
-        "Выберите режим обработки:", processing_mode_options, index=current_mode_index, key="processing_mode_selector_widget"
-    )
-    if processing_mode_selected != st.session_state.selected_processing_mode:
-         st.session_state.selected_processing_mode = processing_mode_selected
-         set_setting('processing_mode_selector', processing_mode_selected)
-         log.info(f"Processing mode changed to: {processing_mode_selected}")
-         st.rerun()
-    st.caption("Режим обработки")
-    # Divider removed here
-
-    # === Управление наборами ===
-    st.header("📦 Управление наборами")
-    available_presets = config_manager.get_available_presets()
-    def get_default_preset_name_ui(): # Переименовали функцию
-        existing_presets = config_manager.get_available_presets(); counter = 1
-        while f"Набор {counter}" in existing_presets: counter += 1
-        return f"Набор {counter}"
-    preset_col1, preset_col2 = st.columns([4, 1])
-    with preset_col1:
-        selected_preset_in_box = st.selectbox( # Переименовали переменную
-            "Активный набор:", available_presets,
-            index=available_presets.index(st.session_state.active_preset) if st.session_state.active_preset in available_presets else 0,
-            key="preset_selector", label_visibility="collapsed"
-        )
-    with preset_col2:
-        can_delete = selected_preset_in_box != config_manager.DEFAULT_PRESET_NAME
-        if st.button("🗑️", key="delete_preset_button", help=f"Удалить набор '{selected_preset_in_box}'" if can_delete else "Нельзя удалить набор по умолчанию", disabled=not can_delete):
-            # AUTOSAVE before deleting the selected (potentially active) one
-            if selected_preset_in_box == st.session_state.active_preset:
-                autosave_active_preset_if_changed()
-            # --- End Autosave ---
-            if config_manager.delete_settings_preset(selected_preset_in_box):
-                st.toast(f"Набор '{selected_preset_in_box}' удален", icon="✅")
-                if st.session_state.active_preset == selected_preset_in_box:
-                    st.session_state.active_preset = config_manager.DEFAULT_PRESET_NAME
-                    default_settings = config_manager.load_settings_preset(config_manager.DEFAULT_PRESET_NAME)
-                    if default_settings:
-                        st.session_state.current_settings = default_settings
-                        st.session_state.selected_processing_mode = st.session_state.current_settings.get('processing_mode_selector', "Обработка отдельных файлов")
-                        # Changed flag doesn't matter here as we loaded defaults
-                st.rerun()
-            else: st.error("Ошибка удаления набора")
-    st.caption(f"Активный: **{st.session_state.active_preset}**")
-
-    # Logic for switching presets
-    if selected_preset_in_box != st.session_state.active_preset:
-        # AUTOSAVE before switching
-        if autosave_active_preset_if_changed(): 
-            log.info(f"Preset changed in selectbox from '{st.session_state.active_preset}' to '{selected_preset_in_box}'")
-            preset_settings = config_manager.load_settings_preset(selected_preset_in_box)
-            if preset_settings:
-                st.session_state.current_settings = preset_settings
-                st.session_state.active_preset = selected_preset_in_box
-                st.session_state.selected_processing_mode = st.session_state.current_settings.get('processing_mode_selector', "Обработка отдельных файлов")
-                st.session_state.settings_changed = False # Reset changed flag after loading new preset
-                st.toast(f"Загружен набор '{selected_preset_in_box}'", icon="🔄")
-                st.rerun()
-            else: st.error(f"Ошибка загрузки набора '{selected_preset_in_box}'")
-        # --- End Autosave ---
+    # === Режим обработки ===
+    st.header("💠 Режим обработки")
+    selected_mode = st.selectbox("Выберите режим обработки:", 
+                                ["Обработка отдельных файлов", "Создание коллажей"],
+                                index=["Обработка отдельных файлов", "Создание коллажей"].index(st.session_state.selected_processing_mode),
+                                key='processing_mode_selector',
+                                help="Выберите режим обработки: обработка отдельных изображений или создание коллажа из нескольких изображений.")
+    if selected_mode != st.session_state.selected_processing_mode:
+        st.session_state.selected_processing_mode = selected_mode
+        if autosave_active_preset_if_changed():
+            st.toast(f"Режим изменен на '{selected_mode}'.", icon="🔄")
+            st.rerun()
         else:
-            # If autosave failed, maybe prevent switching? Or just show error and continue?
-            # For now, log/toast occurred in autosave function, switching is prevented implicitly by not rerunning.
-            log.warning(f"Preset switch from '{st.session_state.active_preset}' to '{selected_preset_in_box}' aborted due to autosave failure.")
+            log.warning(f"Mode change from '{st.session_state.selected_processing_mode}' to '{selected_mode}' possible after save.")
 
-    rename_col1, rename_col2 = st.columns([4, 1])
-    with rename_col1:
-        rename_disabled = st.session_state.active_preset == config_manager.DEFAULT_PRESET_NAME
-        new_name_input = st.text_input( # Переименовали переменную
-            "Новое имя для активного набора:", value=st.session_state.active_preset, key="rename_preset_input",
-            disabled=rename_disabled, label_visibility="collapsed"
-        )
-    with rename_col2:
-        if st.button("✏️", key="rename_preset_button", disabled=rename_disabled, help="Переименовать активный набор" if not rename_disabled else "Нельзя переименовать набор по умолчанию"):
-            # AUTOSAVE before renaming
-            if autosave_active_preset_if_changed():
-                old_active_name = st.session_state.active_preset
-                if config_manager.rename_settings_preset(old_active_name, new_name_input):
-                    st.session_state.active_preset = new_name_input
-                    # No need to reload settings here, just update active preset name
-                    st.toast(f"Набор '{old_active_name}' переименован в '{new_name_input}'", icon="✏️")
-                    st.rerun()
-                else: st.error(f"Ошибка переименования (возможно, имя '{new_name_input}' занято?)")
-            # --- End Autosave ---
+    # Функция для генерации уникальных имен пресетов
+    def get_default_preset_name_ui():
+        """Возвращает уникальное имя для нового пресета."""
+        existing_presets = config_manager.get_available_presets()
+        counter = 1
+        while f"Набор {counter}" in existing_presets:
+            counter += 1
+        return f"Набор {counter}"
+
+    # === Управление настройками ===
+    st.header("🗄️ Наборы настроек")
+
+    with st.expander("Выбор и управление наборами", expanded=True):
+        all_presets = config_manager.get_available_presets()
+        if not all_presets or len(all_presets) == 0:
+            st.warning(f"Не найдено ни одного набора настроек, включая '{config_manager.DEFAULT_PRESET_NAME}'")
+            # Create default preset if not found
+            log.warning("No settings presets found, attempting to create default.")
+            if config_manager.create_default_preset():
+                st.success(f"Создан стандартный набор '{config_manager.DEFAULT_PRESET_NAME}'")
+                st.rerun() # Refresh to show the new preset
             else:
-                log.warning("Rename aborted due to autosave failure.")
+                st.error("Не удалось создать стандартный набор! Проверьте права доступа.")
+        else:
+            preset_select_col, preset_delete_col = st.columns([4, 1])
+            with preset_select_col:
+                selected_preset_in_box = st.selectbox("Активный набор настроек:", all_presets, index=all_presets.index(st.session_state.active_preset) if st.session_state.active_preset in all_presets else 0, key="preset_selector", label_visibility="collapsed")
+            with preset_delete_col:
+                delete_disabled = selected_preset_in_box == config_manager.DEFAULT_PRESET_NAME
+                if st.button("🗑️", key="delete_preset_button", disabled=delete_disabled, help="Удалить набор" if not delete_disabled else "Нельзя удалить стандартный набор"):
+                    if config_manager.delete_settings_preset(selected_preset_in_box):
+                        st.toast(f"Набор '{selected_preset_in_box}' удален", icon="🗑️")
+                        # If we deleted active preset, switch to default
+                        if selected_preset_in_box == st.session_state.active_preset:
+                            default_settings = config_manager.load_settings_preset(config_manager.DEFAULT_PRESET_NAME)
+                            if default_settings:
+                                st.session_state.current_settings = default_settings
+                                st.session_state.active_preset = config_manager.DEFAULT_PRESET_NAME
+                                st.toast(f"Возврат к набору по умолчанию '{config_manager.DEFAULT_PRESET_NAME}'", icon="↩️")
+                            else:
+                                st.error("Не удалось загрузить набор по умолчанию!")
+                        st.rerun()
+                    else: st.error("Ошибка удаления набора")
+            st.caption(f"Активный: **{st.session_state.active_preset}**")
 
-    st.caption("Переименовать активный набор")
+            # Logic for switching presets
+            if selected_preset_in_box != st.session_state.active_preset:
+                # AUTOSAVE before switching
+                if autosave_active_preset_if_changed(): 
+                    log.info(f"Preset changed in selectbox from '{st.session_state.active_preset}' to '{selected_preset_in_box}'")
+                    preset_settings = config_manager.load_settings_preset(selected_preset_in_box)
+                    if preset_settings:
+                        st.session_state.current_settings = preset_settings
+                        st.session_state.active_preset = selected_preset_in_box
+                        st.session_state.selected_processing_mode = st.session_state.current_settings.get('processing_mode_selector', "Обработка отдельных файлов")
+                        st.session_state.settings_changed = False # Reset changed flag after loading new preset
+                        st.toast(f"Загружен набор '{selected_preset_in_box}'", icon="🔄")
+                        st.rerun()
+                    else: st.error(f"Ошибка загрузки набора '{selected_preset_in_box}'")
+                # --- End Autosave ---
+                else:
+                    # If autosave failed, maybe prevent switching? Or just show error and continue?
+                    # For now, log/toast occurred in autosave function, switching is prevented implicitly by not rerunning.
+                    log.warning(f"Preset switch from '{st.session_state.active_preset}' to '{selected_preset_in_box}' aborted due to autosave failure.")
 
-    create_col1, create_col2 = st.columns([4, 1])
-    with create_col1:
-        default_new_name = get_default_preset_name_ui()
-        new_preset_name_input_val = st.text_input( # Переименовали переменную
-            "Название нового набора:", key="new_preset_name_input", placeholder=default_new_name, label_visibility="collapsed"
-        )
-    with create_col2:
-        # Update help text for the button
-        if st.button("➕", key="create_preset_button", help="Создать новый набор со значениями по умолчанию"):
-            # AUTOSAVE before creating a new one
-            if autosave_active_preset_if_changed():
-                preset_name_to_save = new_preset_name_input_val if new_preset_name_input_val else default_new_name
-                # --- RE-APPLYING MODIFIED LOGIC ---
-                # Save default settings to the new preset file
-                default_settings_for_new_preset = config_manager.get_default_settings()
-                if config_manager.save_settings_preset(default_settings_for_new_preset, preset_name_to_save):
-                    # Activate the new preset
-                    st.session_state.active_preset = preset_name_to_save
-                    # Load the default settings into the current session state
-                    st.session_state.current_settings = default_settings_for_new_preset.copy() # Use a copy
-                    # Update the processing mode based on the defaults
-                    st.session_state.selected_processing_mode = st.session_state.current_settings.get('processing_mode_selector', "Обработка отдельных файлов")
-                    # Reset the changed flag as this is a fresh preset
-                    st.session_state.settings_changed = False
-                    st.toast(f"Создан и активирован новый набор '{preset_name_to_save}' (со значениями по умолчанию)", icon="✨")
-                    st.rerun()
-                # --- END RE-APPLIED LOGIC ---
-                else: st.error(f"Ошибка создания набора '{preset_name_to_save}'")
-            # --- End Autosave ---
-            else:
-                log.warning("Create new preset aborted due to autosave failure.")
+    with st.expander("Переименование и создание наборов", expanded=False):
+        st.caption("⚡️ Переименование активного набора")
+        rename_col1, rename_col2 = st.columns([4, 1])
+        with rename_col1:
+            rename_disabled = st.session_state.active_preset == config_manager.DEFAULT_PRESET_NAME
+            new_name_input = st.text_input( # Переименовали переменную
+                "Новое имя для активного набора:", value=st.session_state.active_preset, key="rename_preset_input",
+                disabled=rename_disabled, label_visibility="collapsed"
+            )
+        with rename_col2:
+            if st.button("✏️", key="rename_preset_button", disabled=rename_disabled, help="Переименовать активный набор" if not rename_disabled else "Нельзя переименовать набор по умолчанию"):
+                # AUTOSAVE before renaming
+                if autosave_active_preset_if_changed():
+                    old_active_name = st.session_state.active_preset
+                    if config_manager.rename_settings_preset(old_active_name, new_name_input):
+                        st.session_state.active_preset = new_name_input
+                        # No need to reload settings here, just update active preset name
+                        st.toast(f"Набор '{old_active_name}' переименован в '{new_name_input}'", icon="✏️")
+                        st.rerun()
+                    else: st.error(f"Ошибка переименования (возможно, имя '{new_name_input}' занято?)")
+                # --- End Autosave ---
+                else:
+                    log.warning("Rename aborted due to autosave failure.")
 
-    st.caption("Создать новый набор (со значениями по умолчанию)") # Update caption
-    # Divider removed here
+        st.divider()
+        st.caption("⚡️ Создание нового набора")
+        create_col1, create_col2 = st.columns([4, 1])
+        with create_col1:
+            default_new_name = get_default_preset_name_ui()
+            new_preset_name_input_val = st.text_input( # Переименовали переменную
+                "Название нового набора:", key="new_preset_name_input", placeholder=default_new_name, label_visibility="collapsed"
+            )
+        with create_col2:
+            # Update help text for the button
+            if st.button("➕", key="create_preset_button", help="Создать новый набор со значениями по умолчанию"):
+                # AUTOSAVE before creating a new one
+                if autosave_active_preset_if_changed():
+                    preset_name_to_save = new_preset_name_input_val if new_preset_name_input_val else default_new_name
+                    # --- RE-APPLYING MODIFIED LOGIC ---
+                    # Save default settings to the new preset file
+                    default_settings_for_new_preset = config_manager.get_default_settings()
+                    if config_manager.save_settings_preset(default_settings_for_new_preset, preset_name_to_save):
+                        # Activate the new preset
+                        st.session_state.active_preset = preset_name_to_save
+                        # Load the default settings into the current session state
+                        st.session_state.current_settings = default_settings_for_new_preset.copy() # Use a copy
+                        # Update the processing mode based on the defaults
+                        st.session_state.selected_processing_mode = st.session_state.current_settings.get('processing_mode_selector', "Обработка отдельных файлов")
+                        # Reset the changed flag as this is a fresh preset
+                        st.session_state.settings_changed = False
+                        st.toast(f"Создан и активирован новый набор '{preset_name_to_save}' (со значениями по умолчанию)", icon="✨")
+                        st.rerun()
+                    # --- END RE-APPLIED LOGIC ---
+                    else: st.error(f"Ошибка создания набора '{preset_name_to_save}'")
+                # --- End Autosave ---
+                else:
+                    log.warning("Create new preset aborted due to autosave failure.")
 
-    # === Блок: Сохранить тек. настройки / Отменить изменения в наборе ===
-    settings_save_col, settings_reset_col_moved = st.columns(2) 
-    with settings_save_col:
-        # === УБРАНО УСЛОВИЕ DISABLED ДЛЯ DEFAULT_PRESET_NAME ===
-        # save_disabled = (st.session_state.active_preset == config_manager.DEFAULT_PRESET_NAME)
-        save_help_text = f"Сохранить текущие настройки UI в активный набор '{st.session_state.active_preset}'"
-        # ======================================================
-        if st.button("💾 Сохранить в набор", key="save_active_preset_button", 
-                      help=save_help_text, 
-                      use_container_width=True):
-                      # disabled=save_disabled): # <-- Убрали disabled
-            # --- Логика сохранения (остается без изменений) ---
-            active_preset_name_to_save = st.session_state.active_preset
-            settings_to_save_in_preset = st.session_state.current_settings.copy()
-            settings_to_save_in_preset['processing_mode_selector'] = st.session_state.selected_processing_mode
-            save_preset_ok = config_manager.save_settings_preset(settings_to_save_in_preset, active_preset_name_to_save)
-            if save_preset_ok:
-                log.info(f"Preset '{active_preset_name_to_save}' manually saved.")
-                st.toast(f"✅ Настройки сохранены в набор '{active_preset_name_to_save}'.")
-                st.session_state.settings_changed = False 
-            else:
-                log.error(f"Failed to manually save preset '{active_preset_name_to_save}'.")
-                st.toast(f"❌ Ошибка сохранения набора '{active_preset_name_to_save}'!", icon="⚠️")
-            # --- Конец логики сохранения ---
+    with st.expander("Сохранение и сброс настроек", expanded=False):
+        # === Блок: Сохранить тек. настройки / Отменить изменения в наборе ===
+        settings_save_col, settings_reset_col_moved = st.columns(2) 
+        with settings_save_col:
+            # === УБРАНО УСЛОВИЕ DISABLED ДЛЯ DEFAULT_PRESET_NAME ===
+            # save_disabled = (st.session_state.active_preset == config_manager.DEFAULT_PRESET_NAME)
+            save_help_text = f"Сохранить текущие настройки UI в активный набор '{st.session_state.active_preset}'"
+            # ======================================================
+            if st.button("💾 Сохранить в набор", key="save_active_preset_button", 
+                          help=save_help_text, 
+                          use_container_width=True):
+                          # disabled=save_disabled): # <-- Убрали disabled
+                # --- Логика сохранения (остается без изменений) ---
+                active_preset_name_to_save = st.session_state.active_preset
+                settings_to_save_in_preset = st.session_state.current_settings.copy()
+                settings_to_save_in_preset['processing_mode_selector'] = st.session_state.selected_processing_mode
+                save_preset_ok = config_manager.save_settings_preset(settings_to_save_in_preset, active_preset_name_to_save)
+                if save_preset_ok:
+                    log.info(f"Preset '{active_preset_name_to_save}' manually saved.")
+                    st.toast(f"✅ Настройки сохранены в набор '{active_preset_name_to_save}'.", icon="💾")
+                    st.session_state.settings_changed = False 
+                else:
+                    log.error(f"Failed to manually save preset '{active_preset_name_to_save}'.")
+                    st.toast(f"❌ Ошибка сохранения набора '{active_preset_name_to_save}'!", icon="⚠️")
+                # --- Конец логики сохранения ---
 
-    with settings_reset_col_moved:
-        # === Используем новую функцию для disabled ===
-        settings_differ = check_settings_differ_from_preset(st.session_state.active_preset)
-        # Используем название "Отменить изменения" и логику сброса к значениям по умолчанию
-        if st.button("🔄 Отменить изменения", key="confirm_reset_active_preset_button", # Этот ключ инициирует подтверждение ниже
-                      help=f"Сбросить текущие настройки к значениям по умолчанию.",
-                      use_container_width=True): # <- Removed disabled
-        # ============================================
-             # Инициируем подтверждение сброса к значениям ПО УМОЛЧАНИЮ
-             st.session_state.reset_active_preset_confirmation_pending = True 
-             st.session_state.reset_settings_confirmation_pending = False 
-             st.session_state.reset_profiles_confirmation_pending = False 
-             st.rerun()
-    # =====================================================
+        with settings_reset_col_moved:
+            # === Используем новую функцию для disabled ===
+            settings_differ = check_settings_differ_from_preset(st.session_state.active_preset)
+            # Используем название "Отменить изменения" и логику сброса к значениям по умолчанию
+            if st.button("🔄 Отменить изменения", key="confirm_reset_active_preset_button", # Этот ключ инициирует подтверждение ниже
+                          help=f"Сбросить текущие настройки к значениям по умолчанию.",
+                          use_container_width=True): # <- Removed disabled
+            # ============================================
+                 # Инициируем подтверждение сброса к значениям ПО УМОЛЧАНИЯМ
+                 st.session_state.reset_active_preset_confirmation_pending = True 
+                 st.session_state.reset_settings_confirmation_pending = False 
+                 st.session_state.reset_profiles_confirmation_pending = False 
+                 st.rerun()
 
-    # === СУЩЕСТВУЮЩИЙ БЛОК КНОПОК СБРОСА ПРОФИЛЕЙ/К ЗАВОДСКИМ ===
-    # --- Removed Reset Profiles Button ---
-    # reset_profiles_col, reset_settings_col = st.columns(2)
-    # with reset_profiles_col:
-    #     if st.button("🗑️ Сбросить профили", key="reset_all_profiles_button", disabled=st.session_state.reset_profiles_confirmation_pending, help="Удалить все пользовательские профили"):
-    #         st.session_state.reset_profiles_confirmation_pending = True; st.session_state.reset_settings_confirmation_pending = False; st.rerun()
-    # --- End Removal ---
-    
-    # --- Keep Factory Reset Button (might adjust layout later) ---
-    if st.button("💥 Сбросить все к заводским", key="reset_all_settings_button", 
-                  disabled=st.session_state.reset_settings_confirmation_pending, 
-                  help="Полностью сбросить все настройки к первоначальному состоянию программы.",
-                  use_container_width=True): # Make it full width for now
-        st.session_state.reset_settings_confirmation_pending = True; 
-        # Ensure other confirmation flags are false
-        st.session_state.reset_active_preset_confirmation_pending = False 
-        # st.session_state.reset_profiles_confirmation_pending = False # Flag no longer used
-        st.rerun()
-    # --------------------------------------------------------------
-    # Divider removed here
+        st.divider()
+        # --- Keep Factory Reset Button (might adjust layout later) ---
+        if st.button("💥 Сбросить все к заводским", key="reset_all_settings_button", 
+                      disabled=st.session_state.reset_settings_confirmation_pending, 
+                      help="Полностью сбросить все настройки к первоначальному состоянию программы.",
+                      use_container_width=True): # Make it full width for now
+            st.session_state.reset_settings_confirmation_pending = True; 
+            # Ensure other confirmation flags are false
+            st.session_state.reset_active_preset_confirmation_pending = False 
+            # st.session_state.reset_profiles_confirmation_pending = False # Flag no longer used
+            st.rerun()
 
-    # --- Логика подтверждений (остается на своем месте) ---
+    # --- Логика подтверждений ---
     # === Логика подтверждения для ОТМЕНЫ ИЗМЕНЕНИЙ (СБРОС К УМОЛЧАНИЯМ) ===
     if st.session_state.reset_active_preset_confirmation_pending:
-        # Меняем текст предупреждения
-        st.warning(f"Сбросить текущие настройки к значениям по умолчанию (независимо от набора '{st.session_state.active_preset}')?", icon="🔄")
-        active_preset_confirm_col1, active_preset_confirm_col2 = st.columns(2)
-        with active_preset_confirm_col1:
-            # Ключ остается прежним, чтобы логика флага работала
-            if st.button("Да, сбросить к умолчаниям", key="confirm_reset_active_preset", type="primary"):
-                # Загружаем ДЕФОЛТНЫЕ настройки
-                default_settings = config_manager.get_default_settings()
-                # Применяем их
-                st.session_state.current_settings = default_settings.copy()
-                # Режим обработки тоже берем из дефолтных
-                st.session_state.selected_processing_mode = st.session_state.current_settings.get('processing_mode_selector', "Обработка отдельных файлов")
-                st.session_state.settings_changed = False # Считаем, что отличий от дефолта нет
-                # Меняем сообщение
-                st.toast(f"Настройки сброшены к значениям по умолчанию.", icon="🔄")
-                st.session_state.reset_active_preset_confirmation_pending = False
-                st.rerun()
-        with active_preset_confirm_col2:
-            # Кнопка отмены остается прежней
-            if st.button("Отмена", key="cancel_reset_active_preset"): 
-                st.session_state.reset_active_preset_confirmation_pending = False
-                st.rerun()
-    # =========================================================
-    # === Логика подтверждения для СБРОСА ПРОФИЛЕЙ (Удалено) ===
-    # --- Removed Reset Profiles Confirmation Block ---
-    # if st.session_state.reset_profiles_confirmation_pending:
-    #     st.warning("Удалить ВСЕ пользовательские профили?", icon="⚠️")
-    #     prof_confirm_col1, prof_confirm_col2 = st.columns(2)
-    #     with prof_confirm_col1:
-    #         # ... (confirmation button logic) ...
-    #     with prof_confirm_col2:
-    #          if st.button("Отмена ", key="cancel_reset_profiles"): 
-    #             st.session_state.reset_profiles_confirmation_pending = False; st.rerun()
-    # =================================================
-    # --- End Removal ---
-    
-    # === Логика подтверждения для СБРОСА К ЗАВОДСКИМ ===
-    # ... (Confirmation logic for Factory Reset remains) ...
-    if st.session_state.get('reset_settings_confirmation_pending', False):
-        st.warning(f"Удалить ВСЕ наборы кроме '{config_manager.DEFAULT_PRESET_NAME}' и сбросить его к заводским настройкам? Это действие необратимо!", icon="💥")
-        settings_confirm_col1, settings_confirm_col2 = st.columns(2)
-        with settings_confirm_col1:
-            if st.button("Да, сбросить всё", key="confirm_reset_settings", type="primary"):
-                # 1. Получаем "чистые" заводские настройки из config_manager
-                hard_default_settings = config_manager.get_default_settings()
-                
-                # === ДОБАВЛЕНО: Заполнение путей по умолчанию ===
-                try: 
-                    downloads_path = get_downloads_folder()
-                    if downloads_path:
-                        log.info(f"Factory reset: Setting default paths based on Downloads folder: {downloads_path}")
-                        hard_default_settings['paths']['input_folder_path'] = downloads_path
-                        hard_default_settings['paths']['output_folder_path'] = os.path.join(downloads_path, "result")
-                        hard_default_settings['paths']['backup_folder_path'] = os.path.join(downloads_path, "backup")
-                    else:
-                         log.warning("Factory reset: Could not determine Downloads folder. Paths will remain empty in defaults.")
-                except Exception as e:
-                    log.error(f"Factory reset: Error getting Downloads folder: {e}. Paths will remain empty in defaults.")
-                # ==============================================
+        with st.expander("⚠️ ПОДТВЕРЖДЕНИЕ СБРОСА НАСТРОЕК", expanded=True):
+            # Меняем текст предупреждения
+            st.warning(f"Сбросить текущие настройки к значениям по умолчанию (независимо от набора '{st.session_state.active_preset}')?", icon="🔄")
+            active_preset_confirm_col1, active_preset_confirm_col2 = st.columns(2)
+            with active_preset_confirm_col1:
+                # Ключ остается прежним, чтобы логика флага работала
+                if st.button("Да, сбросить к умолчаниям", key="confirm_reset_active_preset", type="primary"):
+                    # Загружаем ДЕФОЛТНЫЕ настройки
+                    default_settings = config_manager.get_default_settings()
+                    # Применяем их
+                    st.session_state.current_settings = default_settings.copy()
+                    # Режим обработки тоже берем из дефолтных
+                    st.session_state.selected_processing_mode = st.session_state.current_settings.get('processing_mode_selector', "Обработка отдельных файлов")
+                    st.session_state.settings_changed = False # Считаем, что отличий от дефолта нет
+                    # Меняем сообщение
+                    st.toast(f"Настройки сброшены к значениям по умолчанию.", icon="🔄")
+                    st.session_state.reset_active_preset_confirmation_pending = False
+                    st.rerun()
+            with active_preset_confirm_col2:
+                # Кнопка отмены остается прежней
+                if st.button("Отмена", key="cancel_reset_active_preset"): 
+                    st.session_state.reset_active_preset_confirmation_pending = False
+                    st.rerun()
 
-                # 2. Применяем обновленные (с путями) настройки к session_state
-                st.session_state.current_settings = hard_default_settings.copy() 
-                st.session_state.active_preset = config_manager.DEFAULT_PRESET_NAME 
-                st.session_state.selected_processing_mode = st.session_state.current_settings.get('processing_mode_selector', "Обработка отдельных файлов")
-                st.session_state.settings_changed = False 
-                
-                # 3. Удаляем кастомные пресеты
-                log.info("Reset to factory: Attempting to delete all custom presets...")
-                deleted_count = config_manager.delete_all_custom_presets()
-                if deleted_count is not None:
-                    log.info(f"Reset to factory: Deleted {deleted_count} custom preset(s).")
-                    st.toast(f"Настройки сброшены! Удалено кастомных профилей: {deleted_count}.", icon="💥")
-                else:
-                    log.error("Reset to factory: Error occurred while deleting custom presets.")
-                    st.toast("Настройки сброшены, но произошла ошибка при удалении профилей!", icon="⚠️")
-                # =================================================
-                st.session_state.reset_settings_confirmation_pending = False; st.rerun()
-        with settings_confirm_col2:
-            if st.button("Отмена ", key="cancel_reset_settings"): # Ключ может остаться
-                st.session_state.reset_settings_confirmation_pending = False; st.rerun()
+    # === Логика подтверждения для СБРОСА К ЗАВОДСКИМ ===
+    if st.session_state.get('reset_settings_confirmation_pending', False):
+        with st.expander("⚠️ ПОДТВЕРЖДЕНИЕ СБРОСА К ЗАВОДСКИМ", expanded=True):
+            st.warning(f"Удалить ВСЕ наборы кроме '{config_manager.DEFAULT_PRESET_NAME}' и сбросить его к заводским настройкам? Это действие необратимо!", icon="💥")
+            settings_confirm_col1, settings_confirm_col2 = st.columns(2)
+            with settings_confirm_col1:
+                if st.button("Да, сбросить всё", key="confirm_reset_settings", type="primary"):
+                    # 1. Получаем "чистые" заводские настройки из config_manager
+                    hard_default_settings = config_manager.get_default_settings()
+                    
+                    # === ДОБАВЛЕНО: Заполнение путей по умолчанию ===
+                    try: 
+                        downloads_path = get_downloads_folder()
+                        if downloads_path:
+                            log.info(f"Factory reset: Setting default paths based on Downloads folder: {downloads_path}")
+                            hard_default_settings['paths']['input_folder_path'] = downloads_path
+                            hard_default_settings['paths']['output_folder_path'] = os.path.join(downloads_path, "result")
+                            hard_default_settings['paths']['backup_folder_path'] = os.path.join(downloads_path, "backup")
+                        else:
+                             log.warning("Factory reset: Could not determine Downloads folder. Paths will remain empty in defaults.")
+                    except Exception as e:
+                        log.error(f"Factory reset: Error getting Downloads folder: {e}. Paths will remain empty in defaults.")
+                    # ==============================================
+
+                    # 2. Применяем обновленные (с путями) настройки к session_state
+                    st.session_state.current_settings = hard_default_settings.copy() 
+                    st.session_state.active_preset = config_manager.DEFAULT_PRESET_NAME 
+                    st.session_state.selected_processing_mode = st.session_state.current_settings.get('processing_mode_selector', "Обработка отдельных файлов")
+                    st.session_state.settings_changed = False 
+                    
+                    # 3. Удаляем кастомные пресеты
+                    log.info("Reset to factory: Attempting to delete all custom presets...")
+                    deleted_count = config_manager.delete_all_custom_presets()
+                    if deleted_count is not None:
+                        log.info(f"Reset to factory: Deleted {deleted_count} custom preset(s).")
+                        st.toast(f"Настройки сброшены! Удалено кастомных профилей: {deleted_count}.", icon="💥")
+                    else:
+                        log.error("Reset to factory: Error occurred while deleting custom presets.")
+                        st.toast("Настройки сброшены, но произошла ошибка при удалении профилей!", icon="⚠️")
+                    # =================================================
+                    st.session_state.reset_settings_confirmation_pending = False; st.rerun()
+            with settings_confirm_col2:
+                if st.button("Отмена ", key="cancel_reset_settings"): # Ключ может остаться
+                    st.session_state.reset_settings_confirmation_pending = False; st.rerun()
     # Divider removed here (was: Конец последнего блока логики подтверждения)
 
     # === Переименование и удаление (перемещено выше) ===
@@ -559,87 +548,90 @@ with st.sidebar:
     user_downloads_folder = get_downloads_folder()
     log.debug(f"Resolved Downloads Folder: {user_downloads_folder}")
 
-    # --- Input Path --- 
-    current_input_path = get_setting('paths.input_folder_path')
-    # Подставляем Загрузки, если путь пустой
-    input_path_default_value = current_input_path if current_input_path else user_downloads_folder 
-    input_path_val = st.text_input(
-        "Папка с исходными файлами:", 
-        value=input_path_default_value,
-        key='path_input_sidebar',
-        help="Укажите папку, в которой находятся исходные изображения для обработки. Поддерживаются форматы JPG, PNG, WEBP, TIFF, BMP, GIF."
-    )
-    # Сохраняем новое значение, только если оно отличается от того, что было (или было пустым)
-    if input_path_val != current_input_path:
-        set_setting('paths.input_folder_path', input_path_val)
-    
-    # Отображение статуса папки
-    if input_path_val and os.path.isdir(input_path_val): st.caption(f"✅ Папка найдена: {os.path.abspath(input_path_val)}")
-    elif input_path_val: st.caption(f"❌ Папка не найдена: {os.path.abspath(input_path_val)}")
-    else: st.caption("ℹ️ Путь не указан.")
+    with st.expander("Основной путь ввода", expanded=True):
+        # --- Input Path --- 
+        current_input_path = get_setting('paths.input_folder_path')
+        # Подставляем Загрузки, если путь пустой
+        input_path_default_value = current_input_path if current_input_path else user_downloads_folder 
+        input_path_val = st.text_input(
+            "Папка с исходными файлами:", 
+            value=input_path_default_value,
+            key='path_input_sidebar',
+            help="Укажите папку, в которой находятся исходные изображения для обработки. Поддерживаются форматы JPG, PNG, WEBP, TIFF, BMP, GIF."
+        )
+        # Сохраняем новое значение, только если оно отличается от того, что было (или было пустым)
+        if input_path_val != current_input_path:
+            set_setting('paths.input_folder_path', input_path_val)
+        
+        # Отображение статуса папки
+        if input_path_val and os.path.isdir(input_path_val): st.caption(f"✅ Папка найдена: {os.path.abspath(input_path_val)}")
+        elif input_path_val: st.caption(f"❌ Папка не найдена: {os.path.abspath(input_path_val)}")
+        else: st.caption("ℹ️ Путь не указан.")
 
     current_mode_local = st.session_state.selected_processing_mode
     if current_mode_local == "Обработка отдельных файлов":
-        st.subheader("Пути (Обработка файлов)")
-        # --- Output Path --- 
-        current_output_path = get_setting('paths.output_folder_path', '')
-        # Подставляем Загрузки/Processed, если путь пустой
-        output_path_default_value = current_output_path if current_output_path else os.path.join(user_downloads_folder, "Processed")
-        output_path_val = st.text_input(
-            "Папка для результатов:", 
-            value=output_path_default_value,
-            key='path_output_ind_sidebar', 
-            help="Укажите папку, куда будут сохранены обработанные изображения. Папка будет создана автоматически, если она не существует."
-        )
-        if output_path_val != current_output_path:
-            set_setting('paths.output_folder_path', output_path_val)
-        if output_path_val: st.caption(f"Сохранять в: {os.path.abspath(output_path_val)}")
-        
-        # --- Backup Path (ИЗМЕНЕНО ПОВЕДЕНИЕ) ---
-        current_backup_path = get_setting('paths.backup_folder_path')
-        # Подставляем Загрузки/Backups, если путь пустой
-        backup_path_default_value = current_backup_path if current_backup_path else os.path.join(user_downloads_folder, "Backups")
-        backup_path_val = st.text_input(
-            "Папка для бэкапов:", 
-            # === ТЕПЕРЬ ВСЕГДА ПОКАЗЫВАЕМ ЗНАЧЕНИЕ (ТЕКУЩЕЕ ИЛИ ПО УМОЛЧАНИЮ) ===
-            value=backup_path_default_value, 
-            key='path_backup_ind_sidebar',
-            placeholder="Оставьте пустым чтобы отключить", # Placeholder теперь проще
-            help="Укажите папку для резервного копирования оригинальных файлов перед обработкой. Оставьте пустым, чтобы отключить создание резервных копий."
-        )
-        # Сохраняем новое значение (может быть пустым, если пользователь стер)
-        if backup_path_val != current_backup_path:
-             set_setting('paths.backup_folder_path', backup_path_val)
-        # Отображаем статус
-        if backup_path_val:
-            # Проверяем, отличается ли от стандартного умолчания, чтобы не писать лишнее
-            is_default_shown = not current_backup_path and backup_path_val == os.path.join(user_downloads_folder, "Backups")
-            st.caption(f"Бэкап в: {os.path.abspath(backup_path_val)}" + (" (по умолчанию)" if is_default_shown else ""))
-        else: 
-            st.caption(f"Бэкап отключен.")
-        
+        with st.expander("Пути обработки файлов", expanded=False):
+            # --- Output Path --- 
+            current_output_path = get_setting('paths.output_folder_path', '')
+            # Подставляем Загрузки/Processed, если путь пустой
+            output_path_default_value = current_output_path if current_output_path else os.path.join(user_downloads_folder, "Processed")
+            output_path_val = st.text_input(
+                "Папка для результатов:", 
+                value=output_path_default_value,
+                key='path_output_ind_sidebar', 
+                help="Укажите папку, куда будут сохранены обработанные изображения. Папка будет создана автоматически, если она не существует."
+            )
+            if output_path_val != current_output_path:
+                set_setting('paths.output_folder_path', output_path_val)
+            if output_path_val: st.caption(f"Сохранять в: {os.path.abspath(output_path_val)}")
+            
+            # --- Backup Path (ИЗМЕНЕНО ПОВЕДЕНИЕ) ---
+            current_backup_path = get_setting('paths.backup_folder_path')
+            # Подставляем Загрузки/Backups, если путь пустой
+            backup_path_default_value = current_backup_path if current_backup_path else os.path.join(user_downloads_folder, "Backups")
+            backup_path_val = st.text_input(
+                "Папка для бэкапов:", 
+                # === ТЕПЕРЬ ВСЕГДА ПОКАЗЫВАЕМ ЗНАЧЕНИЕ (ТЕКУЩЕЕ ИЛИ ПО УМОЛЧАНИЮ) ===
+                value=backup_path_default_value, 
+                key='path_backup_ind_sidebar',
+                placeholder="Оставьте пустым чтобы отключить", # Placeholder теперь проще
+                help="Укажите папку для резервного копирования оригинальных файлов перед обработкой. Оставьте пустым, чтобы отключить создание резервных копий."
+            )
+            # Сохраняем новое значение (может быть пустым, если пользователь стер)
+            if backup_path_val != current_backup_path:
+                 set_setting('paths.backup_folder_path', backup_path_val)
+            # Отображаем статус
+            if backup_path_val:
+                # Проверяем, отличается ли от стандартного умолчания, чтобы не писать лишнее
+                is_default_shown = not current_backup_path and backup_path_val == os.path.join(user_downloads_folder, "Backups")
+                st.caption(f"Бэкап в: {os.path.abspath(backup_path_val)}" + (" (по умолчанию)" if is_default_shown else ""))
+            else: 
+                st.caption(f"Бэкап отключен.")
+            
     elif current_mode_local == "Создание коллажей":
-        st.subheader("Пути (Создание коллажа)")
-        # --- Имя файла коллажа (остается как было, по умолчанию 'collage') ---
-        collage_filename_val = st.text_input(
-            "Имя файла коллажа (без расш.):", 
-            value=get_setting('paths.output_filename', 'collage'), 
-            key='path_output_coll_sidebar',
-            help="Введите базовое имя файла для коллажа (без расширения). Коллаж будет сохранен в папке с исходными файлами с указанным именем и расширением в соответствии с выбранным форматом (JPG или PNG)."
-        )
-        set_setting('paths.output_filename', collage_filename_val)
-        if collage_filename_val: st.caption(f"Имя файла: {collage_filename_val}.[расширение]")
+        with st.expander("Настройки коллажа", expanded=False):
+            # --- Имя файла коллажа (остается как было, по умолчанию 'collage') ---
+            collage_filename_val = st.text_input(
+                "Имя файла коллажа (без расш.):", 
+                value=get_setting('paths.output_filename', 'collage'), 
+                key='path_output_coll_sidebar',
+                help="Введите базовое имя файла для коллажа (без расширения). Коллаж будет сохранен в папке с исходными файлами с указанным именем и расширением в соответствии с выбранным форматом (JPG или PNG)."
+            )
+            set_setting('paths.output_filename', collage_filename_val)
+            if collage_filename_val: st.caption(f"Имя файла: {collage_filename_val}.[расширение]")
 
-    # --- Кнопка сброса путей ---
-    if st.button("🔄 Сбросить пути по умолчанию", key="reset_paths_button", 
-                 help="Установить стандартные пути на основе папки Загрузки вашей системы"):
-        # При сбросе устанавливаем пустые строки, чтобы при следующем рендере подставились Загрузки
-        set_setting('paths.input_folder_path', "")
-        set_setting('paths.output_folder_path', "")
-        set_setting('paths.backup_folder_path', "")
-        set_setting('paths.output_filename', "collage") # Сбрасываем имя коллажа
-        st.toast("Пути сброшены! При следующем обновлении подставятся Загрузки.", icon="🔄"); 
-        st.rerun()
+    # --- Кнопка сброса путей в отдельном expander ---
+    with st.expander("Сброс путей", expanded=False):
+        if st.button("🔄 Сбросить пути по умолчанию", key="reset_paths_button", 
+                     help="Установить стандартные пути на основе папки Загрузки вашей системы", 
+                     use_container_width=True):
+            # При сбросе устанавливаем пустые строки, чтобы при следующем рендере подставились Загрузки
+            set_setting('paths.input_folder_path', "")
+            set_setting('paths.output_folder_path', "")
+            set_setting('paths.backup_folder_path', "")
+            set_setting('paths.output_filename', "collage") # Сбрасываем имя коллажа
+            st.toast("Пути сброшены! При следующем обновлении подставятся Загрузки.", icon="🔄"); 
+            st.rerun()
 
     # === Остальные Настройки ===
     st.header("⚙️ Настройки обработки")
@@ -683,10 +675,8 @@ with st.sidebar:
             # Преобразуем проценты в абсолютный порог для функции отбеливания
             adjusted_threshold = int((100 - wc_percent) * 7.65)  # Инвертируем для логического соответствия
             set_setting('whitening.cancel_threshold_sum', adjusted_threshold)
-    # =========================
 
     with st.expander("3. Удаление фона и обрезка", expanded=False):
-        # === РАСКОММЕНТИРОВАНО ===
         enable_bg_crop = st.checkbox("Включить ", value=get_setting('background_crop.enable_bg_crop', False), 
                                    key='bgc_enable',
                                    help="Удаляет белый фон вокруг объекта и обрезает изображение по границам объекта") # Пробел в лейбле
@@ -713,10 +703,6 @@ with st.sidebar:
                                      key='bgc_axes',
                                      help="Обрезка будет симметричной по каждой оси (слева/справа одинаково, сверху/снизу одинаково)")
                 set_setting('background_crop.crop_symmetric_axes', bgc_axes)
-            else:
-                 if get_setting('background_crop.crop_symmetric_axes', False):
-                     set_setting('background_crop.crop_symmetric_axes', False)
-        # =========================
 
     with st.expander("4. Добавление полей", expanded=False):
         # === НОВЫЕ РЕЖИМЫ ===
@@ -1107,40 +1093,6 @@ with st.sidebar:
                     st.caption("❌ Неверный формат чисел")
         # ====================================================
 
-    # === ЗАКОММЕНТИРОВАН ДУБЛИРУЮЩИЙ БЛОК УПРАВЛЕНИЯ НАСТРОЙКАМИ ===
-    # st.subheader("💾 Управление настройками") 
-    # settings_save_col_dup, settings_reset_col_dup = st.columns(2)
-    # with settings_save_col_dup:
-    #     if st.button("💾 Сохранить текущие настройки", key="save_main_settings_button_dup", # <-- Использовал бы другой ключ, если бы не был закомментирован
-    #                   help="Сохраняет текущие настройки интерфейса и имя активного пресета в главный файл settings.json.", 
-    #                   use_container_width=True):
-    #         current_settings_to_save = st.session_state.current_settings.copy()
-    #         current_settings_to_save["active_preset"] = st.session_state.active_preset
-    #         current_settings_to_save["processing_mode_selector"] = st.session_state.selected_processing_mode
-    #         save_main_ok = config_manager.save_settings(current_settings_to_save, CONFIG_FILE)
-    #         if save_main_ok:
-    #             log.info(f"Main settings manually saved to {CONFIG_FILE}.")
-    #             st.toast("✅ Основные настройки сохранены.")
-    #             st.session_state.settings_changed = False
-    #         else:
-    #             log.error(f"Failed to manually save main settings to {CONFIG_FILE}.")
-    #             st.toast("❌ Ошибка сохранения основных настроек!")
-    # with settings_reset_col_dup:
-    #     if st.button("🔄 Сбросить текущие настройки", key="confirm_reset_settings_button_dup", # <-- Использовал бы другой ключ
-    #                   help="Восстанавливает настройки до значений активного пресета.", 
-    #                   use_container_width=True):
-    #          st.session_state.reset_active_preset_confirmation_pending = True 
-    #          st.session_state.reset_settings_confirmation_pending = False 
-    #          st.session_state.reset_profiles_confirmation_pending = False 
-    #          st.rerun()
-    # =============================================================
-
-    # === ЗАКОММЕНТИРОВАН ДУБЛИРУЮЩИЙ БЛОК ЛОГИКИ ПОДТВЕРЖДЕНИЯ ===
-    # st.subheader("📊 Пресеты настроек") # Этот заголовок, возможно, тоже лишний здесь
-    # if st.session_state.reset_active_preset_confirmation_pending:
-    #     # ... (вся логика подтверждения)...
-    # =========================================================
-
 # === Конец блока with st.sidebar ===
 
 # === ОСНОВНАЯ ОБЛАСТЬ ===
@@ -1185,102 +1137,109 @@ if start_button_pressed_this_run:
     current_mode = st.session_state.selected_processing_mode # Используем из state
     if current_mode == "Обработка отдельных файлов":
         output_path_ind = get_setting('paths.output_folder_path', '')
-        if not output_path_ind: validation_errors.append("Не указана папка для результатов!"); paths_ok = False
+        if not output_path_ind: 
+            validation_errors.append("Не указана папка для результатов!")
+            paths_ok = False
         if paths_ok and get_setting('individual_mode.delete_originals') and input_path and output_path_ind:
-             if os.path.normcase(os.path.abspath(input_path)) == os.path.normcase(os.path.abspath(output_path_ind)):
-                 st.warning("Удаление оригиналов не будет выполнено (папка ввода и вывода совпадают).", icon="⚠️")
-                 log.warning("Original deletion will be skipped (paths are same).")
+            if os.path.normcase(os.path.abspath(input_path)) == os.path.normcase(os.path.abspath(output_path_ind)):
+                st.warning("Удаление оригиналов не будет выполнено (папка ввода и вывода совпадают).", icon="⚠️")
+                log.warning("Original deletion will be skipped (paths are same).")
     elif current_mode == "Создание коллажей":
         output_filename_coll = get_setting('paths.output_filename', '')
-        if not output_filename_coll: validation_errors.append("Не указано имя файла для сохранения коллажа!"); paths_ok = False
+        if not output_filename_coll: 
+            validation_errors.append("Не указано имя файла для сохранения коллажа!")
+            paths_ok = False
         elif input_path and paths_ok:
-             # Проверяем ПОЛНОЕ имя файла с расширением
-             output_format_coll = get_setting('collage_mode.output_format', 'jpg').lower()
-             base_name, _ = os.path.splitext(output_filename_coll)
-             coll_filename_with_ext = f"{base_name}.{output_format_coll}"
-             full_coll_path_with_ext = os.path.abspath(os.path.join(abs_input_path, coll_filename_with_ext))
-             if os.path.isdir(full_coll_path_with_ext): validation_errors.append(f"Имя файла коллажа '{coll_filename_with_ext}' указывает на папку!"); paths_ok = False
+            # Проверяем ПОЛНОЕ имя файла с расширением
+            output_format_coll = get_setting('collage_mode.output_format', 'jpg').lower()
+            base_name, _ = os.path.splitext(output_filename_coll)
+            coll_filename_with_ext = f"{base_name}.{output_format_coll}"
+            full_coll_path_with_ext = os.path.abspath(os.path.join(abs_input_path, coll_filename_with_ext))
+            if os.path.isdir(full_coll_path_with_ext): 
+                validation_errors.append(f"Имя файла коллажа '{coll_filename_with_ext}' указывает на папку!")
+                paths_ok = False
 
     if not paths_ok:
         log.warning("--- Path validation FAILED. Processing aborted. ---")
-        for error_msg in validation_errors: st.error(error_msg, icon="❌"); log.error(f"Validation Error: {error_msg}")
+        for error_msg in validation_errors: 
+            st.error(error_msg, icon="❌")
+            log.error(f"Validation Error: {error_msg}")
         st.warning("Обработка не запущена из-за ошибок в настройках путей.", icon="⚠️")
-        st.subheader("Логи выполнения (Ошибки валидации):")
-        st.text_area("Лог:", value=log_stream.getvalue(), height=200, key='log_output_validation_error', disabled=True, label_visibility="collapsed")
+        
+        with st.expander("📋 Журнал ошибок валидации", expanded=True):
+            st.text_area("Лог:", value=log_stream.getvalue(), height=200, 
+                       key='log_output_validation_error', disabled=True, 
+                       label_visibility="collapsed")
     else:
         log.info(f"--- Path validation successful. Starting processing workflow '{current_mode}'... ---")
         st.info(f"Запускаем обработку в режиме '{current_mode}'...")
         progress_placeholder = st.empty()
         workflow_success = False # Инициализируем флаг успеха
         with st.spinner(f"Выполняется обработка... Пожалуйста, подождите."):
-             try:
-                 current_run_settings = st.session_state.current_settings.copy()
-                 log.debug(f"Passing settings to workflow: {current_run_settings}")
-                 # Используем значение из session_state напрямую для сравнения
-                 mode_from_state = st.session_state.selected_processing_mode
-                 log.debug(f"---> Checking workflow for mode (from state): '{mode_from_state}'")
-                 
-                 # === ИСПРАВЛЕНО СРАВНЕНИЕ ===
-                 if mode_from_state == "Обработка отдельных файлов": 
-                     log.info("Condition matched: 'Обработка отдельных файлов'")
-                     # TODO: Позже можно доработать run_individual_processing по аналогии.
-                     processing_workflows.run_individual_processing(**current_run_settings)
-                     workflow_success = True 
-                     log.info("Finished run_individual_processing call (assumed success).")
-                 elif mode_from_state == "Создание коллажей": 
-                     log.info("Condition matched: 'Создание коллажей'")
-                     collage_created_ok = processing_workflows.run_collage_processing(**current_run_settings)
-                     workflow_success = collage_created_ok 
-                     log.info(f"Finished run_collage_processing call. Result: {workflow_success}")
-                 else:
-                     # Этот блок теперь не должен выполняться, но оставим на всякий случай
-                     log.error(f"!!! Unknown mode_from_state encountered in processing block: '{mode_from_state}'")
-                     workflow_success = False 
-             except Exception as e:
-                 log.critical(f"!!! WORKFLOW EXECUTION FAILED with EXCEPTION: {e}", exc_info=True)
-                 st.error(f"Произошла критическая ошибка во время обработки: {e}", icon="🔥")
-                 workflow_success = False
-                 # progress_placeholder.empty() # Убрали, сообщение ниже
-                 # st.text_area("Детали ошибки:", value=traceback.format_exc(), height=200, key="error_traceback_area")
+            try:
+                current_run_settings = st.session_state.current_settings.copy()
+                log.debug(f"Passing settings to workflow: {current_run_settings}")
+                # Используем значение из session_state напрямую для сравнения
+                mode_from_state = st.session_state.selected_processing_mode
+                log.debug(f"---> Checking workflow for mode (from state): '{mode_from_state}'")
+                
+                if mode_from_state == "Обработка отдельных файлов": 
+                    log.info("Condition matched: 'Обработка отдельных файлов'")
+                    processing_workflows.run_individual_processing(**current_run_settings)
+                    workflow_success = True 
+                    log.info("Finished run_individual_processing call (assumed success).")
+                elif mode_from_state == "Создание коллажей": 
+                    log.info("Condition matched: 'Создание коллажей'")
+                    collage_created_ok = processing_workflows.run_collage_processing(**current_run_settings)
+                    workflow_success = collage_created_ok 
+                    log.info(f"Finished run_collage_processing call. Result: {workflow_success}")
+                else:
+                    log.error(f"!!! Unknown mode_from_state encountered in processing block: '{mode_from_state}'")
+                    workflow_success = False 
+            except Exception as e:
+                log.critical(f"!!! WORKFLOW EXECUTION FAILED with EXCEPTION: {e}", exc_info=True)
+                st.error(f"Произошла критическая ошибка во время обработки: {e}", icon="🔥")
+                workflow_success = False
 
         progress_placeholder.empty() # Очищаем спиннер
+        
         # --- Вывод сообщения по результату --- 
         if workflow_success:
             # Используем mode_from_state для сообщения
-            st.success(f"Обработка ('{mode_from_state}') успешно завершена!", icon="✅")
-            log.info(f"--- Workflow '{mode_from_state}' completed successfully. --- ")
-            
-            # === АВТОСОХРАНЕНИЕ ПОСЛЕ УСПЕХА ===
-            log.debug("Workflow successful, attempting to auto-save main settings...")
-            try:
-                settings_to_save_after_success = st.session_state.current_settings.copy()
-                settings_to_save_after_success["active_preset"] = st.session_state.active_preset
-                settings_to_save_after_success["processing_mode_selector"] = st.session_state.selected_processing_mode
-                save_after_success_ok = config_manager.save_settings(settings_to_save_after_success, CONFIG_FILE)
-                if save_after_success_ok:
-                    log.info(f"Main settings auto-saved successfully to {CONFIG_FILE} after workflow completion.")
-                    st.session_state.settings_changed = False # Сбрасываем флаг, если он был
-                else:
-                    log.error(f"Failed to auto-save main settings after workflow completion.")
-                    st.toast("❌ Не удалось авто-сохранить настройки после обработки.")
-            except Exception as save_ex:
-                 log.error(f"Exception during auto-save after workflow completion: {save_ex}", exc_info=True)
-                 st.toast("❌ Ошибка при авто-сохранении настроек после обработки.")
-            # ====================================
-            
+            if mode_from_state == "Обработка отдельных файлов":
+                st.success("✅ Обработка изображений завершена успешно!")
+            elif mode_from_state == "Создание коллажей":
+                st.success("✅ Создание коллажа завершено успешно!")
+            else:
+                # Неизвестный режим
+                st.success(f"✅ Операция '{mode_from_state}' выполнена успешно!")
+
+            with st.expander("📋 Журнал выполнения", expanded=False):
+                st.text_area("Лог:", value=log_stream.getvalue(), height=250, 
+                          key='log_output_success', disabled=True, 
+                          label_visibility="collapsed")
         else:
-            st.warning(f"Обработка ('{mode_from_state}') завершена, но результат НЕ достигнут (см. лог).", icon="⚠️")
-            log.warning(f"--- Workflow '{mode_from_state}' finished, but reported failure or encountered an exception. --- ")
+            # В случае ошибки:
+            st.error(f"❌ Ошибка при выполнении операции '{mode_from_state}'!")
+
+            # --- LOGS IN EXPANDER ---
+            with st.expander("📋 Журнал выполнения (ошибки)", expanded=True):
+                log_content = log_stream.getvalue()
+                st.text_area("Лог с ошибками:", value=log_content, height=300, 
+                           key='log_output_error', disabled=True, 
+                           label_visibility="collapsed")
+            # ----------------------
 
 # --- Область для Логов ---
 # Этот блок должен быть ПОСЛЕ блока if start_button_pressed_this_run
 st.divider()
-st.subheader("Логи выполнения:")
-# Кнопка обновления лога теперь не так нужна, т.к. лог очищается при запуске
-# if st.button("🔄 Обновить лог", key="refresh_log_button"):
-#     st.rerun()
-with st.expander("Показать/скрыть лог", expanded=True):
-    st.text_area("Лог:", value=log_stream.getvalue(), height=300, key='log_output_display_area', disabled=True, label_visibility="collapsed")
+st.subheader("Логи и предпросмотр:")
+
+# Блок лога
+with st.expander("📋 Журнал работы приложения", expanded=False):
+    st.text_area("Лог:", value=log_stream.getvalue(), height=250, 
+               key='log_output_display_area', disabled=True, 
+               label_visibility="collapsed")
 
 # --- Опциональное отображение коллажа ---
 if st.session_state.selected_processing_mode == "Создание коллажей":
@@ -1297,14 +1256,14 @@ if st.session_state.selected_processing_mode == "Создание коллаже
         coll_full_path = os.path.abspath(os.path.join(coll_input_path, coll_filename_with_ext))
         log.debug(f"Checking for collage preview at: {coll_full_path}") # Добавим лог
         if os.path.isfile(coll_full_path):
-            st.divider(); st.subheader("Предпросмотр коллажа:")
-            try:
-                # Уникальный ключ не нужен для st.image в данном случае
-                st.image(coll_full_path, use_container_width=True)
-                log.debug(f"Displaying collage preview: {coll_full_path}")
-            except Exception as img_e:
-                st.warning(f"Не удалось отобразить превью коллажа: {img_e}")
-                log.warning(f"Failed to display collage preview {coll_full_path}: {img_e}")
+            with st.expander("🖼️ Предпросмотр коллажа", expanded=True):
+                try:
+                    # Уникальный ключ не нужен для st.image в данном случае
+                    st.image(coll_full_path, use_container_width=True)
+                    log.debug(f"Displaying collage preview: {coll_full_path}")
+                except Exception as img_e:
+                    st.warning(f"Не удалось отобразить превью коллажа: {img_e}")
+                    log.warning(f"Failed to display collage preview {coll_full_path}: {img_e}")
         else: log.debug(f"Collage file for preview not found: {coll_full_path}")
     else: log.debug("Input path or collage filename not set for preview.")
 
@@ -1319,26 +1278,26 @@ elif st.session_state.selected_processing_mode == "Обработка отдел
         image_files.sort(key=os.path.getmtime, reverse=True)
         
         if image_files:
-            st.divider(); st.subheader("Предпросмотр обработанных фотографий:")
-            max_images = 18  # Увеличиваем до 18 изображений (3x6)
-            preview_images = image_files[:max_images]
-            
-            # Создаем строки по 3 изображения (6 строк)
-            for i in range(0, len(preview_images), 3):
-                row_images = preview_images[i:i+3]
-                cols = st.columns(len(row_images))
+            with st.expander("🖼️ Предпросмотр обработанных фотографий", expanded=True):
+                max_images = 18  # Увеличиваем до 18 изображений (3x6)
+                preview_images = image_files[:max_images]
                 
-                for j, img_path in enumerate(row_images):
-                    try:
-                        # Показываем имя файла и изображение
-                        cols[j].caption(os.path.basename(img_path))
-                        cols[j].image(img_path)
-                    except Exception as img_e:
-                        cols[j].warning(f"Не удалось отобразить {os.path.basename(img_path)}: {img_e}")
-                        log.warning(f"Failed to display image preview {img_path}: {img_e}")
-            
-            if len(image_files) > max_images:
-                st.caption(f"Показано {min(max_images, len(image_files))} из {len(image_files)} изображений")
+                # Создаем строки по 3 изображения (6 строк)
+                for i in range(0, len(preview_images), 3):
+                    row_images = preview_images[i:i+3]
+                    cols = st.columns(len(row_images))
+                    
+                    for j, img_path in enumerate(row_images):
+                        try:
+                            # Показываем имя файла и изображение
+                            cols[j].caption(os.path.basename(img_path))
+                            cols[j].image(img_path)
+                        except Exception as img_e:
+                            cols[j].warning(f"Не удалось отобразить {os.path.basename(img_path)}: {img_e}")
+                            log.warning(f"Failed to display image preview {img_path}: {img_e}")
+                
+                if len(image_files) > max_images:
+                    st.caption(f"Показано {min(max_images, len(image_files))} из {len(image_files)} изображений")
         else:
             log.debug(f"No image files found in output directory: {output_path}")
     else: 
