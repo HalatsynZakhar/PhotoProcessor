@@ -525,6 +525,34 @@ with st.sidebar:
                 st.session_state.reset_settings_confirmation_pending = False; st.rerun()
     # Divider removed here (was: Конец последнего блока логики подтверждения)
 
+    # === Переименование и удаление (перемещено выше) ===
+    current_mode_for_file_ops = st.session_state.selected_processing_mode
+    if current_mode_for_file_ops == "Обработка отдельных файлов":
+        st.header("🏷️ Переименование и удаление")
+        # --- Переименование --- 
+        enable_rename_ind = st.checkbox("Переименовать файлы (по артикулу)",
+                                        value=get_setting('individual_mode.enable_rename', False),
+                                        key='ind_enable_rename',
+                                        help="Позволяет автоматически переименовать все обработанные файлы, используя указанный артикул в качестве основы имени")
+        set_setting('individual_mode.enable_rename', enable_rename_ind)
+        if enable_rename_ind:
+            article_ind = st.text_input("Артикул для переименования",
+                                        value=get_setting('individual_mode.article_name', ''),
+                                        key='ind_article',
+                                        placeholder="Введите артикул...",
+                                        help="Введите артикул или базовое имя для файлов. Первый файл будет назван как артикул, остальные - артикул_1, артикул_2 и т.д.")
+            set_setting('individual_mode.article_name', article_ind)
+            if article_ind: st.caption("Файлы будут вида: [Артикул]_1.jpg, ...")
+            else: st.warning("Введите артикул для переименования.") # Валидация
+        
+        # --- Удаление (без изменений) ---
+        delete_orig_ind = st.checkbox("Удалять оригиналы после обработки?",
+                                      value=get_setting('individual_mode.delete_originals', False),
+                                      key='ind_delete_orig',
+                                      help="Если включено, исходные файлы будут удалены после успешной обработки. Это действие необратимо, поэтому используйте его с осторожностью. Рекомендуется включить бэкап перед использованием этой опции.")
+        set_setting('individual_mode.delete_originals', delete_orig_ind)
+        if delete_orig_ind: st.warning("ВНИМАНИЕ: Удаление необратимо!", icon="⚠️")
+
     # === Пути ===
     st.header("📂 Пути")
     # --- Получаем путь к Загрузкам ОДИН РАЗ --- 
@@ -539,7 +567,7 @@ with st.sidebar:
         "Папка с исходными файлами:", 
         value=input_path_default_value,
         key='path_input_sidebar',
-        help="Укажите папку, где лежат изображения для обработки."
+        help="Укажите папку, в которой находятся исходные изображения для обработки. Поддерживаются форматы JPG, PNG, WEBP, TIFF, BMP, GIF."
     )
     # Сохраняем новое значение, только если оно отличается от того, что было (или было пустым)
     if input_path_val != current_input_path:
@@ -561,7 +589,7 @@ with st.sidebar:
             "Папка для результатов:", 
             value=output_path_default_value,
             key='path_output_ind_sidebar', 
-            help="Куда сохранять обработанные файлы."
+            help="Укажите папку, куда будут сохранены обработанные изображения. Папка будет создана автоматически, если она не существует."
         )
         if output_path_val != current_output_path:
             set_setting('paths.output_folder_path', output_path_val)
@@ -577,7 +605,7 @@ with st.sidebar:
             value=backup_path_default_value, 
             key='path_backup_ind_sidebar',
             placeholder="Оставьте пустым чтобы отключить", # Placeholder теперь проще
-            help="Куда копировать оригиналы перед обработкой. Если оставить пустым, бэкап будет отключен."
+            help="Укажите папку для резервного копирования оригинальных файлов перед обработкой. Оставьте пустым, чтобы отключить создание резервных копий."
         )
         # Сохраняем новое значение (может быть пустым, если пользователь стер)
         if backup_path_val != current_backup_path:
@@ -597,13 +625,14 @@ with st.sidebar:
             "Имя файла коллажа (без расш.):", 
             value=get_setting('paths.output_filename', 'collage'), 
             key='path_output_coll_sidebar',
-            help="Базовое имя файла (без .jpg/.png), который будет создан в папке с исходными файлами."
+            help="Введите базовое имя файла для коллажа (без расширения). Коллаж будет сохранен в папке с исходными файлами с указанным именем и расширением в соответствии с выбранным форматом (JPG или PNG)."
         )
         set_setting('paths.output_filename', collage_filename_val)
         if collage_filename_val: st.caption(f"Имя файла: {collage_filename_val}.[расширение]")
 
-    # --- Кнопка сброса путей --- 
-    if st.button("🔄 Сбросить пути по умолчанию", key="reset_paths_button", help="Установить стандартные пути (Загрузки)"):
+    # --- Кнопка сброса путей ---
+    if st.button("🔄 Сбросить пути по умолчанию", key="reset_paths_button", 
+                 help="Установить стандартные пути на основе папки Загрузки вашей системы"):
         # При сбросе устанавливаем пустые строки, чтобы при следующем рендере подставились Загрузки
         set_setting('paths.input_folder_path', "")
         set_setting('paths.output_folder_path', "")
@@ -611,26 +640,34 @@ with st.sidebar:
         set_setting('paths.output_filename', "collage") # Сбрасываем имя коллажа
         st.toast("Пути сброшены! При следующем обновлении подставятся Загрузки.", icon="🔄"); 
         st.rerun()
-    # Divider removed here
 
     # === Остальные Настройки ===
     st.header("⚙️ Настройки обработки")
     st.caption(f"Настройки для режима: **{st.session_state.selected_processing_mode}**")
     with st.expander("1. Предварительный ресайз", expanded=False):
-        enable_preresize = st.checkbox("Включить", value=get_setting('preprocessing.enable_preresize', False), key='pre_enable')
+        enable_preresize = st.checkbox("Включить", value=get_setting('preprocessing.enable_preresize', False), key='pre_enable',
+                                     help="Уменьшает размер изображения перед дальнейшей обработкой для экономии памяти и ускорения")
         set_setting('preprocessing.enable_preresize', enable_preresize)
         if enable_preresize:
             col_pre1, col_pre2 = st.columns(2)
             with col_pre1:
-                 pr_w = st.number_input("Макс. Ширина (px)", 0, 10000, value=get_setting('preprocessing.preresize_width', 2500), step=10, key='pre_w')
+                 pr_w = st.number_input("Макс. Ширина (px)", 0, 10000, 
+                                       value=get_setting('preprocessing.preresize_width', 2500), 
+                                       step=10, key='pre_w',
+                                       help="Максимальная ширина изображения после ресайза (0 - без ограничения)")
                  set_setting('preprocessing.preresize_width', pr_w)
             with col_pre2:
-                 pr_h = st.number_input("Макс. Высота (px)", 0, 10000, value=get_setting('preprocessing.preresize_height', 2500), step=10, key='pre_h')
+                 pr_h = st.number_input("Макс. Высота (px)", 0, 10000, 
+                                       value=get_setting('preprocessing.preresize_height', 2500), 
+                                       step=10, key='pre_h',
+                                       help="Максимальная высота изображения после ресайза (0 - без ограничения)")
                  set_setting('preprocessing.preresize_height', pr_h)
 
     with st.expander("2. Отбеливание", expanded=False):
         # === ЧЕКБОКС ВКЛЮЧЕНИЯ ===
-        enable_whitening = st.checkbox("Включить ", value=get_setting('whitening.enable_whitening', False), key='white_enable') # Пробел в лейбле для уникальности
+        enable_whitening = st.checkbox("Включить ", value=get_setting('whitening.enable_whitening', False), 
+                                     key='white_enable',
+                                     help="Конвертирует светлый фон по периметру в чисто белый цвет") # Пробел в лейбле для уникальности
         set_setting('whitening.enable_whitening', enable_whitening)
         if enable_whitening:
             # === ПРОСТОЙ ПРОЦЕНТНЫЙ СЛАЙДЕР ===
@@ -641,7 +678,7 @@ with st.sidebar:
                                   step=1, 
                                   key='white_thr', 
                                   format="%d%%",
-                                  help="Изображение будет отбелено, если периметр ТЕМНЕЕ указанного значения. 0% - отбеливать только белый периметр, 100% - отбеливать даже черный периметр.")
+                                  help="Изображение будет отбелено, только если самый темный пиксель периметра СВЕТЛЕЕ указанного значения. 0% - отбеливать только белый периметр, 100% - отбеливать любой периметр.")
             
             # Преобразуем проценты в абсолютный порог для функции отбеливания
             adjusted_threshold = int((100 - wc_percent) * 7.65)  # Инвертируем для логического соответствия
@@ -650,17 +687,31 @@ with st.sidebar:
 
     with st.expander("3. Удаление фона и обрезка", expanded=False):
         # === РАСКОММЕНТИРОВАНО ===
-        enable_bg_crop = st.checkbox("Включить ", value=get_setting('background_crop.enable_bg_crop', False), key='bgc_enable') # Пробел в лейбле
+        enable_bg_crop = st.checkbox("Включить ", value=get_setting('background_crop.enable_bg_crop', False), 
+                                   key='bgc_enable',
+                                   help="Удаляет белый фон вокруг объекта и обрезает изображение по границам объекта") # Пробел в лейбле
         set_setting('background_crop.enable_bg_crop', enable_bg_crop)
         if enable_bg_crop:
-            bgc_tol = st.slider("Допуск белого фона", 0, 255, value=get_setting('background_crop.white_tolerance', 10), key='bgc_tol', help="Насколько цвет может отличаться от чисто белого, чтобы считаться фоном. Рекомендуется не выше 20. Если используется отбеливание, не выше 5")
+            bgc_tol = st.slider("Допуск белого фона", 0, 255, 
+                              value=get_setting('background_crop.white_tolerance', 10), 
+                              key='bgc_tol', 
+                              help="Насколько цвет пикселя может отличаться от чисто белого (RGB 255,255,255), чтобы считаться фоном. Рекомендуется не выше 20. Если используется отбеливание, рекомендуется значение не выше 5.")
             set_setting('background_crop.white_tolerance', bgc_tol)
-            bgc_per = st.checkbox("Проверять периметр", value=get_setting('background_crop.check_perimeter', True), key='bgc_perimeter', help="Обрезать только если изображение не доходит до краев изображения. Условная проверка чтобы не обрезать картинки без белого фона")
+            bgc_per = st.checkbox("Проверять периметр", 
+                                value=get_setting('background_crop.check_perimeter', True), 
+                                key='bgc_perimeter', 
+                                help="Включите, чтобы обрезка выполнялась только если периметр изображения белый. Предотвращает обрезку изображений без белого фона или с объектами, касающимися края.")
             set_setting('background_crop.check_perimeter', bgc_per)
-            bgc_abs = st.checkbox("Абсолютно симм. обрезка", value=get_setting('background_crop.crop_symmetric_absolute', False), key='bgc_abs')
+            bgc_abs = st.checkbox("Абсолютно симм. обрезка", 
+                                value=get_setting('background_crop.crop_symmetric_absolute', False), 
+                                key='bgc_abs',
+                                help="Обрезка будет одинаковой со всех сторон (минимальная из обнаруженных)")
             set_setting('background_crop.crop_symmetric_absolute', bgc_abs)
             if not bgc_abs:
-                bgc_axes = st.checkbox("Симм. обрезка по осям", value=get_setting('background_crop.crop_symmetric_axes', False), key='bgc_axes')
+                bgc_axes = st.checkbox("Симм. обрезка по осям", 
+                                     value=get_setting('background_crop.crop_symmetric_axes', False), 
+                                     key='bgc_axes',
+                                     help="Обрезка будет симметричной по каждой оси (слева/справа одинаково, сверху/снизу одинаково)")
                 set_setting('background_crop.crop_symmetric_axes', bgc_axes)
             else:
                  if get_setting('background_crop.crop_symmetric_axes', False):
@@ -691,6 +742,7 @@ with st.sidebar:
             index=current_padding_mode_index,
             key='pad_mode_radio',
             horizontal=False, # Вертикальное расположение для читаемости
+            help="Определяет условия, при которых будут добавлены поля вокруг изображения"
         )
         selected_padding_mode_key = padding_mode_keys[padding_mode_values.index(selected_padding_mode_value)]
         
@@ -713,7 +765,7 @@ with st.sidebar:
             pad_tol = st.slider("Допуск белого для проверки периметра", 0, 255, 
                                  value=get_setting('padding.perimeter_check_tolerance', 10), 
                                  key='pad_tolerance_conditional', 
-                                 help="Насколько цвет пикселя на периметре может отличаться от белого (RGB 255,255,255), чтобы считаться белым для этой проверки.")
+                                 help="Определяет, насколько цвет пикселя периметра может отличаться от чисто белого (RGB 255,255,255), чтобы считаться белым при проверке. Влияет только на решение о добавлении полей, но не на их размер.")
             set_setting('padding.perimeter_check_tolerance', pad_tol)
             # =======================================
         else:
@@ -726,13 +778,13 @@ with st.sidebar:
             pad_p = st.slider("Процент полей", 0.0, 50.0, 
                               value=get_setting('padding.padding_percent', 5.0), 
                               step=0.5, key='pad_perc_conditional', format="%.1f%%",
-                              help="Размер добавляемых полей относительно большей стороны изображения.")
+                              help="Размер добавляемых полей в процентах от большей стороны изображения. Поля будут одинаковыми со всех сторон.")
             set_setting('padding.padding_percent', pad_p)
 
             pad_exp = st.checkbox("Разрешить полям расширять холст", 
                                   value=get_setting('padding.allow_expansion', True), 
                                   key='pad_expand_conditional', 
-                                  help="Если отключено, поля будут добавлены только если финальный размер изображения позволяет.")
+                                  help="Когда включено, поля могут увеличивать общий размер изображения. Если выключено, поля будут добавлены только если они не приведут к увеличению исходного размера изображения.")
             set_setting('padding.allow_expansion', pad_exp)
 
         # Удаляем старые ненужные виджеты (enable_padding и старый perimeter_margin)
@@ -740,19 +792,22 @@ with st.sidebar:
 
     # === НОВЫЙ ЭКСПАНДЕР ===
     with st.expander("5. Яркость и Контраст", expanded=False):
-        enable_bc = st.checkbox("Включить", value=get_setting('brightness_contrast.enable_bc', False), key='bc_enable')
+        enable_bc = st.checkbox("Включить", 
+                              value=get_setting('brightness_contrast.enable_bc', False), 
+                              key='bc_enable',
+                              help="Активирует регулировку яркости и контраста изображения")
         set_setting('brightness_contrast.enable_bc', enable_bc)
         if enable_bc:
             brightness_factor = st.slider("Яркость", 0.1, 3.0, 
                                           value=get_setting('brightness_contrast.brightness_factor', 1.0), 
                                           step=0.05, key='bc_brightness', format="%.2f",
-                                          help="Меньше 1.0 - темнее, больше 1.0 - светлее.")
+                                          help="Коэффициент яркости: 1.0 - без изменений, меньше 1.0 - темнее, больше 1.0 - светлее.")
             set_setting('brightness_contrast.brightness_factor', brightness_factor)
             
             contrast_factor = st.slider("Контраст", 0.1, 3.0, 
                                         value=get_setting('brightness_contrast.contrast_factor', 1.0), 
                                         step=0.05, key='bc_contrast', format="%.2f",
-                                        help="Меньше 1.0 - меньше контраста, больше 1.0 - больше контраста.")
+                                        help="Коэффициент контраста: 1.0 - без изменений, меньше 1.0 - меньше контраста (более плоское изображение), больше 1.0 - больше контраста (более выраженная разница между светлыми и темными участками).")
             set_setting('brightness_contrast.contrast_factor', contrast_factor)
     # ========================
 
@@ -766,7 +821,8 @@ with st.sidebar:
             # --- Соотношение сторон --- 
             enable_ratio_ind = st.checkbox("Принудительное соотношение сторон", 
                                            value=get_setting('individual_mode.enable_force_aspect_ratio', False),
-                                           key='ind_enable_ratio')
+                                           key='ind_enable_ratio',
+                                           help="Если включено, изображение будет приведено к указанному соотношению сторон путем добавления прозрачных или цветных полей")
             set_setting('individual_mode.enable_force_aspect_ratio', enable_ratio_ind)
             if enable_ratio_ind:
                 st.caption("Соотношение (W:H)")
@@ -787,8 +843,16 @@ with st.sidebar:
                        set_setting('individual_mode.force_aspect_ratio', [default_w_ind, default_h_ind])
                 # ==========================
 
-                with col_r1: ratio_w_ind = st.number_input("W", 0.1, 100.0, value=default_w_ind, step=0.1, key='ind_ratio_w', format="%.1f", label_visibility="collapsed")
-                with col_r2: ratio_h_ind = st.number_input("H", 0.1, 100.0, value=default_h_ind, step=0.1, key='ind_ratio_h', format="%.1f", label_visibility="collapsed")
+                with col_r1: 
+                    ratio_w_ind = st.number_input("W", 0.1, 100.0, value=default_w_ind, step=0.1, 
+                                                key='ind_ratio_w', format="%.1f", 
+                                                label_visibility="collapsed", 
+                                                help="Ширина в соотношении сторон. Например, для соотношения 16:9 введите 16")
+                with col_r2: 
+                    ratio_h_ind = st.number_input("H", 0.1, 100.0, value=default_h_ind, step=0.1, 
+                                                key='ind_ratio_h', format="%.1f", 
+                                                label_visibility="collapsed", 
+                                                help="Высота в соотношении сторон. Например, для соотношения 16:9 введите 9")
                 # Сохраняем, только если оба > 0
                 if ratio_w_ind > 0 and ratio_h_ind > 0:
                      # Сохраняем только если значение изменилось 
@@ -799,38 +863,75 @@ with st.sidebar:
             # --- Максимальный размер --- 
             enable_max_dim_ind = st.checkbox("Максимальный размер",
                                              value=get_setting('individual_mode.enable_max_dimensions', False),
-                                             key='ind_enable_maxdim')
+                                             key='ind_enable_maxdim',
+                                             help="Если включено, изображение будет уменьшено, если его размеры превышают указанные максимальные значения. Пропорции изображения сохраняются.")
             set_setting('individual_mode.enable_max_dimensions', enable_max_dim_ind)
             if enable_max_dim_ind:
                 st.caption("Макс. размер (ШxВ, px)")
                 col_m1, col_m2 = st.columns(2)
-                with col_m1: max_w_ind = st.number_input("Ш", 1, 10000, value=get_setting('individual_mode.max_output_width', 1500), step=50, key='ind_max_w', label_visibility="collapsed"); set_setting('individual_mode.max_output_width', max_w_ind)
-                with col_m2: max_h_ind = st.number_input("В", 1, 10000, value=get_setting('individual_mode.max_output_height', 1500), step=50, key='ind_max_h', label_visibility="collapsed"); set_setting('individual_mode.max_output_height', max_h_ind)
+                with col_m1: 
+                    max_w_ind = st.number_input("Ш", 1, 10000, 
+                                              value=get_setting('individual_mode.max_output_width', 1500), 
+                                              step=50, key='ind_max_w', 
+                                              label_visibility="collapsed", 
+                                              help="Максимальная ширина в пикселях")
+                    set_setting('individual_mode.max_output_width', max_w_ind)
+                with col_m2: 
+                    max_h_ind = st.number_input("В", 1, 10000, 
+                                              value=get_setting('individual_mode.max_output_height', 1500), 
+                                              step=50, key='ind_max_h', 
+                                              label_visibility="collapsed", 
+                                              help="Максимальная высота в пикселях")
+                    set_setting('individual_mode.max_output_height', max_h_ind)
 
             # --- Точный холст --- 
             enable_exact_ind = st.checkbox("Точный холст", 
                                            value=get_setting('individual_mode.enable_exact_canvas', False),
-                                           key='ind_enable_exact')
+                                           key='ind_enable_exact',
+                                           help="Если включено, изображение будет размещено на холсте точного размера. Изображение будет отцентрировано и масштабировано для сохранения пропорций.")
             set_setting('individual_mode.enable_exact_canvas', enable_exact_ind)
             if enable_exact_ind:
                 st.caption("Точный холст (ШxВ, px)")
                 col_e1, col_e2 = st.columns(2)
-                with col_e1: exact_w_ind = st.number_input("Ш", 1, 10000, value=get_setting('individual_mode.final_exact_width', 1000), step=50, key='ind_exact_w', label_visibility="collapsed"); set_setting('individual_mode.final_exact_width', exact_w_ind)
-                with col_e2: exact_h_ind = st.number_input("В", 1, 10000, value=get_setting('individual_mode.final_exact_height', 1000), step=50, key='ind_exact_h', label_visibility="collapsed"); set_setting('individual_mode.final_exact_height', exact_h_ind)
+                with col_e1: 
+                    exact_w_ind = st.number_input("Ш", 1, 10000, 
+                                                value=get_setting('individual_mode.final_exact_width', 1000), 
+                                                step=50, key='ind_exact_w', 
+                                                label_visibility="collapsed",
+                                                help="Точная ширина холста в пикселях")
+                    set_setting('individual_mode.final_exact_width', exact_w_ind)
+                with col_e2: 
+                    exact_h_ind = st.number_input("В", 1, 10000, 
+                                                value=get_setting('individual_mode.final_exact_height', 1000), 
+                                                step=50, key='ind_exact_h', 
+                                                label_visibility="collapsed",
+                                                help="Точная высота холста в пикселях")
+                    set_setting('individual_mode.final_exact_height', exact_h_ind)
 
             # --- Параметры вывода (без изменений) ---
             st.caption("Параметры вывода")
             fmt_col, q_col, bg_col = st.columns([1,1,2])
             with fmt_col:
-                 output_format_ind = st.selectbox("Формат", ["jpg", "png"], index=["jpg", "png"].index(get_setting('individual_mode.output_format', 'jpg')), key='ind_format')
+                 output_format_ind = st.selectbox("Формат", ["jpg", "png"], 
+                                            index=["jpg", "png"].index(get_setting('individual_mode.output_format', 'jpg')), 
+                                            key='ind_format',
+                                            help="JPG - меньше размер файла, нет прозрачности. PNG - больше размер, сохраняет прозрачность.")
                  set_setting('individual_mode.output_format', output_format_ind)
             with q_col:
-                 if output_format_ind == 'jpg': q_ind = st.number_input("Кач-во", 1, 100, value=get_setting('individual_mode.jpeg_quality', 95), key='ind_quality'); set_setting('individual_mode.jpeg_quality', q_ind)
+                 if output_format_ind == 'jpg': 
+                     q_ind = st.number_input("Кач-во", 1, 100, 
+                                       value=get_setting('individual_mode.jpeg_quality', 95), 
+                                       key='ind_quality',
+                                       help="Качество сжатия JPG (1-100). Выше значение - лучше качество, но больше размер файла.")
+                     set_setting('individual_mode.jpeg_quality', q_ind)
                  else: st.caption("-")
             with bg_col:
                  if output_format_ind == 'jpg':
                      bg_color_str_ind = ",".join(map(str, get_setting('individual_mode.jpg_background_color', [255,255,255])))
-                     new_bg_color_str_ind = st.text_input("Фон (R,G,B)", value=bg_color_str_ind, key='ind_bg')
+                     new_bg_color_str_ind = st.text_input("Фон (R,G,B)", 
+                                                    value=bg_color_str_ind, 
+                                                    key='ind_bg',
+                                                    help="Цвет фона для JPG в формате R,G,B (значения 0-255). Для белого: 255,255,255, для черного: 0,0,0")
                      try:
                          new_bg_color_ind = list(map(int, new_bg_color_str_ind.split(',')))
                          if len(new_bg_color_ind) == 3 and all(0 <= c <= 255 for c in new_bg_color_ind):
@@ -840,28 +941,28 @@ with st.sidebar:
                  else: st.caption("-")
         # === КОНЕЦ ЭКСПАНДЕРА 1 ===
         
-        # === ЭКСПАНДЕР 2 (теперь не вложенный) ===
-        with st.expander("Переименование и удаление", expanded=False):
-            # --- Переименование --- 
-            enable_rename_ind = st.checkbox("Переименовать файлы (по артикулу)",
-                                            value=get_setting('individual_mode.enable_rename', False),
-                                            key='ind_enable_rename')
-            set_setting('individual_mode.enable_rename', enable_rename_ind)
-            if enable_rename_ind:
-                article_ind = st.text_input("Артикул для переименования",
-                                            value=get_setting('individual_mode.article_name', ''),
-                                            key='ind_article',
-                                            placeholder="Введите артикул...")
-                set_setting('individual_mode.article_name', article_ind)
-                if article_ind: st.caption("Файлы будут вида: [Артикул]_1.jpg, ...")
-                else: st.warning("Введите артикул для переименования.") # Валидация
-            
-            # --- Удаление (без изменений) ---
-            delete_orig_ind = st.checkbox("Удалять оригиналы после обработки?",
-                                          value=get_setting('individual_mode.delete_originals', False),
-                                          key='ind_delete_orig')
-            set_setting('individual_mode.delete_originals', delete_orig_ind)
-            if delete_orig_ind: st.warning("ВНИМАНИЕ: Удаление необратимо!", icon="⚠️")
+        # === ЭКСПАНДЕР 2 УДАЛЕН, ПЕРЕМЕЩЕН ВЫШЕ ===
+        # with st.expander("Переименование и удаление", expanded=False):
+        #     # --- Переименование --- 
+        #     enable_rename_ind = st.checkbox("Переименовать файлы (по артикулу)",
+        #                                     value=get_setting('individual_mode.enable_rename', False),
+        #                                     key='ind_enable_rename')
+        #     set_setting('individual_mode.enable_rename', enable_rename_ind)
+        #     if enable_rename_ind:
+        #         article_ind = st.text_input("Артикул для переименования",
+        #                                     value=get_setting('individual_mode.article_name', ''),
+        #                                     key='ind_article',
+        #                                     placeholder="Введите артикул...")
+        #         set_setting('individual_mode.article_name', article_ind)
+        #         if article_ind: st.caption("Файлы будут вида: [Артикул]_1.jpg, ...")
+        #         else: st.warning("Введите артикул для переименования.") # Валидация
+        #     
+        #     # --- Удаление (без изменений) ---
+        #     delete_orig_ind = st.checkbox("Удалять оригиналы после обработки?",
+        #                                  value=get_setting('individual_mode.delete_originals', False),
+        #                                  key='ind_delete_orig')
+        #     set_setting('individual_mode.delete_originals', delete_orig_ind)
+        #     if delete_orig_ind: st.warning("ВНИМАНИЕ: Удаление необратимо!", icon="⚠️")
         # === КОНЕЦ ЭКСПАНДЕРА 2 ===
         # === КОНЕЦ УДАЛЕННОГО ОБЩЕГО ЭКСПАНДЕРА ===
 
@@ -870,7 +971,8 @@ with st.sidebar:
             # --- Соотношение сторон --- 
             enable_ratio_coll = st.checkbox("Принудительное соотношение сторон коллажа", 
                                               value=get_setting('collage_mode.enable_force_aspect_ratio', False),
-                                              key='coll_enable_ratio')
+                                              key='coll_enable_ratio',
+                                              help="Если включено, коллаж будет приведен к указанному соотношению сторон путем добавления полей")
             set_setting('collage_mode.enable_force_aspect_ratio', enable_ratio_coll)
             if enable_ratio_coll:
                 st.caption("Соотношение (W:H)")
@@ -878,38 +980,77 @@ with st.sidebar:
                 current_ratio_coll_val = get_setting('collage_mode.force_collage_aspect_ratio', [16.0, 9.0])
                 default_w_coll = float(current_ratio_coll_val[0])
                 default_h_coll = float(current_ratio_coll_val[1])
-                with col_r1_coll: ratio_w_coll = st.number_input("W", 0.1, 100.0, value=default_w_coll, step=0.1, key='coll_ratio_w', format="%.1f", label_visibility="collapsed")
-                with col_r2_coll: ratio_h_coll = st.number_input("H", 0.1, 100.0, value=default_h_coll, step=0.1, key='coll_ratio_h', format="%.1f", label_visibility="collapsed")
+                with col_r1_coll: 
+                    ratio_w_coll = st.number_input("W", 0.1, 100.0, 
+                                                 value=default_w_coll, step=0.1, 
+                                                 key='coll_ratio_w', format="%.1f", 
+                                                 label_visibility="collapsed",
+                                                 help="Ширина в соотношении сторон. Например, для соотношения 16:9 введите 16")
+                with col_r2_coll: 
+                    ratio_h_coll = st.number_input("H", 0.1, 100.0, 
+                                                 value=default_h_coll, step=0.1, 
+                                                 key='coll_ratio_h', format="%.1f", 
+                                                 label_visibility="collapsed",
+                                                 help="Высота в соотношении сторон. Например, для соотношения 16:9 введите 9")
                 if ratio_w_coll > 0 and ratio_h_coll > 0: set_setting('collage_mode.force_collage_aspect_ratio', [ratio_w_coll, ratio_h_coll])
                 else: st.warning("Соотношение должно быть больше 0")
 
             # --- Максимальный размер --- 
             enable_max_dim_coll = st.checkbox("Максимальный размер коллажа",
                                                 value=get_setting('collage_mode.enable_max_dimensions', False),
-                                                key='coll_enable_maxdim')
+                                                key='coll_enable_maxdim',
+                                                help="Если включено, коллаж будет уменьшен, если его размеры превышают указанные максимальные значения")
             set_setting('collage_mode.enable_max_dimensions', enable_max_dim_coll)
             if enable_max_dim_coll:
                 st.caption("Макс. размер (ШxВ, px)")
                 col_m1_coll, col_m2_coll = st.columns(2)
-                with col_m1_coll: max_w_coll = st.number_input("Ш", 1, 10000, value=get_setting('collage_mode.max_collage_width', 1500), step=50, key='coll_max_w', label_visibility="collapsed"); set_setting('collage_mode.max_collage_width', max_w_coll)
-                with col_m2_coll: max_h_coll = st.number_input("В", 1, 10000, value=get_setting('collage_mode.max_collage_height', 1500), step=50, key='coll_max_h', label_visibility="collapsed"); set_setting('collage_mode.max_collage_height', max_h_coll)
+                with col_m1_coll: 
+                    max_w_coll = st.number_input("Ш", 1, 10000, 
+                                               value=get_setting('collage_mode.max_collage_width', 1500), 
+                                               step=50, key='coll_max_w', 
+                                               label_visibility="collapsed",
+                                               help="Максимальная ширина коллажа в пикселях")
+                    set_setting('collage_mode.max_collage_width', max_w_coll)
+                with col_m2_coll: 
+                    max_h_coll = st.number_input("В", 1, 10000, 
+                                               value=get_setting('collage_mode.max_collage_height', 1500), 
+                                               step=50, key='coll_max_h', 
+                                               label_visibility="collapsed",
+                                               help="Максимальная высота коллажа в пикселях")
+                    set_setting('collage_mode.max_collage_height', max_h_coll)
 
             # --- Точный холст --- 
             enable_exact_coll = st.checkbox("Точный холст коллажа", 
                                               value=get_setting('collage_mode.enable_exact_canvas', False),
-                                              key='coll_enable_exact')
+                                              key='coll_enable_exact',
+                                              help="Если включено, коллаж будет размещен на холсте точного размера с сохранением пропорций")
             set_setting('collage_mode.enable_exact_canvas', enable_exact_coll)
             if enable_exact_coll:
                 st.caption("Точный холст (ШxВ, px)")
                 col_e1_coll, col_e2_coll = st.columns(2)
-                with col_e1_coll: exact_w_coll = st.number_input("Ш", 1, 10000, value=get_setting('collage_mode.final_collage_exact_width', 1920), step=50, key='coll_exact_w', label_visibility="collapsed"); set_setting('collage_mode.final_collage_exact_width', exact_w_coll)
-                with col_e2_coll: exact_h_coll = st.number_input("В", 1, 10000, value=get_setting('collage_mode.final_collage_exact_height', 1080), step=50, key='coll_exact_h', label_visibility="collapsed"); set_setting('collage_mode.final_collage_exact_height', exact_h_coll)
+                with col_e1_coll: 
+                    exact_w_coll = st.number_input("Ш", 1, 10000, 
+                                                 value=get_setting('collage_mode.final_collage_exact_width', 1920), 
+                                                 step=50, key='coll_exact_w', 
+                                                 label_visibility="collapsed",
+                                                 help="Точная ширина холста коллажа в пикселях")
+                    set_setting('collage_mode.final_collage_exact_width', exact_w_coll)
+                with col_e2_coll: 
+                    exact_h_coll = st.number_input("В", 1, 10000, 
+                                                 value=get_setting('collage_mode.final_collage_exact_height', 1080), 
+                                                 step=50, key='coll_exact_h', 
+                                                 label_visibility="collapsed",
+                                                 help="Точная высота холста коллажа в пикселях")
+                    set_setting('collage_mode.final_collage_exact_height', exact_h_coll)
 
             # --- Параметры вывода (без изменений) ---
             st.caption("Параметры вывода коллажа")
             fmt_col_coll, q_col_coll, bg_col_coll = st.columns([1,1,2])
             with fmt_col_coll:
-                 output_format_coll = st.selectbox("Формат", ["jpg", "png"], index=["jpg", "png"].index(get_setting('collage_mode.output_format', 'jpg')), key='coll_format')
+                 output_format_coll = st.selectbox("Формат", ["jpg", "png"], 
+                                                index=["jpg", "png"].index(get_setting('collage_mode.output_format', 'jpg')), 
+                                                key='coll_format',
+                                                help="JPG - меньше размер файла, нет прозрачности. PNG - больше размер файла, сохраняет прозрачность")
                  set_setting('collage_mode.output_format', output_format_coll)
             with q_col_coll:
                  if output_format_coll == 'jpg': q_coll = st.number_input("Кач-во", 1, 100, value=get_setting('collage_mode.jpeg_quality', 95), key='coll_quality'); set_setting('collage_mode.jpeg_quality', q_coll)
@@ -1158,14 +1299,49 @@ if st.session_state.selected_processing_mode == "Создание коллаже
         if os.path.isfile(coll_full_path):
             st.divider(); st.subheader("Предпросмотр коллажа:")
             try:
-                # Используем полный путь для ключа и отображения
-                preview_key = f"collage_preview_{int(os.path.getmtime(coll_full_path))}_{coll_filename_with_ext}" # Добавим имя файла в ключ
-                st.image(coll_full_path, use_container_width=True, key=preview_key)
+                # Уникальный ключ не нужен для st.image в данном случае
+                st.image(coll_full_path, use_container_width=True)
                 log.debug(f"Displaying collage preview: {coll_full_path}")
             except Exception as img_e:
                 st.warning(f"Не удалось отобразить превью коллажа: {img_e}")
                 log.warning(f"Failed to display collage preview {coll_full_path}: {img_e}")
         else: log.debug(f"Collage file for preview not found: {coll_full_path}")
     else: log.debug("Input path or collage filename not set for preview.")
+
+# --- Добавляем предпросмотр обработанных фотографий ---
+elif st.session_state.selected_processing_mode == "Обработка отдельных файлов":
+    output_path = get_setting('paths.output_folder_path','')
+    if output_path and os.path.isdir(output_path):
+        import glob
+        # Получаем список файлов изображений
+        image_files = glob.glob(os.path.join(output_path, "*.jpg")) + glob.glob(os.path.join(output_path, "*.jpeg")) + glob.glob(os.path.join(output_path, "*.png"))
+        # Сортируем файлы по времени изменения (сначала новые)
+        image_files.sort(key=os.path.getmtime, reverse=True)
+        
+        if image_files:
+            st.divider(); st.subheader("Предпросмотр обработанных фотографий:")
+            max_images = 18  # Увеличиваем до 18 изображений (3x6)
+            preview_images = image_files[:max_images]
+            
+            # Создаем строки по 3 изображения (6 строк)
+            for i in range(0, len(preview_images), 3):
+                row_images = preview_images[i:i+3]
+                cols = st.columns(len(row_images))
+                
+                for j, img_path in enumerate(row_images):
+                    try:
+                        # Показываем имя файла и изображение
+                        cols[j].caption(os.path.basename(img_path))
+                        cols[j].image(img_path)
+                    except Exception as img_e:
+                        cols[j].warning(f"Не удалось отобразить {os.path.basename(img_path)}: {img_e}")
+                        log.warning(f"Failed to display image preview {img_path}: {img_e}")
+            
+            if len(image_files) > max_images:
+                st.caption(f"Показано {min(max_images, len(image_files))} из {len(image_files)} изображений")
+        else:
+            log.debug(f"No image files found in output directory: {output_path}")
+    else: 
+        log.debug("Output path not set or not found for individual files preview.")
 
 log.info("--- End of app script render cycle ---")

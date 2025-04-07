@@ -325,9 +325,18 @@ def run_individual_processing(**all_settings: Dict[str, Any]):
                  else: backup_enabled = True # Папка существует и это директория
              except Exception as e: log.error(f"Error creating backup dir {abs_backup_path}: {e}")
 
-    safe_to_delete = abs_input_path != abs_output_path
-    effective_delete_originals = delete_originals and safe_to_delete
-    if delete_originals and not safe_to_delete: log.warning("Deletion disabled: input/output paths are same.")
+    # Удаляем блокировку на удаление при совпадении директорий ввода/вывода
+    # safe_to_delete = abs_input_path != abs_output_path
+    # effective_delete_originals = delete_originals and safe_to_delete
+    # if delete_originals and not safe_to_delete: log.warning("Deletion disabled: input/output paths are same.")
+    
+    # Теперь разрешаем удаление даже при совпадении директорий
+    effective_delete_originals = delete_originals
+    # Проверим только разницу в расширениях, если это одна директория
+    same_directory = abs_input_path == abs_output_path
+    if same_directory and delete_originals:
+        # Если удаление включено и директории одинаковы, выводим предупреждение, но не блокируем функцию
+        log.warning("Directory same for input/output. Will attempt to delete only files with different extensions.")
 
     try: # Создание папки результатов
         if not os.path.exists(abs_output_path): os.makedirs(abs_output_path); log.info(f"Created output dir: {abs_output_path}")
@@ -634,21 +643,95 @@ def run_individual_processing(**all_settings: Dict[str, Any]):
     total_time = time.time() - start_time
     log.info(f"Total processing time: {total_time:.2f} seconds")
 
-    # 7.1. Удаление оригиналов
+    # 7.1. Удаление оригиналов - ТЕПЕРЬ ВЫПОЛНЯЕТСЯ ДО ПЕРЕИМЕНОВАНИЯ
     if effective_delete_originals and source_files_to_potentially_delete:
         log.info(f"\n--- Deleting {len(source_files_to_potentially_delete)} original files from '{abs_input_path}' ---")
         removed_count = 0; remove_errors = 0
+        
+        # Получаем список всех обработанных базовых имен файлов (без расширения)
+        processed_basenames = set()
+        for output_path, orig_name in processed_output_file_map.items():
+            # Получаем базовое имя без расширения
+            base_name = os.path.splitext(orig_name)[0]
+            processed_basenames.add(base_name)
+        
+        log.debug(f"Base names of processed files: {processed_basenames}")
+        
+        # Запоминаем расширение выходных файлов для проверки
+        output_ext_lower = output_ext.lower()
+        same_directory = abs_input_path == abs_output_path
+        
+        # Стандартное удаление файлов из списка
         for file_to_remove in list(source_files_to_potentially_delete):
             try:
-                if os.path.exists(file_to_remove): os.remove(file_to_remove); removed_count += 1; log.debug(f"  Deleted: {os.path.basename(file_to_remove)}")
-                else: log.warning(f"  File to delete not found: {os.path.basename(file_to_remove)}")
-            except Exception as remove_error: log.error(f"  Error deleting {os.path.basename(file_to_remove)}: {remove_error}"); remove_errors += 1
-        log.info(f"  -> Successfully deleted: {removed_count}. Deletion errors: {remove_errors}.")
+                if os.path.exists(file_to_remove): 
+                    # Дополнительная проверка для одной директории
+                    if same_directory:
+                        file_ext = os.path.splitext(file_to_remove)[1].lower()
+                        # Если расширение совпадает с выходным форматом, не удаляем
+                        if file_ext == output_ext_lower:
+                            log.warning(f"  Skip deleting output format file in same directory: {os.path.basename(file_to_remove)}")
+                            continue
+                    
+                    os.remove(file_to_remove)
+                    removed_count += 1
+                    log.debug(f"  Deleted original file: {os.path.basename(file_to_remove)}")
+                else: 
+                    log.warning(f"  File to delete not found: {os.path.basename(file_to_remove)}")
+            except Exception as remove_error: 
+                log.error(f"  Error deleting {os.path.basename(file_to_remove)}: {remove_error}")
+                remove_errors += 1
+        
+        # Дополнительно удаляем файлы с другими расширениями, но с теми же базовыми именами
+        # Теперь эта логика работает независимо от того, совпадают ли пути ввода/вывода
+        if processed_basenames:
+            log.info("  Looking for additional files with the same base names but different extensions...")
+            extra_removed = 0
+            
+            try:
+                # Получаем все файлы во входной директории
+                all_input_files = [f for f in os.listdir(abs_input_path) 
+                                  if os.path.isfile(os.path.join(abs_input_path, f))]
+                
+                # Проходим по всем файлам и проверяем базовые имена
+                for filename in all_input_files:
+                    file_path = os.path.join(abs_input_path, filename)
+                    # Пропускаем если файл уже был удален
+                    if file_path in source_files_to_potentially_delete:
+                        continue
+                    
+                    # Получаем базовое имя без расширения и расширение файла
+                    base_name = os.path.splitext(filename)[0]
+                    file_ext = os.path.splitext(filename)[1].lower()
+                    
+                    # Если базовое имя есть в списке обработанных, удаляем этот файл
+                    if base_name in processed_basenames:
+                        # Не удаляем файлы с выходным расширением при одинаковых директориях
+                        if same_directory and file_ext == output_ext_lower:
+                            log.warning(f"  Skip deleting output file with same base name: {filename}")
+                            continue
+                        
+                        try:
+                            os.remove(file_path)
+                            extra_removed += 1
+                            log.debug(f"  Deleted additional file: {filename}")
+                        except Exception as ex:
+                            log.error(f"  Error deleting additional file {filename}: {ex}")
+                            remove_errors += 1
+            except Exception as e:
+                log.error(f"  Error searching for additional files to delete: {e}")
+            
+            if extra_removed > 0:
+                log.info(f"  -> Additionally deleted {extra_removed} files with same base names but different extensions.")
+            else:
+                log.debug("  No additional files with matching base names found.")
+        
+        log.info(f"  -> Total files deleted: {removed_count + extra_removed}. Deletion errors: {remove_errors}.")
         source_files_to_potentially_delete.clear()
     elif delete_originals: log.info("\n--- Deletion of originals skipped (check paths or successful processing). ---")
     else: log.info("\n--- Deletion of originals disabled. ---")
 
-    # 7.2. Переименование
+    # 7.2. Переименование - ТЕПЕРЬ ВЫПОЛНЯЕТСЯ ПОСЛЕ УДАЛЕНИЯ ОРИГИНАЛОВ
     enable_renaming_actual = bool(article_name and str(article_name).strip())
     if enable_renaming_actual and processed_output_file_map:
         log.info(f"\n--- Renaming {len(processed_output_file_map)} files in '{abs_output_path}' using article '{article_name}' ---")
