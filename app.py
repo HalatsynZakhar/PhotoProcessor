@@ -89,8 +89,6 @@ def get_downloads_folder():
             import winreg
             subkey = r'Software\Microsoft\Windows\CurrentVersion\Explorer\Shell Folders'
             downloads_guid = '{374DE290-123F-4565-9164-39C4925E467B}'
-            with winreg.OpenKey(winreg.HKEY_CURRENT_USER, subkey) as key:
-                location = winreg.QueryValueEx(key, downloads_guid)[0]
             log.debug(f"Downloads folder from registry: {location}")
             return location
         except ImportError:
@@ -446,7 +444,7 @@ with st.sidebar:
     user_downloads_folder = get_downloads_folder()
     log.debug(f"Resolved Downloads Folder: {user_downloads_folder}")
 
-    with st.expander("Настройка путей и сохранения", expanded=False):
+    with st.expander("Настройка путей и сохранения", expanded=True):
         current_mode_for_file_ops = st.session_state.selected_processing_mode
         if current_mode_for_file_ops == "Обработка отдельных файлов":
             # --- Переименование и удаление --- 
@@ -1066,7 +1064,7 @@ if start_button_pressed_this_run:
             log.error(f"Validation Error: {error_msg}")
         st.warning("Обработка не запущена из-за ошибок в настройках путей.", icon="⚠️")
         
-        with st.expander("📋 Журнал ошибок валидации", expanded=True):
+        with st.expander("📋 Журнал ошибок валидации", expanded=False):
             st.text_area("Лог:", value=log_stream.getvalue(), height=200, 
                        key='log_output_validation_error', disabled=True, 
                        label_visibility="collapsed")
@@ -1123,7 +1121,7 @@ if start_button_pressed_this_run:
             st.error(f"❌ Ошибка при выполнении операции '{mode_from_state}'!")
 
             # --- LOGS IN EXPANDER ---
-            with st.expander("📋 Журнал выполнения (ошибки)", expanded=True):
+            with st.expander("📋 Журнал выполнения (ошибки)", expanded=False):
                 log_content = log_stream.getvalue()
                 st.text_area("Лог с ошибками:", value=log_content, height=300, 
                            key='log_output_error', disabled=True, 
@@ -1192,7 +1190,7 @@ if show_results and st.session_state.selected_processing_mode == "Создани
         coll_full_path = os.path.abspath(os.path.join(coll_input_path, coll_filename_with_ext))
         log.debug(f"Checking for collage preview at: {coll_full_path}") # Добавим лог
         if os.path.isfile(coll_full_path):
-            with st.expander("🖼️ Предпросмотр коллажа", expanded=False):
+            with st.expander("🖼️ Предпросмотр коллажа", expanded=True):
                 try:
                     # Уникальный ключ не нужен для st.image в данном случае
                     st.image(coll_full_path, use_container_width=True)
@@ -1214,7 +1212,7 @@ elif show_results and st.session_state.selected_processing_mode == "Обрабо
         image_files.sort(key=os.path.getmtime, reverse=True)
         
         if image_files:
-            with st.expander("🖼️ Предпросмотр обработанных фотографий", expanded=False):
+            with st.expander("🖼️ Предпросмотр обработанных фотографий", expanded=True):
                 # Получаем настройки отображения
                 columns_count = get_setting('ui_display.columns_count', 3)
                 show_all_images = get_setting('ui_display.show_all_images', False)
