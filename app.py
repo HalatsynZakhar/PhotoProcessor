@@ -393,13 +393,53 @@ with st.sidebar:
             if st.button("🔄 Отменить изменения", key="confirm_reset_active_preset_button", help=f"Сбросить текущие настройки к значениям по умолчанию.", use_container_width=True):
                 st.session_state.reset_active_preset_confirmation_pending = True
                 st.session_state.reset_settings_confirmation_pending = False
-                st.session_state.reset_profiles_confirmation_pending = False
                 st.rerun()
 
         if st.button("💥 Сбросить все к заводским", key="reset_all_settings_button", disabled=st.session_state.reset_settings_confirmation_pending, help="Полностью сбросить все настройки к первоначальному состоянию программы.", use_container_width=True):
             st.session_state.reset_settings_confirmation_pending = True
             st.session_state.reset_active_preset_confirmation_pending = False
             st.rerun()
+
+        # --- Диалоги подтверждения сброса ---
+        if st.session_state.reset_active_preset_confirmation_pending:
+            st.warning("⚠️ Вы уверены, что хотите сбросить текущий набор к значениям по умолчанию?")
+            col1, col2 = st.columns(2)
+            with col1:
+                if st.button("✅ Да, сбросить", key="confirm_reset_active_preset_yes", use_container_width=True):
+                    # Загружаем дефолтные настройки
+                    default_settings = config_manager.get_default_settings()
+                    # Применяем их к текущему профилю
+                    st.session_state.current_settings = default_settings
+                    st.session_state.selected_processing_mode = default_settings.get('processing_mode_selector', "Обработка отдельных файлов")
+                    st.session_state.settings_changed = True
+                    st.session_state.reset_active_preset_confirmation_pending = False
+                    st.toast("✅ Текущий набор сброшен к значениям по умолчанию", icon="🔄")
+                    st.rerun()
+            with col2:
+                if st.button("❌ Нет, отмена", key="confirm_reset_active_preset_no", use_container_width=True):
+                    st.session_state.reset_active_preset_confirmation_pending = False
+                    st.rerun()
+
+        if st.session_state.reset_settings_confirmation_pending:
+            st.error("⚠️ ВНИМАНИЕ: Это действие удалит все пользовательские наборы настроек и сбросит первый набор к заводским значениям!")
+            col1, col2 = st.columns(2)
+            with col1:
+                if st.button("✅ Да, сбросить всё", key="confirm_reset_all_yes", use_container_width=True):
+                    # Удаляем все кастомные пресеты
+                    deleted_count = config_manager.delete_all_custom_presets()
+                    # Сбрасываем все настройки UI к дефолтным
+                    default_settings = config_manager.get_default_settings()
+                    st.session_state.current_settings = default_settings
+                    st.session_state.selected_processing_mode = default_settings.get('processing_mode_selector', "Обработка отдельных файлов")
+                    st.session_state.active_preset = config_manager.DEFAULT_PRESET_NAME
+                    st.session_state.settings_changed = True
+                    st.session_state.reset_settings_confirmation_pending = False
+                    st.toast(f"✅ Все наборы сброшены к заводским настройкам (удалено {deleted_count} наборов)", icon="💥")
+                    st.rerun()
+            with col2:
+                if st.button("❌ Нет, отмена", key="confirm_reset_all_no", use_container_width=True):
+                    st.session_state.reset_settings_confirmation_pending = False
+                    st.rerun()
 
     # === Пути (объединенный блок) ===
     st.header("📂 Пути")
