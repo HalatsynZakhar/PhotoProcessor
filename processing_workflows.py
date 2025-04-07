@@ -264,18 +264,16 @@ def run_individual_processing(**all_settings: Dict[str, Any]):
         preresize_height = int(prep_settings.get('preresize_height', 0)) if enable_preresize else 0
 
         enable_whitening = white_settings.get('enable_whitening', False)
-        whitening_cancel_threshold = int(white_settings.get('whitening_cancel_threshold', 180))
+        whitening_cancel_threshold = int(white_settings.get('whitening_cancel_threshold', 765))  # Default to 765 (0% on slider)
+        log.info(f"Whitening threshold from settings: {whitening_cancel_threshold}")
         
-        # Обратная совместимость со старой шкалой (0-765)
-        # Если значение > 255 (старая шкала), преобразуем в новую шкалу
+        # Проверяем и корректируем значение порога
         if whitening_cancel_threshold > 255 * 3:
-            whitening_cancel_threshold = 180  # Значение по умолчанию в новой шкале
-            log.warning("Found unusually high whitening threshold value. Reset to default 180.")
-        # Если старое значение было < 60, вероятно это уже новая шкала (0-255), умножаем на 3
+            whitening_cancel_threshold = 765  # Значение по умолчанию в новой шкале
+            log.info(f"Threshold too high, reset to default: {whitening_cancel_threshold}")
         elif whitening_cancel_threshold < 60:
             whitening_cancel_threshold = whitening_cancel_threshold * 3
-            log.debug(f"Converting whitening threshold from new scale to internal value: {whitening_cancel_threshold}")
-        # Иначе оставляем как есть (вероятно уже конвертированное значение)
+            log.info(f"Converting old scale threshold to new scale: {whitening_cancel_threshold}")
 
         enable_bg_crop = bgc_settings.get('enable_bg_crop', False)
         white_tolerance = int(bgc_settings.get('white_tolerance', 0)) if enable_bg_crop else None # None если выключено
@@ -816,17 +814,16 @@ def _process_image_for_collage(image_path: str, prep_settings, white_settings, b
 
         # 3. Отбеливание (если вкл)
         enable_whitening = white_settings.get('enable_whitening', False)
-        whitening_cancel_threshold = int(white_settings.get('whitening_cancel_threshold', 180))
+        whitening_cancel_threshold = int(white_settings.get('whitening_cancel_threshold', 765))  # Default to 765 (0% on slider)
+        log.info(f"Whitening threshold from settings: {whitening_cancel_threshold}")
         
-        # Обратная совместимость со старой шкалой (0-765)
-        # Если значение > 255 (старая шкала), преобразуем в новую шкалу
+        # Проверяем и корректируем значение порога
         if whitening_cancel_threshold > 255 * 3:
-            whitening_cancel_threshold = 180  # Значение по умолчанию в новой шкале
-            log.warning("Found unusually high whitening threshold value. Reset to default 180.")
-        # Если старое значение было < 60, вероятно это уже новая шкала (0-255), умножаем на 3
+            whitening_cancel_threshold = 765  # Значение по умолчанию в новой шкале
+            log.info(f"Threshold too high, reset to default: {whitening_cancel_threshold}")
         elif whitening_cancel_threshold < 60:
             whitening_cancel_threshold = whitening_cancel_threshold * 3
-            log.debug(f"Converting whitening threshold from new scale to internal value: {whitening_cancel_threshold}")
+            log.info(f"Converting old scale threshold to new scale: {whitening_cancel_threshold}")
         # Иначе оставляем как есть (вероятно уже конвертированное значение)
         if enable_whitening: img_current = image_utils.whiten_image_by_darkest_perimeter(img_current, whitening_cancel_threshold)
         if not img_current: return None

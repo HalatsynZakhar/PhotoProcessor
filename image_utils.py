@@ -140,75 +140,61 @@ def whiten_image_by_darkest_perimeter(img, cancel_threshold_sum):
         log.debug(f"Darkest perimeter pixel: RGB=({ref_r},{ref_g},{ref_b}), Lightness={perimeter_lightness_percent:.1f}%")
         log.debug(f"Whitening threshold: {threshold_percent:.1f}%")
 
-        # Если периметр уже белый, отбеливание не требуется
-        if ref_r == 255 and ref_g == 255 and ref_b == 255:
-            log.debug("Darkest perimeter pixel is already white. Whitening not needed.")
-            final_image = img_copy; img_copy = None
-            safe_close(img_rgb); safe_close(alpha_channel)
-            return final_image
+        # Проверяем, подходит ли периметр для отбеливания
+        log.info(f"=== ПРОВЕРКА ОТБЕЛИВАНИЯ ===")
+        log.info(f"Самый темный пиксель периметра: RGB={darkest_pixel_rgb}")
+        log.info(f"Сумма RGB темного пикселя: {current_pixel_sum}")
+        log.info(f"Пороговое значение: {cancel_threshold_sum}")
         
-        # Проверяем, достаточно ли светлый периметр для отбеливания
-        # Если светлость периметра ниже порога, отменяем отбеливание
-        if perimeter_lightness_percent < threshold_percent:
-            log.info(f"Периметр слишком темный: светлость {perimeter_lightness_percent:.1f}%, ниже порога {threshold_percent:.1f}%.")
-            final_image = img_copy; img_copy = None
-            safe_close(img_rgb); safe_close(alpha_channel)
-            return final_image
-        
-        log.info(f"Отбеливание применено: светлость периметра {perimeter_lightness_percent:.1f}% выше порога {threshold_percent:.1f}%.")
-        log.debug(f"Самый темный пиксель периметра: RGB=({ref_r},{ref_g},{ref_b})")
-        
-        # Специальная обработка для случаев с нулевыми каналами (например, бирюзовый RGB(0,255,255))
-        if ref_r == 0 or ref_g == 0 or ref_b == 0:
-            log.debug(f"Zero channel detected in perimeter RGB=({ref_r},{ref_g},{ref_b}). Applying safe scaling.")
+        if current_pixel_sum > cancel_threshold_sum:  # Изменено с <= на >
+            log.info(f"Периметр подходит для отбеливания (сумма {current_pixel_sum} > порог {cancel_threshold_sum})")
+            log.info("=== ПРИМЕНЕНИЕ ОТБЕЛИВАНИЯ ===")
             
-            # Заменяем нулевые значения на минимальные для избегания деления на ноль
-            safe_r = max(1, ref_r)
-            safe_g = max(1, ref_g)
-            safe_b = max(1, ref_b)
+            # Рассчитываем коэффициенты
+            r, g, b = darkest_pixel_rgb
+            scale_r = 255.0 / max(1.0, float(r))
+            scale_g = 255.0 / max(1.0, float(g))
+            scale_b = 255.0 / max(1.0, float(b))
             
-            # Рассчитываем коэффициенты масштабирования
-            scale_r = 255.0 / float(safe_r)
-            scale_g = 255.0 / float(safe_g)
-            scale_b = 255.0 / float(safe_b)
+            log.info(f"Коэффициенты масштабирования: R*={scale_r:.2f}, G*={scale_g:.2f}, B*={scale_b:.2f}")
             
-            log.debug(f"Safe scaling factors: R*={scale_r:.2f}, G*={scale_g:.2f}, B*={scale_b:.2f}")
-        else:
-            # Обычный расчет коэффициентов для ненулевых каналов
-            scale_r = 255.0 / max(1.0, float(ref_r))
-            scale_g = 255.0 / max(1.0, float(ref_g))
-            scale_b = 255.0 / max(1.0, float(ref_b))
-            log.debug(f"Scaling factors: R*={scale_r:.2f}, G*={scale_g:.2f}, B*={scale_b:.2f}")
-        
-        # Создаем LUT (Look-Up Table) для быстрого преобразования
-        lut_r = bytes([min(255, round(i * scale_r)) for i in range(256)])
-        lut_g = bytes([min(255, round(i * scale_g)) for i in range(256)])
-        lut_b = bytes([min(255, round(i * scale_b)) for i in range(256)])
+            # Создаем и применяем LUT
+            log.info("Создаем и применяем LUT...")
+            r_ch, g_ch, b_ch = img_rgb.split()
+            
+            lut_r = bytes([min(255, round(i * scale_r)) for i in range(256)])
+            lut_g = bytes([min(255, round(i * scale_g)) for i in range(256)])
+            lut_b = bytes([min(255, round(i * scale_b)) for i in range(256)])
+            
+            log.info("Применяем LUT к каналам...")
+            r_ch = r_ch.point(lut_r)
+            g_ch = g_ch.point(lut_g)
+            b_ch = b_ch.point(lut_b)
+            
+            log.info("Объединяем каналы...")
+            img_whitened_rgb = Image.merge('RGB', (r_ch, g_ch, b_ch))
+            log.info("Отбеливание завершено")
 
-        # Применяем LUT ко всем каналам изображения
-        r_ch, g_ch, b_ch = img_rgb.split()
-        out_r = r_ch.point(lut_r)
-        out_g = g_ch.point(lut_g)
-        out_b = b_ch.point(lut_b)
-        img_whitened_rgb = Image.merge('RGB', (out_r, out_g, out_b))
-        log.debug("LUT applied to all RGB channels.")
-
-        # Восстанавливаем альфа-канал, если он был
-        if alpha_channel:
-            log.debug("Restoring alpha channel...")
-            if img_whitened_rgb.size == alpha_channel.size:
-                 img_whitened_rgb.putalpha(alpha_channel)
-                 final_image = img_whitened_rgb # Result is whitened RGBA
-                 img_whitened_rgb = None # Prevent closing in finally
-                 log.debug("Whitening with alpha channel completed.")
+            # Восстанавливаем альфа-канал, если он был
+            if alpha_channel:
+                log.debug("Restoring alpha channel...")
+                if img_whitened_rgb.size == alpha_channel.size:
+                     img_whitened_rgb.putalpha(alpha_channel)
+                     final_image = img_whitened_rgb # Result is whitened RGBA
+                     img_whitened_rgb = None # Prevent closing in finally
+                     log.debug("Whitening with alpha channel completed.")
+                else:
+                     log.error(f"Size mismatch when adding alpha ({img_whitened_rgb.size} vs {alpha_channel.size}). Returning whitened RGB only.")
+                     final_image = img_whitened_rgb # Return RGB only
+                     img_whitened_rgb = None
             else:
-                 log.error(f"Size mismatch when adding alpha ({img_whitened_rgb.size} vs {alpha_channel.size}). Returning whitened RGB only.")
-                 final_image = img_whitened_rgb # Return RGB only
-                 img_whitened_rgb = None
+                final_image = img_whitened_rgb # Result is whitened RGB
+                img_whitened_rgb = None
+                log.debug("Whitening (without alpha channel) completed.")
         else:
-            final_image = img_whitened_rgb # Result is whitened RGB
-            img_whitened_rgb = None
-            log.debug("Whitening (without alpha channel) completed.")
+            log.info(f"Отбеливание отменено: периметр слишком светлый (сумма {current_pixel_sum} <= порог {cancel_threshold_sum})")
+            final_image = img_copy
+            img_copy = None
 
     except Exception as e:
         log.error(f"Error during whitening: {e}. Returning original copy.", exc_info=True)

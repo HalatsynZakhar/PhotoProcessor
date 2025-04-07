@@ -546,7 +546,7 @@ with st.sidebar:
             
             # Преобразуем проценты в абсолютный порог для функции отбеливания
             adjusted_threshold = int((100 - wc_percent) * 7.65)  # Инвертируем для логического соответствия
-            set_setting('whitening.cancel_threshold_sum', adjusted_threshold)
+            set_setting('whitening.whitening_cancel_threshold', adjusted_threshold)
 
     with st.expander("3. Удаление фона и обрезка", expanded=False):
         enable_bg_crop = st.checkbox("Включить ", value=get_setting('background_crop.enable_bg_crop', False), 
