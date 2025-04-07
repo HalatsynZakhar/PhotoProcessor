@@ -1,5 +1,7 @@
 import streamlit as st
 
+
+
 # Пример использования expander в Streamlit
 st.title("Тест expander для PhotoProcessor")
 

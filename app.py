@@ -1,5 +1,7 @@
 # app.py
 
+
+
 # --- БЛОК ПРОВЕРКИ И УСТАНОВКИ ЗАВИСИМОСТЕЙ ---
 import sys
 import subprocess
