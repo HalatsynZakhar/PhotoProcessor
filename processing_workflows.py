@@ -435,19 +435,19 @@ def run_individual_processing(**all_settings: Dict[str, Any]):
             if not img_current: raise ValueError("Image became None after whitening.")
             step_counter += 1
 
-            # Периметр (проверяем, только если включены поля)
-            perimeter_is_white = False # Важно инициализировать
+            # Проверка периметра для полей (если включены поля и не режим 'always')
             if enable_padding and padding_mode != 'always':
-                 log.debug(f"  Step {step_counter}.{1}: Perimeter check (Margin: 1px, Tolerance: {perimeter_check_tolerance})")
-                 perimeter_is_white = image_utils.check_perimeter_is_white(img_current, perimeter_check_tolerance, 1)
-                 log.debug(f"    Perimeter is white: {perimeter_is_white}")
-            # Если padding выключен, проверка периметра не выполняется и perimeter_is_white остается False
+                log.debug(f"  Checking padding perimeter (Mode: {padding_mode}, Tolerance: {perimeter_check_tolerance})")
+                padding_perimeter_is_white = _check_padding_perimeter(img_current, perimeter_check_tolerance, 1)
+                # Сохраняем результат для использования позже
+                all_settings['padding_perimeter_is_white'] = padding_perimeter_is_white
+                log.debug(f"  Stored padding perimeter result: {padding_perimeter_is_white}")
             step_counter += 1
 
             pre_crop_width, pre_crop_height = img_current.size
 
             log.debug(f"  Step {step_counter}: BG Removal / Crop (Enabled: {enable_bg_crop})")
-            cropped_image_dimensions = img_current.size # Запомним размер ДО
+            cropped_image_dimensions = img_current.size
             if enable_bg_crop:
                 img_original = img_current
                 
@@ -475,8 +475,7 @@ def run_individual_processing(**all_settings: Dict[str, Any]):
             step_counter += 1
 
             log.debug(f"  Step {step_counter}: Padding (Mode: {padding_mode})")
-            apply_padding = False # По умолчанию не добавляем
-            
+            apply_padding = False
             if enable_padding:
                 current_w, current_h = cropped_image_dimensions
                 if current_w > 0 and current_h > 0 and padding_percent > 0:
@@ -488,6 +487,7 @@ def run_individual_processing(**all_settings: Dict[str, Any]):
                         potential_padded_h = current_h + 2 * padding_pixels
                         size_check_passed = (potential_padded_w <= pre_crop_width and potential_padded_h <= pre_crop_height)
                         size_ok = allow_expansion or size_check_passed
+                        log.debug(f"  Padding size check: current={current_w}x{current_h}, potential={potential_padded_w}x{potential_padded_h}, size_ok={size_ok}")
                         
                         # Определяем, нужно ли добавлять поля в зависимости от режима
                         if padding_mode == 'always':
@@ -498,25 +498,23 @@ def run_individual_processing(**all_settings: Dict[str, Any]):
                             else:
                                 log.info("    Padding skipped: Size check failed & expansion disabled.")
                         else:
-                            # Режимы if_white или if_not_white - нужна проверка периметра
-                            # Используем специальный допуск для проверки периметра
-                            perimeter_is_white = image_utils.check_perimeter_is_white(
-                                img_current, perimeter_check_tolerance, 1)
-                            
-                            if padding_mode == 'if_white' and perimeter_is_white:
+                            # Используем сохраненный результат проверки периметра
+                            padding_perimeter_is_white = all_settings.get('padding_perimeter_is_white', False)
+                            log.debug(f"  Retrieved padding perimeter result: {padding_perimeter_is_white}")
+                            if padding_mode == 'if_white' and padding_perimeter_is_white:
                                 if size_ok:
                                     apply_padding = True
                                     log.info("    Padding will be applied (mode: if_white, perimeter IS white, size conditions met).")
                                 else:
                                     log.info("    Padding skipped: Size check failed & expansion disabled.")
-                            elif padding_mode == 'if_not_white' and not perimeter_is_white:
+                            elif padding_mode == 'if_not_white' and not padding_perimeter_is_white:
                                 if size_ok:
                                     apply_padding = True
                                     log.info("    Padding will be applied (mode: if_not_white, perimeter is NOT white, size conditions met).")
                                 else:
                                     log.info("    Padding skipped: Size check failed & expansion disabled.")
                             else:
-                                log.info(f"    Padding skipped: Perimeter condition not met for mode '{padding_mode}' (perimeter_is_white: {perimeter_is_white}).")
+                                log.info(f"    Padding skipped: Perimeter condition not met for mode '{padding_mode}' (perimeter_is_white: {padding_perimeter_is_white}).")
                     else:
                         log.info("    Padding skipped: Calculated padding is zero pixels.")
                 else:
@@ -526,6 +524,7 @@ def run_individual_processing(**all_settings: Dict[str, Any]):
 
             # Вызываем функцию добавления полей, только если флаг установлен
             if apply_padding:
+                log.debug("  Applying padding...")
                 img_original = img_current
                 img_current = image_utils.add_padding(img_current, padding_percent)
                 if not img_current: raise ValueError("Image became None after padding.")
@@ -923,6 +922,12 @@ def _process_image_for_collage(image_path: str, prep_settings, white_settings, b
         image_utils.safe_close(img_current)
         return None
 
+def _check_padding_perimeter(img, tolerance, margin=1):
+    """Проверяет, является ли периметр изображения белым с учетом допуска."""
+    log.debug(f"  Checking padding perimeter (Margin: {margin}px, Tolerance: {tolerance})")
+    perimeter_is_white = image_utils.check_perimeter_is_white(img, tolerance, margin)
+    log.debug(f"    Padding Perimeter is white: {perimeter_is_white}")
+    return perimeter_is_white
 
 def run_collage_processing(**all_settings: Dict[str, Any]) -> bool:
     """
