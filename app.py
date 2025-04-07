@@ -355,7 +355,6 @@ with st.sidebar:
                 else:
                     log.warning("Rename aborted due to autosave failure.")
 
-        st.divider()
         st.caption("⚡️ Создание нового набора")
         create_col1, create_col2 = st.columns([4, 1])
         with create_col1:
@@ -429,7 +428,6 @@ with st.sidebar:
                  st.session_state.reset_profiles_confirmation_pending = False 
                  st.rerun()
 
-        st.divider()
         # --- Keep Factory Reset Button (might adjust layout later) ---
         if st.button("💥 Сбросить все к заводским", key="reset_all_settings_button", 
                       disabled=st.session_state.reset_settings_confirmation_pending, 
@@ -512,35 +510,34 @@ with st.sidebar:
             with settings_confirm_col2:
                 if st.button("Отмена ", key="cancel_reset_settings"): # Ключ может остаться
                     st.session_state.reset_settings_confirmation_pending = False; st.rerun()
-    # Divider removed here (was: Конец последнего блока логики подтверждения)
 
-    # === Переименование и удаление (перемещено выше) ===
-    current_mode_for_file_ops = st.session_state.selected_processing_mode
-    if current_mode_for_file_ops == "Обработка отдельных файлов":
-        st.header("🏷️ Переименование и удаление")
-        # --- Переименование --- 
-        enable_rename_ind = st.checkbox("Переименовать файлы (по артикулу)",
-                                        value=get_setting('individual_mode.enable_rename', False),
-                                        key='ind_enable_rename',
-                                        help="Позволяет автоматически переименовать все обработанные файлы, используя указанный артикул в качестве основы имени")
-        set_setting('individual_mode.enable_rename', enable_rename_ind)
-        if enable_rename_ind:
-            article_ind = st.text_input("Артикул для переименования",
-                                        value=get_setting('individual_mode.article_name', ''),
-                                        key='ind_article',
-                                        placeholder="Введите артикул...",
-                                        help="Введите артикул или базовое имя для файлов. Первый файл будет назван как артикул, остальные - артикул_1, артикул_2 и т.д.")
-            set_setting('individual_mode.article_name', article_ind)
-            if article_ind: st.caption("Файлы будут вида: [Артикул]_1.jpg, ...")
-            else: st.warning("Введите артикул для переименования.") # Валидация
-        
-        # --- Удаление (без изменений) ---
-        delete_orig_ind = st.checkbox("Удалять оригиналы после обработки?",
-                                      value=get_setting('individual_mode.delete_originals', False),
-                                      key='ind_delete_orig',
-                                      help="Если включено, исходные файлы будут удалены после успешной обработки. Это действие необратимо, поэтому используйте его с осторожностью. Рекомендуется включить бэкап перед использованием этой опции.")
-        set_setting('individual_mode.delete_originals', delete_orig_ind)
-        if delete_orig_ind: st.warning("ВНИМАНИЕ: Удаление необратимо!", icon="⚠️")
+        # === Переименование и удаление (в expander) ===
+        current_mode_for_file_ops = st.session_state.selected_processing_mode
+        if current_mode_for_file_ops == "Обработка отдельных файлов":
+            with st.expander("🏷️ Переименование и удаление", expanded=False):
+                # --- Переименование --- 
+                enable_rename_ind = st.checkbox("Переименовать файлы (по артикулу)",
+                                                value=get_setting('individual_mode.enable_rename', False),
+                                                key='ind_enable_rename',
+                                                help="Позволяет автоматически переименовать все обработанные файлы, используя указанный артикул в качестве основы имени")
+                set_setting('individual_mode.enable_rename', enable_rename_ind)
+                if enable_rename_ind:
+                    article_ind = st.text_input("Артикул для переименования",
+                                                value=get_setting('individual_mode.article_name', ''),
+                                                key='ind_article',
+                                                placeholder="Введите артикул...",
+                                                help="Введите артикул или базовое имя для файлов. Первый файл будет назван как артикул, остальные - артикул_1, артикул_2 и т.д.")
+                    set_setting('individual_mode.article_name', article_ind)
+                    if article_ind: st.caption("Файлы будут вида: [Артикул]_1.jpg, ...")
+                    else: st.warning("Введите артикул для переименования.") # Валидация
+                
+                # --- Удаление (без изменений) ---
+                delete_orig_ind = st.checkbox("Удалять оригиналы после обработки?",
+                                              value=get_setting('individual_mode.delete_originals', False),
+                                              key='ind_delete_orig',
+                                              help="Если включено, исходные файлы будут удалены после успешной обработки. Это действие необратимо, поэтому используйте его с осторожностью. Рекомендуется включить бэкап перед использованием этой опции.")
+                set_setting('individual_mode.delete_originals', delete_orig_ind)
+                if delete_orig_ind: st.warning("ВНИМАНИЕ: Удаление необратимо!", icon="⚠️")
 
     # === Пути ===
     st.header("📂 Пути")
@@ -1241,8 +1238,45 @@ with st.expander("📋 Журнал работы приложения", expanded
                key='log_output_display_area', disabled=True, 
                label_visibility="collapsed")
 
+# --- Настройки отображения результатов ---
+with st.expander("⚙️ Настройки отображения результатов", expanded=False):
+    # Общая галочка для всех режимов
+    show_results = st.checkbox("Отображать результаты обработки", 
+                              value=get_setting('ui_display.show_results', True),
+                              key='show_results_checkbox',
+                              help="Включите для отображения результатов обработки")
+    set_setting('ui_display.show_results', show_results)
+    
+    current_display_mode = st.session_state.selected_processing_mode
+    
+    if current_display_mode == "Обработка отдельных файлов":
+        # Опции только для режима пакетной обработки
+        show_all_results = st.checkbox("Показывать все изображения", 
+                                     value=get_setting('ui_display.show_all_images', False),
+                                     key='show_all_images_checkbox',
+                                     help="Показывать все обработанные изображения. Может замедлить работу при большом количестве файлов.")
+        set_setting('ui_display.show_all_images', show_all_results)
+        
+        # Количество столбцов (доступно и при show_all)
+        images_columns = st.number_input("Количество столбцов", 
+                                       min_value=1, max_value=6, value=get_setting('ui_display.columns_count', 3),
+                                       step=1, key='columns_count',
+                                       help="Количество столбцов для отображения изображений")
+        set_setting('ui_display.columns_count', images_columns)
+        
+        if not show_all_results:
+            # Количество изображений (доступно только если не show_all)
+            images_limit = st.number_input("Количество изображений", 
+                                        min_value=1, value=get_setting('ui_display.images_limit', 18),
+                                        step=3, key='images_limit',
+                                        help="Максимальное количество изображений для отображения")
+            set_setting('ui_display.images_limit', images_limit)
+    
+    elif current_display_mode == "Создание коллажей":
+        st.info("Для режима коллажа будет отображен результирующий коллаж")
+
 # --- Опциональное отображение коллажа ---
-if st.session_state.selected_processing_mode == "Создание коллажей":
+if show_results and st.session_state.selected_processing_mode == "Создание коллажей":
     coll_input_path = get_setting('paths.input_folder_path','')
     # Получаем БАЗОВОЕ имя файла из настроек
     coll_filename_base = get_setting('paths.output_filename','')
@@ -1268,7 +1302,7 @@ if st.session_state.selected_processing_mode == "Создание коллаже
     else: log.debug("Input path or collage filename not set for preview.")
 
 # --- Добавляем предпросмотр обработанных фотографий ---
-elif st.session_state.selected_processing_mode == "Обработка отдельных файлов":
+elif show_results and st.session_state.selected_processing_mode == "Обработка отдельных файлов":
     output_path = get_setting('paths.output_folder_path','')
     if output_path and os.path.isdir(output_path):
         import glob
@@ -1279,12 +1313,17 @@ elif st.session_state.selected_processing_mode == "Обработка отдел
         
         if image_files:
             with st.expander("🖼️ Предпросмотр обработанных фотографий", expanded=True):
-                max_images = 18  # Увеличиваем до 18 изображений (3x6)
+                # Получаем настройки отображения
+                columns_count = get_setting('ui_display.columns_count', 3)
+                show_all_images = get_setting('ui_display.show_all_images', False)
+                max_images = len(image_files) if show_all_images else get_setting('ui_display.images_limit', 18)
+                
+                # Ограничиваем количество изображений, если не show_all
                 preview_images = image_files[:max_images]
                 
-                # Создаем строки по 3 изображения (6 строк)
-                for i in range(0, len(preview_images), 3):
-                    row_images = preview_images[i:i+3]
+                # Создаем строки по columns_count изображений
+                for i in range(0, len(preview_images), columns_count):
+                    row_images = preview_images[i:i+columns_count]
                     cols = st.columns(len(row_images))
                     
                     for j, img_path in enumerate(row_images):
@@ -1296,7 +1335,7 @@ elif st.session_state.selected_processing_mode == "Обработка отдел
                             cols[j].warning(f"Не удалось отобразить {os.path.basename(img_path)}: {img_e}")
                             log.warning(f"Failed to display image preview {img_path}: {img_e}")
                 
-                if len(image_files) > max_images:
+                if not show_all_images and len(image_files) > max_images:
                     st.caption(f"Показано {min(max_images, len(image_files))} из {len(image_files)} изображений")
         else:
             log.debug(f"No image files found in output directory: {output_path}")

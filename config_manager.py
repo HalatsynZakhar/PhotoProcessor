@@ -24,6 +24,12 @@ DEFAULT_SETTINGS = {
         "backup_folder_path": "", # Бэкап по умолчанию выключен (пустой путь)
         "output_filename": "collage"
     },
+    "ui_display": {
+        "show_results": True,           # Отображать результаты обработки
+        "show_all_images": False,       # Показывать все обработанные изображения
+        "columns_count": 3,             # Количество столбцов в сетке изображений
+        "images_limit": 18              # Лимит количества отображаемых изображений
+    },
     "single": {
         "enabled_steps": { # Все шаги по умолчанию выключены
             "resize": False,
