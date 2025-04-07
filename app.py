@@ -969,31 +969,29 @@ with st.sidebar:
 
 # === ОСНОВНАЯ ОБЛАСТЬ ===
 
-# --- Кнопка Выхода --- 
-# --- REMOVED FROM HERE ---
-# exit_col, title_col = st.columns([1, 10]) # Создаем колонки для размещения кнопки слева
-# with exit_col:
-#     if st.button("🚪 Выход", key="exit_button", help="Сохранить текущее состояние и выйти"):
-#         save_state_and_exit()
-# with title_col:
-#     st.title(f"🖼️ Инструмент Обработки Изображений")
-# -------------------
-# --- Display Title Directly ---
-st.title(f"🖼️ Инструмент Обработки Изображений")
+# --- Заголовок ---
+st.title("🖼️ Инструмент Обработки Изображений")
+st.subheader(f"**Режим:** {st.session_state.selected_processing_mode} | **Активный набор:** {st.session_state.active_preset}")
 
-st.markdown(f"**Режим:** {st.session_state.selected_processing_mode} | **Активный набор:** {st.session_state.active_preset}")
-st.divider()
+# --- Стилизация кнопки ---
+st.markdown("""
+    <style>
+        div.stButton > button:first-child {
+            height: 120px;
+            font-size: 24px;
+        }
+    </style>
+""", unsafe_allow_html=True)
 
-# --- Кнопка Запуска ---
-col_run_main, col_spacer_main = st.columns([3, 1])
+# --- Инициализация переменной для кнопки ---
 start_button_pressed_this_run = False
 
-with col_run_main:
-    if st.button(f"🚀 Запустить: {st.session_state.selected_processing_mode}", type="primary", key="run_processing_button", use_container_width=True):
-        start_button_pressed_this_run = True
-        log.info(f"--- Button '{st.session_state.selected_processing_mode}' CLICKED! Processing will start below. ---")
-        log_stream.seek(0); log_stream.truncate(0) # Очищаем лог для нового запуска
-        log.info(f"--- Log cleared. Validating paths for mode '{st.session_state.selected_processing_mode}' ---")
+# --- Кнопка Запуска ---
+if st.button(f"🚀 Запустить: {st.session_state.selected_processing_mode}", type="primary", key="run_processing_button", use_container_width=True):
+    start_button_pressed_this_run = True
+    log.info(f"--- Button '{st.session_state.selected_processing_mode}' CLICKED! Processing will start below. ---")
+    log_stream.seek(0); log_stream.truncate(0) # Очищаем лог для нового запуска
+    log.info(f"--- Log cleared. Validating paths for mode '{st.session_state.selected_processing_mode}' ---")
 
 # --- Логика Запуска ---
 if start_button_pressed_this_run:
@@ -1104,7 +1102,6 @@ if start_button_pressed_this_run:
 
 # --- Область для Логов ---
 # Этот блок должен быть ПОСЛЕ блока if start_button_pressed_this_run
-st.divider()
 st.subheader("Логи и предпросмотр:")
 
 # Блок лога
