@@ -733,17 +733,36 @@ with st.sidebar:
             # Настройки слияния
             st.subheader("Настройки слияния")
             
-            # Путь к шаблону
-            template_path = st.text_input("Путь к шаблону", value=get_setting('merge_settings.template_path', ''), key="merge_template_path")
-            if template_path:
+            # Путь к шаблону - только загрузка файла
+            st.caption("Выберите файл шаблона")
+            uploaded_file = st.file_uploader(
+                "Перетащите файл шаблона сюда",
+                accept_multiple_files=False,
+                type=['jpg', 'jpeg', 'png', 'psd'],
+                key='template_uploader'
+            )
+            
+            if uploaded_file:
+                # Создаем папку для временных файлов, если её еще нет
+                temp_folder = os.path.join(os.getcwd(), "temp")
+                if not os.path.exists(temp_folder):
+                    os.makedirs(temp_folder)
+                
+                # Сохраняем загруженный файл на диск
+                template_path = os.path.join(temp_folder, uploaded_file.name)
+                with open(template_path, "wb") as f:
+                    f.write(uploaded_file.getbuffer())
+                
                 set_setting('merge_settings.template_path', template_path)
-                # Проверяем существование файла
+                st.success(f"Шаблон успешно загружен и сохранен: {template_path}")
+                
+                # Проверяем существование файла (после сохранения он должен существовать)
                 if os.path.isfile(template_path):
                     st.caption(f"✅ Файл шаблона найден: {os.path.abspath(template_path)}")
                 else:
                     st.caption(f"❌ Файл шаблона не найден: {os.path.abspath(template_path)}")
             else:
-                st.caption("ℹ️ Путь к шаблону не указан")
+                st.caption("ℹ️ Файл шаблона не выбран")
             
             # Чекбокс для включения/отключения соотношения размеров
             enable_width_ratio = st.checkbox("Использовать соотношение размеров", value=get_setting('merge_settings.enable_width_ratio', False), key="enable_width_ratio")
