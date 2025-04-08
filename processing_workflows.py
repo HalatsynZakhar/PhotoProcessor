@@ -325,7 +325,7 @@ def run_individual_processing(**all_settings: Dict[str, Any]) -> bool:
                                          preprocessing_settings.get('preresize_height', 0))
                 
                 if whitening_settings.get('enable_whitening', False):
-                    img = _apply_whitening(img, whitening_settings.get('whitening_cancel_threshold', 765))
+                    img = image_utils.whiten_image_by_darkest_perimeter(img, whitening_settings.get('whitening_cancel_threshold', 765))
                 
                 if background_crop_settings.get('enable_bg_crop', False):
                     img = _apply_background_crop(
@@ -342,7 +342,7 @@ def run_individual_processing(**all_settings: Dict[str, Any]) -> bool:
                     img = _apply_padding(img, padding_settings)
                 
                 if brightness_contrast_settings.get('enable_bc', False):
-                    img = _apply_brightness_contrast(img, brightness_contrast_settings)
+                    img = image_utils.apply_brightness_contrast(img, brightness_contrast_settings.get('brightness_factor', 1.0), brightness_contrast_settings.get('contrast_factor', 1.0))
                 
                 # Apply merge with template if enabled
                 if enable_merge and template_path:
@@ -370,7 +370,7 @@ def run_individual_processing(**all_settings: Dict[str, Any]) -> bool:
                                                          preprocessing_settings.get('preresize_width', 0),
                                                          preprocessing_settings.get('preresize_height', 0))
                             if whitening_settings.get('enable_whitening', False):
-                                template = _apply_whitening(template, whitening_settings.get('whitening_cancel_threshold', 765))
+                                template = image_utils.whiten_image_by_darkest_perimeter(template, whitening_settings.get('whitening_cancel_threshold', 765))
                             if background_crop_settings.get('enable_bg_crop', False):
                                 template = _apply_background_crop(
                                     template,
@@ -384,7 +384,7 @@ def run_individual_processing(**all_settings: Dict[str, Any]) -> bool:
                             if padding_settings.get('mode', 'never') != 'never':
                                 template = _apply_padding(template, padding_settings)
                             if brightness_contrast_settings.get('enable_bc', False):
-                                template = _apply_brightness_contrast(template, brightness_contrast_settings)
+                                template = image_utils.apply_brightness_contrast(template, brightness_contrast_settings.get('brightness_factor', 1.0), brightness_contrast_settings.get('contrast_factor', 1.0))
                         
                         # Add jpg_background_color to merge_settings
                         merge_settings['jpg_background_color'] = individual_mode_settings.get('jpg_background_color', [255, 255, 255])
