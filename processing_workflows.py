@@ -6,7 +6,7 @@ import math
 import logging
 import traceback
 import gc # Для сборки мусора при MemoryError
-from typing import Dict, Any, Optional, Tuple, List
+from typing import Dict, Any, Optional, Tuple, List, Union
 import uuid
 
 # Используем абсолютный импорт (если все файлы в одной папке)
@@ -338,7 +338,22 @@ def run_individual_processing(**all_settings: Dict[str, Any]) -> bool:
                 # Apply merge with template if enabled
                 if enable_merge and template_path:
                     try:
-                        template = Image.open(template_path)
+                        # Load template
+                        if template_path.lower().endswith('.psd'):
+                            try:
+                                from psd_tools import PSDImage
+                                psd = PSDImage.open(template_path)
+                                # Convert PSD to PIL Image using the correct method
+                                template = psd.topil()
+                                if template.mode == 'CMYK':
+                                    template = template.convert('RGB')
+                            except ImportError:
+                                log.error("psd_tools library not installed. Cannot process PSD files.")
+                                continue
+                        else:
+                            template = Image.open(template_path)
+                            template.load()
+                            
                         if process_template:
                             # Apply same processing steps to template
                             if preprocessing_settings.get('enable_preresize', False):
@@ -895,78 +910,130 @@ def run_collage_processing(**all_settings: Dict[str, Any]) -> bool:
     log.info("--- Collage Processing Function Finished ---")
     return success_flag # Возвращаем флаг
 
-def _merge_with_template(img: Image.Image, template: Image.Image, settings: Dict[str, Any]) -> Optional[Image.Image]:
-    """
-    Merge an image with a template according to the specified settings.
-    
-    Args:
-        img: The image to merge
-        template: The template image
-        settings: Dictionary containing merge settings
-        
-    Returns:
-        Merged image or None if merging fails
-    """
+def _merge_with_template(image: Image.Image, template_path_or_image: Union[str, Image.Image], settings: Dict[str, Any]) -> Optional[Image.Image]:
+    """Объединяет изображение с шаблоном."""
     try:
-        log.info("=== Starting _merge_with_template function ===")
-        log.info(f"Input image size: {img.size}, mode: {img.mode}")
-        log.info(f"Template size: {template.size}, mode: {template.mode}")
-        log.info(f"Settings: {settings}")
+        log.info(f"  > Merging with template: {template_path_or_image}")
         
-        # Get merge settings
-        size_ratio = settings.get('size_ratio', 1.0)
-        # Validate size_ratio
-        if size_ratio > 1.0:
-            log.warning(f"  ! Size ratio {size_ratio} is greater than 1.0, converting to percentage")
-            size_ratio = size_ratio / 100.0
+        # Загружаем шаблон или используем переданный объект
+        try:
+            if isinstance(template_path_or_image, str):
+                # Check if file is PSD
+                if template_path_or_image.lower().endswith('.psd'):
+                    try:
+                        from psd_tools import PSDImage
+                        psd = PSDImage.open(template_path_or_image)
+                        # Convert PSD to PIL Image using the correct method
+                        template = psd.topil()
+                        if template.mode == 'CMYK':
+                            template = template.convert('RGB')
+                    except ImportError:
+                        log.error("psd_tools library not installed. Cannot process PSD files.")
+                        return None
+                else:
+                    template = Image.open(template_path_or_image)
+                    template.load()
+            elif isinstance(template_path_or_image, Image.Image):
+                template = template_path_or_image
+            else:
+                log.error(f"Invalid template type: {type(template_path_or_image)}")
+                return None
+        except Exception as e:
+            log.error(f"  > Error loading template: {str(e)}")
+            return None
+            
+        log.info(f"  > Template loaded. Size: {template.size}, mode: {template.mode}")
+        
+        # Получаем настройки
         position = settings.get('position', 'center')
         template_on_top = settings.get('template_on_top', True)
+        process_template = settings.get('process_template', False)
+        width_ratio = settings.get('width_ratio', [1.0, 1.0])
+        enable_width_ratio = settings.get('enable_width_ratio', False)
         
-        # Get background color for JPEG
-        jpg_background_color = settings.get('jpg_background_color', [255, 255, 255])
-        log.info(f"  Using background color for JPEG: {tuple(jpg_background_color)}")
+        # Проверяем соотношение размеров
+        if not isinstance(width_ratio, (list, tuple)) or len(width_ratio) != 2:
+            width_ratio = [1.0, 1.0]
+            log.warning("  > Invalid width ratio format, using default [1.0, 1.0]")
         
-        # Convert images to RGBA if needed
-        if img.mode != 'RGBA':
-            img = img.convert('RGBA')
+        width_ratio_w, width_ratio_h = width_ratio
+        log.info(f"  > Width ratio settings: enable={enable_width_ratio}, w={width_ratio_w}, h={width_ratio_h}")
+        
+        # Конвертируем изображения в RGBA если нужно
+        if image.mode != 'RGBA':
+            image = image.convert('RGBA')
         if template.mode != 'RGBA':
             template = template.convert('RGBA')
+            
+        # Вычисляем новый размер изображения с учетом соотношения размеров
+        template_width, template_height = template.size
+        image_width, image_height = image.size
+        log.info(f"  > Original sizes - Image: {image_width}x{image_height}, Template: {template_width}x{template_height}")
         
-        # Calculate new size for the image based on ratio
-        new_width = int(template.width * size_ratio)
-        new_height = int(template.height * size_ratio)
-        
-        # Resize image while maintaining aspect ratio
-        img.thumbnail((new_width, new_height), Image.Resampling.LANCZOS)
-        
-        # Calculate paste position
-        paste_x, paste_y = _calculate_paste_position(img.size, template.size, position)
-        
-        # Create a copy of the template to work with
-        result = template.copy()
-        
-        # Paste the image onto the template
-        if template_on_top:
-            # Create a new image with the template size
-            # Use white background instead of transparent for JPEG compatibility
-            bg_color = tuple(jpg_background_color)  # Use RGB color without alpha
-            result = Image.new('RGB', template.size, bg_color)
-            # Convert to RGBA for transparency
-            result = result.convert('RGBA')
-            # Paste the main image first
-            result.paste(img, (paste_x, paste_y))
-            # Then paste the template on top
-            result.paste(template, (0, 0), template)
+        # Вычисляем коэффициент масштабирования на основе соотношения размеров
+        if enable_width_ratio:
+            scale_factor = (template_width * width_ratio_w) / (image_width * width_ratio_h)
+            new_width = int(image_width * scale_factor)
+            new_height = int(image_height * scale_factor)
+            log.info(f"  > Width ratio enabled - Scale factor: {scale_factor:.3f}, New size: {new_width}x{new_height}")
+            log.info(f"  > Width ratio calculation: ({template_width} * {width_ratio_w}) / ({image_width} * {width_ratio_h}) = {scale_factor:.3f}")
         else:
-            # Paste the image onto the template
-            result.paste(img, (paste_x, paste_y))
+            new_width = template_width
+            new_height = template_height
+            log.info(f"  > Width ratio disabled - Using template size: {new_width}x{new_height}")
         
-        log.info(f"Final merged image size: {result.size}, mode: {result.mode}")
+        # Изменяем размер изображения
+        image = image.resize((new_width, new_height), Image.Resampling.LANCZOS)
+        log.info(f"  > Resized image to: {image.size}")
+        
+        # Определяем позицию для вставки
+        paste_x = 0
+        paste_y = 0
+        
+        if position == 'center':
+            paste_x = (template_width - new_width) // 2
+            paste_y = (template_height - new_height) // 2
+        elif position == 'top':
+            paste_x = (template_width - new_width) // 2
+            paste_y = 0
+        elif position == 'bottom':
+            paste_x = (template_width - new_width) // 2
+            paste_y = template_height - new_height
+        elif position == 'left':
+            paste_x = 0
+            paste_y = (template_height - new_height) // 2
+        elif position == 'right':
+            paste_x = template_width - new_width
+            paste_y = (template_height - new_height) // 2
+        elif position == 'top-left':
+            paste_x = 0
+            paste_y = 0
+        elif position == 'top-right':
+            paste_x = template_width - new_width
+            paste_y = 0
+        elif position == 'bottom-left':
+            paste_x = 0
+            paste_y = template_height - new_height
+        elif position == 'bottom-right':
+            paste_x = template_width - new_width
+            paste_y = template_height - new_height
+            
+        # Создаем новое изображение с фоном
+        result = Image.new('RGBA', template.size, (255, 255, 255, 0))
+        
+        # Накладываем изображения в зависимости от порядка
+        if template_on_top:
+            result.paste(image, (paste_x, paste_y))
+            result = Image.alpha_composite(result, template)
+        else:
+            result.paste(template, (0, 0))
+            result.paste(image, (paste_x, paste_y), image)
+            
+        log.info(f"  > Merged image size: {result.size}, mode: {result.mode}")
         return result
         
     except Exception as e:
-        log.error(f"Error in _merge_with_template: {e}")
-        log.exception("Error details")
+        log.error(f"  > Error merging with template: {str(e)}")
         return None
 
 def _process_image_for_merge(img: Image.Image, merge_settings: Dict[str, Any]) -> Optional[Image.Image]:

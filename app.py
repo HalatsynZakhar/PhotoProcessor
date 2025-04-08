@@ -730,74 +730,55 @@ with st.sidebar:
         set_setting('merge_settings.enable_merge', enable_merge)
         
         if enable_merge:
-            # Выбор шаблона
-            template_path = st.text_input("Путь к шаблону (PSD или изображение)",
-                                        value=get_setting('merge_settings.template_path', ''),
-                                        key='merge_template_path',
-                                        help="Укажите полный путь к файлу шаблона (PSD или изображение)")
+            # Настройки слияния
+            st.subheader("Настройки слияния")
             
-            # Проверяем, изменилось ли значение
-            current_template_path = get_setting('merge_settings.template_path', '')
-            if template_path != current_template_path:
-                # Удаляем кавычки перед сохранением
-                clean_template_path = template_path.strip('"\'')
-                set_setting('merge_settings.template_path', clean_template_path)
-                
-            # Валидация шаблона (выполняется при каждом обновлении страницы)
+            # Путь к шаблону
+            template_path = st.text_input("Путь к шаблону", value=get_setting('merge_settings.template_path', ''), key="merge_template_path")
             if template_path:
-                clean_path = template_path.strip('"\'')  # Удаляем кавычки
-                if os.path.isfile(clean_path):
-                    try:
-                        # Проверяем, является ли файл PSD
-                        if clean_path.lower().endswith('.psd'):
-                            try:
-                                from psd_tools import PSDImage
-                                psd = PSDImage.open(clean_path)
-                                st.success(f"✅ PSD шаблон успешно загружен. Размер: {psd.size}")
-                            except ImportError:
-                                st.error("❌ Для работы с PSD файлами требуется установить библиотеку psd-tools")
-                        else:
-                            # Для обычных изображений
-                            from PIL import Image
-                            img = Image.open(clean_path)
-                            st.success(f"✅ Шаблон успешно загружен. Размер: {img.size}")
-                    except Exception as e:
-                        st.error(f"❌ Ошибка при загрузке шаблона: {str(e)}")
+                set_setting('merge_settings.template_path', template_path)
+                # Проверяем существование файла
+                if os.path.isfile(template_path):
+                    st.caption(f"✅ Файл шаблона найден: {os.path.abspath(template_path)}")
                 else:
-                    st.error(f"❌ Файл шаблона не найден: {os.path.abspath(clean_path)}")
+                    st.caption(f"❌ Файл шаблона не найден: {os.path.abspath(template_path)}")
             else:
-                st.warning("⚠️ Укажите путь к шаблону")
+                st.caption("ℹ️ Путь к шаблону не указан")
             
-            # Положение изображения на шаблоне
-            position_options = ["center", "top", "bottom", "left", "right", "top-left", "top-right", "bottom-left", "bottom-right"]
-            position = st.selectbox("Положение изображения",
-                                  options=position_options,
-                                  index=position_options.index(get_setting('merge_settings.position', 'center')),
-                                  key='merge_position',
-                                  help="Выберите положение изображения относительно шаблона")
-            set_setting('merge_settings.position', position)
+            # Чекбокс для включения/отключения соотношения размеров
+            enable_width_ratio = st.checkbox("Использовать соотношение размеров", value=get_setting('merge_settings.enable_width_ratio', False), key="enable_width_ratio")
+            set_setting('merge_settings.enable_width_ratio', enable_width_ratio)
             
-            # Размер изображения относительно шаблона
-            size_ratio = st.slider("Размер изображения (%)",
-                                 min_value=1,
-                                 max_value=100,
-                                 value=get_setting('merge_settings.size_ratio', 100),
-                                 key='merge_size_ratio',
-                                 help="Размер изображения в процентах от размера шаблона")
-            set_setting('merge_settings.size_ratio', size_ratio)
+            # Настройки соотношения размеров
+            if enable_width_ratio:
+                col1, col2 = st.columns(2)
+                with col1:
+                    width_ratio_w = st.number_input("Ширина оригинала", min_value=0.1, max_value=10.0, value=get_setting('merge_settings.width_ratio', [1.0, 1.0])[0], step=0.1, key="merge_width_ratio_w")
+                with col2:
+                    width_ratio_h = st.number_input("Ширина шаблона", min_value=0.1, max_value=10.0, value=get_setting('merge_settings.width_ratio', [1.0, 1.0])[1], step=0.1, key="merge_width_ratio_h")
+                
+                # Сохраняем настройки соотношения размеров только если значения валидны
+                if width_ratio_w > 0 and width_ratio_h > 0:
+                    set_setting('merge_settings.width_ratio', [width_ratio_w, width_ratio_h])
+                    log.info(f"Width ratio settings updated - w: {width_ratio_w}, h: {width_ratio_h}")
+                else:
+                    st.warning("Значения соотношения размеров должны быть больше 0")
             
             # Порядок слоев
-            template_on_top = st.checkbox("Шаблон поверх изображения",
-                                        value=get_setting('merge_settings.template_on_top', True),
-                                        key='merge_template_on_top',
-                                        help="Если включено, шаблон будет наложен поверх изображения. Если выключено, изображение будет наложено поверх шаблона.")
+            st.caption("Порядок слоев")
+            template_on_top = st.checkbox("Шаблон поверх изображения", value=get_setting('merge_settings.template_on_top', True), key="merge_template_on_top")
             set_setting('merge_settings.template_on_top', template_on_top)
             
+            # Позиция
+            st.caption("Позиция")
+            position = st.selectbox("Позиция изображения", 
+                                  options=['center', 'top', 'bottom', 'left', 'right', 'top-left', 'top-right', 'bottom-left', 'bottom-right'],
+                                  index=['center', 'top', 'bottom', 'left', 'right', 'top-left', 'top-right', 'bottom-left', 'bottom-right'].index(get_setting('merge_settings.position', 'center')),
+                                  key="merge_position")
+            set_setting('merge_settings.position', position)
+            
             # Обработка шаблона
-            process_template = st.checkbox("Обрабатывать шаблон",
-                                         value=get_setting('merge_settings.process_template', False),
-                                         key='merge_process_template',
-                                         help="Если включено, шаблон будет обработан теми же настройками, что и основное изображение")
+            process_template = st.checkbox("Обрабатывать шаблон", value=get_setting('merge_settings.process_template', False), key="merge_process_template")
             set_setting('merge_settings.process_template', process_template)
     # ==============================================
 
