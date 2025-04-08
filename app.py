@@ -1216,16 +1216,34 @@ if start_button_pressed_this_run:
                 mode_from_state = st.session_state.selected_processing_mode
                 log.debug(f"---> Checking workflow for mode (from state): '{mode_from_state}'")
                 
-                if mode_from_state == "Обработка отдельных файлов": 
+                # Run the appropriate processing workflow
+                if mode_from_state == "Обработка отдельных файлов":
                     log.info("Condition matched: 'Обработка отдельных файлов'")
                     success = processing_workflows.run_individual_processing(**current_run_settings)
-                    log.info(f"Finished run_individual_processing call ({'success' if success else 'failed'}).")
+                    if not success:
+                        st.error("❌ Ошибка при выполнении операции 'Обработка отдельных файлов'!")
+                        log.error("Processing failed with errors")
+                        pass
+                    log.info(f"Finished run_individual_processing call (success)")
                     workflow_success = success
-                elif mode_from_state == "Создание коллажей": 
+                elif mode_from_state == "Создание коллажей":
                     log.info("Condition matched: 'Создание коллажей'")
-                    collage_created_ok = processing_workflows.run_collage_processing(**current_run_settings)
-                    workflow_success = collage_created_ok 
-                    log.info(f"Finished run_collage_processing call. Result: {workflow_success}")
+                    success = processing_workflows.run_collage_processing(**current_run_settings)
+                    if not success:
+                        st.error("❌ Ошибка при выполнении операции 'Создание коллажа'!")
+                        log.error("Processing failed with errors")
+                        pass
+                    log.info(f"Finished run_collage_processing call (success)")
+                    workflow_success = success
+                elif mode_from_state == "Слияние изображений":
+                    log.info("Condition matched: 'Слияние изображений'")
+                    success = processing_workflows.run_merge_processing(**current_run_settings)
+                    if not success:
+                        st.error("❌ Ошибка при выполнении операции 'Слияние изображений'!")
+                        log.error("Processing failed with errors")
+                        pass
+                    log.info(f"Finished run_merge_processing call (success)")
+                    workflow_success = success
                 else:
                     log.error(f"!!! Unknown mode_from_state encountered in processing block: '{mode_from_state}'")
                     workflow_success = False 
@@ -1243,6 +1261,8 @@ if start_button_pressed_this_run:
                 st.success("✅ Обработка изображений завершена успешно!")
             elif mode_from_state == "Создание коллажей":
                 st.success("✅ Создание коллажа завершено успешно!")
+            elif mode_from_state == "Слияние изображений":
+                st.success("✅ Слияние изображений завершено успешно!")
             else:
                 # Неизвестный режим
                 st.success(f"✅ Операция '{mode_from_state}' выполнена успешно!")
