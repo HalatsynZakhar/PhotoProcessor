@@ -183,7 +183,6 @@ def _apply_final_canvas_or_prepare(img, exact_width, exact_height, output_format
 def _save_image(img, output_path, output_format, jpeg_quality, jpg_background_color=None):
     """(Helper) Сохраняет изображение в указанном формате с опциями."""
     if not img: log.error("! Cannot save None image."); return False
-    # ... (код функции _save_image из предыдущего ответа, с log.*) ...
     if img.size[0] <= 0 or img.size[1] <= 0: log.error(f"! Cannot save zero-size image {img.size} to {output_path}"); return False
     log.info(f"  > Saving image to {output_path} (Format: {output_format.upper()})")
     log.debug(f"    Image details before save: Mode={img.mode}, Size={img.size}")
@@ -210,10 +209,15 @@ def _save_image(img, output_path, output_format, jpeg_quality, jpg_background_co
         elif output_format == 'png':
             format_name = "PNG"
             save_options["compress_level"] = 6
+            # Для PNG важно сохранить прозрачность
             if img.mode != 'RGBA':
                 log.warning(f"    Mode is {img.mode}, converting to RGBA for PNG save.")
                 img_to_save = img.convert('RGBA')
                 must_close_img_to_save = True
+            # Убедимся, что альфа-канал сохранен
+            if img_to_save.mode == 'RGBA':
+                log.debug("    Preserving transparency for PNG save")
+                save_options["optimize"] = False  # Отключаем оптимизацию для лучшего сохранения прозрачности
         else: log.error(f"! Unsupported output format for saving: {output_format}"); return False
 
         img_to_save.save(output_path, format_name, **save_options)
@@ -388,8 +392,13 @@ def run_individual_processing(**all_settings: Dict[str, Any]) -> bool:
                     article = individual_mode_settings.get('article_name', '')
                     if article:
                         output_filename = f"{article}_{i}.{output_format}"
+                else:
+                    # Ensure the output filename has the correct extension
+                    base_name = os.path.splitext(output_filename)[0]
+                    output_filename = f"{base_name}.{output_format}"
                 
                 output_path = os.path.join(output_folder, output_filename)
+                log.info(f"Saving image with format: {output_format.upper()}")
                 if not _save_image(img, output_path, output_format, individual_mode_settings.get('jpeg_quality', 95), individual_mode_settings.get('jpg_background_color', [255, 255, 255])):
                     log.error(f"Failed to save image: {output_filename}")
                     log.info(f"--- Finished processing: {filename} (Failed) ---")
