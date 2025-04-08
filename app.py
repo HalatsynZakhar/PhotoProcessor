@@ -604,17 +604,39 @@ with st.sidebar:
                                 key='bgc_perimeter', 
                                 help="Включите, чтобы обрезка выполнялась только если периметр изображения белый. Предотвращает обрезку изображений без белого фона или с объектами, касающимися края.")
             set_setting('background_crop.check_perimeter', bgc_per)
-            bgc_abs = st.checkbox("Абсолютно симм. обрезка", 
-                                value=get_setting('background_crop.crop_symmetric_absolute', False), 
-                                key='bgc_abs',
-                                help="Обрезка будет одинаковой со всех сторон (минимальная из обнаруженных). Полезно для создания квадратных изображений или сохранения симметрии.")
-            set_setting('background_crop.crop_symmetric_absolute', bgc_abs)
-            if not bgc_abs:
-                bgc_axes = st.checkbox("Симм. обрезка по осям", 
-                                     value=get_setting('background_crop.crop_symmetric_axes', False), 
-                                     key='bgc_axes',
-                                     help="Обрезка будет симметричной по каждой оси (слева/справа одинаково, сверху/снизу одинаково). Полезно для сохранения баланса изображения.")
-                set_setting('background_crop.crop_symmetric_axes', bgc_axes)
+            
+            if bgc_per:
+                # Словарь для отображения режимов
+                bgc_mode_options = {
+                    "if_white": "Удалять если периметр белый",
+                    "if_not_white": "Удалять если периметр не белый"
+                }
+                bgc_mode_keys = list(bgc_mode_options.keys())
+                bgc_mode_values = list(bgc_mode_options.values())
+                
+                current_bgc_mode = get_setting('background_crop.perimeter_mode', 'if_white')
+                try:
+                    current_bgc_mode_index = bgc_mode_keys.index(current_bgc_mode)
+                except ValueError:
+                    current_bgc_mode_index = 0
+                    set_setting('background_crop.perimeter_mode', 'if_white')
+                
+                selected_bgc_mode_value = st.radio(
+                    "Режим проверки периметра:",
+                    options=bgc_mode_values,
+                    index=current_bgc_mode_index,
+                    key='bgc_per_mode',
+                    help="Выберите, при каком условии периметра удалять фон"
+                )
+                selected_bgc_mode_key = bgc_mode_keys[bgc_mode_values.index(selected_bgc_mode_value)]
+                set_setting('background_crop.perimeter_mode', selected_bgc_mode_key)
+                
+                # Добавляем отдельный допуск для периметра
+                bgc_per_tol = st.slider("Допуск белого для периметра", 0, 255, 
+                                     value=get_setting('background_crop.perimeter_tolerance', 10), 
+                                     key='bgc_per_tol', 
+                                     help="Определяет, насколько цвет пикселя периметра может отличаться от чисто белого (RGB 255,255,255), чтобы считаться белым при проверке периметра. Влияет только на решение об удалении фона.")
+                set_setting('background_crop.perimeter_tolerance', bgc_per_tol)
 
     with st.expander("4. Добавление полей", expanded=False):
         # === НОВЫЕ РЕЖИМЫ ===

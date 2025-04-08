@@ -277,9 +277,11 @@ def run_individual_processing(**all_settings: Dict[str, Any]):
 
         enable_bg_crop = bgc_settings.get('enable_bg_crop', False)
         white_tolerance = int(bgc_settings.get('white_tolerance', 0)) if enable_bg_crop else None # None если выключено
+        perimeter_tolerance = int(bgc_settings.get('perimeter_tolerance', 10)) if enable_bg_crop else None
         crop_symmetric_absolute = bool(bgc_settings.get('crop_symmetric_absolute', False)) if enable_bg_crop else False
         crop_symmetric_axes = bool(bgc_settings.get('crop_symmetric_axes', False)) if enable_bg_crop else False
         check_perimeter = bool(bgc_settings.get('check_perimeter', True)) if enable_bg_crop else False
+        perimeter_mode = bgc_settings.get('perimeter_mode', 'if_white')  # 'if_white' or 'if_not_white'
 
         # Обновленные настройки полей
         padding_mode = pad_settings.get('mode', 'never')
@@ -452,13 +454,21 @@ def run_individual_processing(**all_settings: Dict[str, Any]):
                 # Check perimeter before removing background if option enabled
                 should_remove_bg = True
                 if check_perimeter:
-                    log.debug(f"  Checking if image perimeter is white before removing background (tolerance: {white_tolerance})")
-                    perimeter_is_white = image_utils.check_perimeter_is_white(img_current, white_tolerance, 1)  # Check 1px perimeter
-                    if not perimeter_is_white:
-                        log.info("    Background removal skipped: perimeter is NOT white and check_perimeter is enabled")
-                        should_remove_bg = False
-                    else:
-                        log.info("    Background will be removed: perimeter IS white")
+                    log.debug(f"  Checking if image perimeter is white before removing background (tolerance: {perimeter_tolerance})")
+                    perimeter_is_white = image_utils.check_perimeter_is_white(img_current, perimeter_tolerance, 1)  # Check 1px perimeter
+                    
+                    if perimeter_mode == 'if_white':
+                        if not perimeter_is_white:
+                            log.info("    Background removal skipped: perimeter is NOT white and mode is 'if_white'")
+                            should_remove_bg = False
+                        else:
+                            log.info("    Background will be removed: perimeter IS white and mode is 'if_white'")
+                    else:  # mode is 'if_not_white'
+                        if perimeter_is_white:
+                            log.info("    Background removal skipped: perimeter IS white and mode is 'if_not_white'")
+                            should_remove_bg = False
+                        else:
+                            log.info("    Background will be removed: perimeter is NOT white and mode is 'if_not_white'")
                 
                 if should_remove_bg:
                     img_current = image_utils.remove_white_background(img_current, white_tolerance)
@@ -831,20 +841,30 @@ def _process_image_for_collage(image_path: str, prep_settings, white_settings, b
         # 4. Удаление фона/обрезка (если вкл)
         enable_bg_crop = bgc_settings.get('enable_bg_crop', False)
         white_tolerance = int(bgc_settings.get('white_tolerance', 0)) if enable_bg_crop else None
+        perimeter_tolerance = int(bgc_settings.get('perimeter_tolerance', 10)) if enable_bg_crop else None
         crop_symmetric_absolute = bool(bgc_settings.get('crop_symmetric_absolute', False)) if enable_bg_crop else False
         crop_symmetric_axes = bool(bgc_settings.get('crop_symmetric_axes', False)) if enable_bg_crop else False
         check_perimeter = bool(bgc_settings.get('check_perimeter', True)) if enable_bg_crop else False
+        perimeter_mode = bgc_settings.get('perimeter_mode', 'if_white')  # 'if_white' or 'if_not_white'
         if enable_bg_crop:
             # Check perimeter before removing background if option enabled
             should_remove_bg = True
             if check_perimeter:
-                log.debug(f"    Checking if image perimeter is white before removing background (tolerance: {white_tolerance})")
-                perimeter_is_white = image_utils.check_perimeter_is_white(img_current, white_tolerance, 1)  # Check 1px perimeter
-                if not perimeter_is_white:
-                    log.info("    Background removal skipped for collage image: perimeter is NOT white and check_perimeter is enabled")
-                    should_remove_bg = False
-                else:
-                    log.info("    Background will be removed for collage image: perimeter IS white")
+                log.debug(f"  Checking if image perimeter is white before removing background (tolerance: {perimeter_tolerance})")
+                perimeter_is_white = image_utils.check_perimeter_is_white(img_current, perimeter_tolerance, 1)  # Check 1px perimeter
+                
+                if perimeter_mode == 'if_white':
+                    if not perimeter_is_white:
+                        log.info("    Background removal skipped: perimeter is NOT white and mode is 'if_white'")
+                        should_remove_bg = False
+                    else:
+                        log.info("    Background will be removed: perimeter IS white and mode is 'if_white'")
+                else:  # mode is 'if_not_white'
+                    if perimeter_is_white:
+                        log.info("    Background removal skipped: perimeter IS white and mode is 'if_not_white'")
+                        should_remove_bg = False
+                    else:
+                        log.info("    Background will be removed: perimeter is NOT white and mode is 'if_not_white'")
             
             if should_remove_bg:
                 img_current = image_utils.remove_white_background(img_current, white_tolerance)
