@@ -224,7 +224,7 @@ def _save_image(img, output_path, output_format, jpeg_quality):
 # === ОСНОВНАЯ ФУНКЦИЯ: ОБРАБОТКА ОТДЕЛЬНЫХ ФАЙЛОВ =============================
 # ==============================================================================
 
-def run_individual_processing(**all_settings: Dict[str, Any]):
+def run_individual_processing(**all_settings: Dict[str, Any]) -> bool:
     """Обрабатывает отдельные файлы согласно настройкам."""
     try:
         log.info("--- Starting Individual File Processing ---")
@@ -288,6 +288,9 @@ def run_individual_processing(**all_settings: Dict[str, Any]):
         files = get_image_files(input_folder)
         log.info(f"Found {len(files)} files to process.")
         
+        # Track overall success
+        overall_success = True
+        
         # Process each file
         for i, file_path in enumerate(files, 1):
             try:
@@ -336,8 +339,16 @@ def run_individual_processing(**all_settings: Dict[str, Any]):
                         
                         # Merge image with template
                         img = _merge_with_template(img, template, merge_settings)
+                        if img is None:
+                            log.error(f"Failed to merge with template for {filename}")
+                            log.info(f"--- Finished processing: {filename} (Failed) ---")
+                            overall_success = False
+                            continue
                     except Exception as e:
                         log.error(f"Error merging with template: {e}")
+                        log.info(f"--- Finished processing: {filename} (Failed) ---")
+                        overall_success = False
+                        continue
                 
                 # Apply final adjustments
                 if individual_mode_settings.get('enable_force_aspect_ratio', False):
@@ -363,7 +374,11 @@ def run_individual_processing(**all_settings: Dict[str, Any]):
                         output_filename = f"{article}_{i}.{output_format}"
                 
                 output_path = os.path.join(output_folder, output_filename)
-                _save_image(img, output_path, output_format, individual_mode_settings.get('jpeg_quality', 95))
+                if not _save_image(img, output_path, output_format, individual_mode_settings.get('jpeg_quality', 95)):
+                    log.error(f"Failed to save image: {output_filename}")
+                    log.info(f"--- Finished processing: {filename} (Failed) ---")
+                    overall_success = False
+                    continue
                 
                 # Delete original if enabled
                 if individual_mode_settings.get('delete_originals', False):
@@ -379,8 +394,14 @@ def run_individual_processing(**all_settings: Dict[str, Any]):
                 log.critical(f"!!! UNEXPECTED error processing {filename}: {e}")
                 log.exception("Error details")
                 log.info(f"--- Finished processing: {filename} (Failed) ---")
+                overall_success = False
         
-        return True
+        if not overall_success:
+            log.error("--- Processing completed with errors ---")
+            return False
+        else:
+            log.info("--- Processing completed successfully ---")
+            return True
         
     except Exception as e:
         log.critical(f"!!! UNEXPECTED error in run_individual_processing: {e}")
@@ -865,6 +886,10 @@ def _merge_with_template(img: Image.Image, template: Image.Image, settings: Dict
         
         # Get merge settings
         size_ratio = settings.get('size_ratio', 1.0)
+        # Validate size_ratio
+        if size_ratio > 1.0:
+            log.warning(f"  ! Size ratio {size_ratio} is greater than 1.0, converting to percentage")
+            size_ratio = size_ratio / 100.0
         position = settings.get('position', 'center')
         template_on_top = settings.get('template_on_top', True)
         
@@ -944,10 +969,12 @@ def _process_image_for_merge(img: Image.Image, merge_settings: Dict[str, Any]) -
                 
                 # Process template if enabled
                 if merge_settings.get('process_template', False):
+                    log.info("  > Processing template image...")
                     template = _process_image_for_collage(template, merge_settings)
                     if not template:
                         log.error("Failed to process template image")
                         return None
+                    log.info(f"  > Template processed. New size: {template.size}, mode: {template.mode}")
                 
                 # Convert to RGBA for transparency
                 if template.mode != 'RGBA':
@@ -963,6 +990,10 @@ def _process_image_for_merge(img: Image.Image, merge_settings: Dict[str, Any]) -
                 
             except Exception as e:
                 log.error(f"Error processing template: {e}")
+                if isinstance(e, FileNotFoundError):
+                    log.error(f"Template file not found at path: {template_path}")
+                elif isinstance(e, OSError) and "Invalid argument" in str(e):
+                    log.error(f"Invalid template path format: {template_path}")
                 log.exception("Error details")
                 return None
         

@@ -1218,9 +1218,9 @@ if start_button_pressed_this_run:
                 
                 if mode_from_state == "Обработка отдельных файлов": 
                     log.info("Condition matched: 'Обработка отдельных файлов'")
-                    processing_workflows.run_individual_processing(**current_run_settings)
-                    workflow_success = True 
-                    log.info("Finished run_individual_processing call (assumed success).")
+                    success = processing_workflows.run_individual_processing(**current_run_settings)
+                    log.info(f"Finished run_individual_processing call ({'success' if success else 'failed'}).")
+                    workflow_success = success
                 elif mode_from_state == "Создание коллажей": 
                     log.info("Condition matched: 'Создание коллажей'")
                     collage_created_ok = processing_workflows.run_collage_processing(**current_run_settings)
