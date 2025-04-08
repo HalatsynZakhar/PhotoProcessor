@@ -1181,11 +1181,6 @@ if start_button_pressed_this_run:
             st.error(error_msg, icon="❌")
             log.error(f"Validation Error: {error_msg}")
         st.warning("Обработка не запущена из-за ошибок в настройках путей.", icon="⚠️")
-        
-        with st.expander("📋 Журнал ошибок валидации", expanded=False):
-            st.text_area("Лог:", value=log_stream.getvalue(), height=200, 
-                       key='log_output_validation_error', disabled=True, 
-                       label_visibility="collapsed")
     else:
         log.info(f"--- Path validation successful. Starting processing workflow '{current_mode}'... ---")
         st.info(f"Запускаем обработку в режиме '{current_mode}'...")
@@ -1249,27 +1244,15 @@ if start_button_pressed_this_run:
             else:
                 # Неизвестный режим
                 st.success(f"✅ Операция '{mode_from_state}' выполнена успешно!")
-
-            with st.expander("📋 Журнал выполнения", expanded=False):
-                st.text_area("Лог:", value=log_stream.getvalue(), height=250, 
-                          key='log_output_success', disabled=True, 
-                          label_visibility="collapsed")
         else:
-            # В случае ошибки показываем только лог с ошибками
-            with st.expander("📋 Журнал выполнения (ошибки)", expanded=True):
-                log_content = log_stream.getvalue()
-                st.text_area("Лог с ошибками:", value=log_content, height=300, 
-                           key='log_output_error', disabled=True, 
-                           label_visibility="collapsed")
-            # ----------------------
+            st.error("❌ Произошла ошибка во время выполнения операции!", icon="🔥")
 
 # --- Область для Логов ---
-# Этот блок должен быть ПОСЛЕ блока if start_button_pressed_this_run
 st.subheader("Логи и предпросмотр:")
 
 # Блок лога
-with st.expander("📋 Журнал работы приложения", expanded=False):
-    st.text_area("Лог:", value=log_stream.getvalue(), height=250, 
+with st.expander("📋 Журнал работы приложения", expanded=True):
+    st.text_area("Лог:", value=log_stream.getvalue(), height=300, 
                key='log_output_display_area', disabled=True, 
                label_visibility="collapsed")
 
