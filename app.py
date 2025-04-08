@@ -743,25 +743,26 @@ with st.sidebar:
                 
             # Валидация шаблона (выполняется при каждом обновлении страницы)
             if template_path:
-                if os.path.isfile(template_path):
+                clean_path = template_path.strip('"\'')  # Удаляем кавычки
+                if os.path.isfile(clean_path):
                     try:
                         # Проверяем, является ли файл PSD
-                        if template_path.lower().endswith('.psd'):
+                        if clean_path.lower().endswith('.psd'):
                             try:
                                 from psd_tools import PSDImage
-                                psd = PSDImage.open(template_path)
+                                psd = PSDImage.open(clean_path)
                                 st.success(f"✅ PSD шаблон успешно загружен. Размер: {psd.size}")
                             except ImportError:
                                 st.error("❌ Для работы с PSD файлами требуется установить библиотеку psd-tools")
                         else:
                             # Для обычных изображений
                             from PIL import Image
-                            img = Image.open(template_path)
+                            img = Image.open(clean_path)
                             st.success(f"✅ Шаблон успешно загружен. Размер: {img.size}")
                     except Exception as e:
                         st.error(f"❌ Ошибка при загрузке шаблона: {str(e)}")
                 else:
-                    st.error(f"❌ Файл шаблона не найден: {os.path.abspath(template_path)}")
+                    st.error(f"❌ Файл шаблона не найден: {os.path.abspath(clean_path)}")
             else:
                 st.warning("⚠️ Укажите путь к шаблону")
             
@@ -1239,11 +1240,8 @@ if start_button_pressed_this_run:
                           key='log_output_success', disabled=True, 
                           label_visibility="collapsed")
         else:
-            # В случае ошибки:
-            st.error(f"❌ Ошибка при выполнении операции '{mode_from_state}'!")
-
-            # --- LOGS IN EXPANDER ---
-            with st.expander("📋 Журнал выполнения (ошибки)", expanded=False):
+            # В случае ошибки показываем только лог с ошибками
+            with st.expander("📋 Журнал выполнения (ошибки)", expanded=True):
                 log_content = log_stream.getvalue()
                 st.text_area("Лог с ошибками:", value=log_content, height=300, 
                            key='log_output_error', disabled=True, 
