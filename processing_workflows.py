@@ -225,576 +225,167 @@ def _save_image(img, output_path, output_format, jpeg_quality):
 # ==============================================================================
 
 def run_individual_processing(**all_settings: Dict[str, Any]):
-    """
-    Оркестрирует обработку отдельных файлов: поиск, цикл, вызов image_utils,
-    сохранение, переименование, удаление.
-    Принимает все настройки как один словарь.
-    """
-    log.info("--- Starting Individual File Processing ---")
-    start_time = time.time()
-
-    # --- 1. Извлечение и Валидация Параметров ---
-    log.debug("Extracting settings for individual mode...")
+    """Обрабатывает отдельные файлы согласно настройкам."""
     try:
-        paths_settings = all_settings.get('paths', {})
-        prep_settings = all_settings.get('preprocessing', {})
-        white_settings = all_settings.get('whitening', {})
-        bgc_settings = all_settings.get('background_crop', {})
-        pad_settings = all_settings.get('padding', {})
-        bc_settings = all_settings.get('brightness_contrast', {})
-        ind_settings = all_settings.get('individual_mode', {})
-
-        input_path = paths_settings.get('input_folder_path')
-        output_path = paths_settings.get('output_folder_path')
-        backup_folder_path = paths_settings.get('backup_folder_path')
-
-        article_name = ind_settings.get('article_name') # Может быть '' или None
-        delete_originals = ind_settings.get('delete_originals', False)
-        output_format = str(ind_settings.get('output_format', 'jpg')).lower()
-        jpeg_quality = int(ind_settings.get('jpeg_quality', 95))
-        jpg_background_color = ind_settings.get('jpg_background_color', [255, 255, 255])
-        force_aspect_ratio = ind_settings.get('force_aspect_ratio') # None или [W, H]
-        max_output_width = int(ind_settings.get('max_output_width', 0))
-        max_output_height = int(ind_settings.get('max_output_height', 0))
-        final_exact_width = int(ind_settings.get('final_exact_width', 0))
-        final_exact_height = int(ind_settings.get('final_exact_height', 0))
-
-        enable_preresize = prep_settings.get('enable_preresize', False)
-        preresize_width = int(prep_settings.get('preresize_width', 0)) if enable_preresize else 0
-        preresize_height = int(prep_settings.get('preresize_height', 0)) if enable_preresize else 0
-
-        enable_whitening = white_settings.get('enable_whitening', False)
-        whitening_cancel_threshold = int(white_settings.get('whitening_cancel_threshold', 765))  # Default to 765 (0% on slider)
-        log.info(f"Whitening threshold from settings: {whitening_cancel_threshold}")
+        log.info("--- Starting Individual File Processing ---")
         
-        # Проверяем и корректируем значение порога
-        if whitening_cancel_threshold > 255 * 3:
-            whitening_cancel_threshold = 765  # Значение по умолчанию в новой шкале
-            log.info(f"Threshold too high, reset to default: {whitening_cancel_threshold}")
-        elif whitening_cancel_threshold < 60:
-            whitening_cancel_threshold = whitening_cancel_threshold * 3
-            log.info(f"Converting old scale threshold to new scale: {whitening_cancel_threshold}")
-
-        enable_bg_crop = bgc_settings.get('enable_bg_crop', False)
-        white_tolerance = int(bgc_settings.get('white_tolerance', 0)) if enable_bg_crop else None # None если выключено
-        perimeter_tolerance = int(bgc_settings.get('perimeter_tolerance', 10)) if enable_bg_crop else None
-        crop_symmetric_absolute = bool(bgc_settings.get('crop_symmetric_absolute', False)) if enable_bg_crop else False
-        crop_symmetric_axes = bool(bgc_settings.get('crop_symmetric_axes', False)) if enable_bg_crop else False
-        check_perimeter = bool(bgc_settings.get('check_perimeter', True)) if enable_bg_crop else False
-        perimeter_mode = bgc_settings.get('perimeter_mode', 'if_white')  # 'if_white' or 'if_not_white'
-
-        # Обновленные настройки полей
-        padding_mode = pad_settings.get('mode', 'never')
-        enable_padding = padding_mode != 'never' # Включено, если не равно 'never'
-        padding_percent = float(pad_settings.get('padding_percent', 0.0)) if enable_padding else 0.0
-        allow_expansion = bool(pad_settings.get('allow_expansion', True)) if enable_padding else False
-        perimeter_check_tolerance = int(pad_settings.get('perimeter_check_tolerance', 10)) if enable_padding else 0
-
-        # Дополнительная валидация
-        if output_format not in ['jpg', 'png']:
-            raise ValueError(f"Unsupported output format: {output_format}")
-        if not input_path or not output_path:
-            raise ValueError("Input or Output path is missing.")
-
-        # Конвертация в кортежи где нужно
-        valid_jpg_bg = tuple(jpg_background_color) if isinstance(jpg_background_color, list) else (255, 255, 255)
-        valid_aspect_ratio = tuple(force_aspect_ratio) if force_aspect_ratio else None
-
-        log.debug("Settings extracted successfully.")
-
-    except (KeyError, ValueError, TypeError) as e:
-        log.critical(f"Error processing settings: {e}. Aborting.", exc_info=True)
-        return
-
-    # --- 2. Подготовка Путей и Папок ---
-    abs_input_path = os.path.abspath(input_path)
-    abs_output_path = os.path.abspath(output_path)
-    abs_backup_path = os.path.abspath(backup_folder_path) if backup_folder_path and str(backup_folder_path).strip() else None
-
-    if not os.path.isdir(abs_input_path):
-        log.error(f"Input path is not a valid directory: {abs_input_path}"); return
-
-    backup_enabled = False
-    if abs_backup_path:
-        if abs_backup_path == abs_input_path or abs_backup_path == abs_output_path:
-             log.warning(f"Backup path is same as input/output. Disabling backup.")
-        else:
-             try:
-                 if not os.path.exists(abs_backup_path): os.makedirs(abs_backup_path); log.info(f"Created backup dir: {abs_backup_path}")
-                 elif not os.path.isdir(abs_backup_path): log.error(f"Backup path not a directory: {abs_backup_path}");
-                 else: backup_enabled = True # Папка существует и это директория
-             except Exception as e: log.error(f"Error creating backup dir {abs_backup_path}: {e}")
-
-    # Удаляем блокировку на удаление при совпадении директорий ввода/вывода
-    # safe_to_delete = abs_input_path != abs_output_path
-    # effective_delete_originals = delete_originals and safe_to_delete
-    # if delete_originals and not safe_to_delete: log.warning("Deletion disabled: input/output paths are same.")
-    
-    # Теперь разрешаем удаление даже при совпадении директорий
-    effective_delete_originals = delete_originals
-    # Проверим только разницу в расширениях, если это одна директория
-    same_directory = abs_input_path == abs_output_path
-    if same_directory and delete_originals:
-        # Если удаление включено и директории одинаковы, выводим предупреждение, но не блокируем функцию
-        log.warning("Directory same for input/output. Will attempt to delete only files with different extensions.")
-
-    try: # Создание папки результатов
-        if not os.path.exists(abs_output_path): os.makedirs(abs_output_path); log.info(f"Created output dir: {abs_output_path}")
-        elif not os.path.isdir(abs_output_path): log.error(f"Output path not a directory: {abs_output_path}"); return
-    except Exception as e: log.error(f"Error creating output dir {abs_output_path}: {e}"); return
-
-    # --- 3. Логирование параметров ---
-    log.info("--- Processing Parameters (Individual Mode) ---")
-    log.info(f"Input Path: {abs_input_path}")
-    log.info(f"Output Path: {abs_output_path}")
-    log.info(f"Backup Path: {abs_backup_path if backup_enabled else 'Disabled'}")
-    log.info(f"Article (Renaming): {article_name or 'Disabled'}")
-    log.info(f"Delete Originals: {effective_delete_originals}")
-    log.info(f"Output Format: {output_format.upper()}")
-    if output_format == 'jpg': log.info(f"  JPG Bg: {valid_jpg_bg}, Quality: {jpeg_quality}")
-    log.info("---------- Steps ----------")
-    log.info(f"1. Preresize: {'Enabled' if enable_preresize else 'Disabled'} (W:{preresize_width}, H:{preresize_height})")
-    log.info(f"2. Whitening: {'Enabled' if enable_whitening else 'Disabled'} (Thresh:{whitening_cancel_threshold})")
-    log.info(f"3. BG Removal/Crop: {'Enabled' if enable_bg_crop else 'Disabled'} (Tol:{white_tolerance})")
-    if enable_bg_crop: log.info(f"  Crop Symmetry: Abs={crop_symmetric_absolute}, Axes={crop_symmetric_axes}, Check Perimeter={check_perimeter}")
-    log.info(f"4. Padding: {'Enabled' if enable_padding else 'Disabled'}" + 
-             (f" (%:{padding_percent:.1f}, Margin:{1}, Expand:{allow_expansion})" if pad_settings.get('enable_padding') else ""))
-    
-    # === ВОССТАНОВЛЕН ВЫЗОВ ЯРКОСТИ И КОНТРАСТА ===
-    enable_bc = bc_settings.get('enable_bc', False)
-    log.info(f"5. Brightness/Contrast: {'Enabled' if enable_bc else 'Disabled'}" + 
-             (f" (B:{bc_settings.get('brightness_factor', 1.0):.2f}, C:{bc_settings.get('contrast_factor', 1.0):.2f})" if enable_bc else ""))
-    # ===================================
-    
-    # === УЛУЧШЕНО ЛОГИРОВАНИЕ ФЛАГА ===
-    enable_ratio_log = ind_settings.get('enable_force_aspect_ratio', False)
-    ratio_value_log = ind_settings.get('force_aspect_ratio')
-    log.info(f"6. Force Aspect Ratio: {'Enabled' if enable_ratio_log else 'Disabled'} " + 
-             (f"(Value: {ratio_value_log})" if enable_ratio_log and ratio_value_log else ""))
-    # ==================================
-    
-    log.info(f"7. Max Dimensions: W:{max_output_width or 'N/A'}, H:{max_output_height or 'N/A'}")
-    log.info(f"8. Final Exact Canvas: W:{final_exact_width or 'N/A'}, H:{final_exact_height or 'N/A'}")
-    log.info("-------------------------")
-
-    # --- 4. Поиск Файлов ---
-    try:
-        all_entries = os.listdir(abs_input_path)
-        SUPPORTED_EXTENSIONS = ('.png', '.jpg', '.jpeg', '.bmp', '.gif', '.tiff', '.webp', '.tif')
-        files_unsorted = [f for f in all_entries if os.path.isfile(os.path.join(abs_input_path, f)) and not f.startswith(("__temp_", ".")) and f.lower().endswith(SUPPORTED_EXTENSIONS)]
-        files = natsorted(files_unsorted)
+        # Extract merge settings
+        merge_settings = all_settings.get('merge_settings', {})
+        enable_merge = merge_settings.get('enable_merge', False)
+        template_path = merge_settings.get('template_path', '')
+        process_template = merge_settings.get('process_template', False)
+        
+        # Extract other settings
+        input_folder = all_settings.get('paths', {}).get('input_folder_path', '')
+        output_folder = all_settings.get('paths', {}).get('output_folder_path', '')
+        backup_folder = all_settings.get('paths', {}).get('backup_folder_path', '')
+        
+        # Extract processing settings
+        preprocessing_settings = all_settings.get('preprocessing', {})
+        whitening_settings = all_settings.get('whitening', {})
+        background_crop_settings = all_settings.get('background_crop', {})
+        padding_settings = all_settings.get('padding', {})
+        brightness_contrast_settings = all_settings.get('brightness_contrast', {})
+        individual_mode_settings = all_settings.get('individual_mode', {})
+        
+        # Log settings
+        log.info("--- Processing Parameters (Individual Mode) ---")
+        log.info(f"Input Path: {input_folder}")
+        log.info(f"Output Path: {output_folder}")
+        log.info(f"Backup Path: {backup_folder}")
+        log.info(f"Article (Renaming): {'Enabled' if individual_mode_settings.get('enable_rename', False) else 'Disabled'}")
+        log.info(f"Delete Originals: {individual_mode_settings.get('delete_originals', False)}")
+        
+        # Output format settings
+        output_format = individual_mode_settings.get('output_format', 'jpg').lower()
+        log.info(f"Output Format: {output_format.upper()}")
+        if output_format == 'jpg':
+            jpg_background_color = individual_mode_settings.get('jpg_background_color', [255, 255, 255])
+            jpeg_quality = individual_mode_settings.get('jpeg_quality', 95)
+            log.info(f"  JPG Bg: {tuple(jpg_background_color)}, Quality: {jpeg_quality}")
+        
+        # Log processing steps
+        log.info("---------- Steps ----------")
+        log.info(f"1. Preresize: {'Enabled' if preprocessing_settings.get('enable_preresize', False) else 'Disabled'} "
+                f"(W:{preprocessing_settings.get('preresize_width', 0)}, H:{preprocessing_settings.get('preresize_height', 0)})")
+        log.info(f"2. Whitening: {'Enabled' if whitening_settings.get('enable_whitening', False) else 'Disabled'} "
+                f"(Thresh:{whitening_settings.get('whitening_cancel_threshold', 765)})")
+        log.info(f"3. BG Removal/Crop: {'Enabled' if background_crop_settings.get('enable_bg_crop', False) else 'Disabled'} "
+                f"(Tol:{background_crop_settings.get('white_tolerance', 10)})")
+        log.info(f"  Crop Symmetry: Abs={background_crop_settings.get('force_absolute_symmetry', False)}, "
+                f"Axes={background_crop_settings.get('force_axes_symmetry', False)}, "
+                f"Check Perimeter={background_crop_settings.get('check_perimeter', False)}")
+        log.info(f"4. Padding: {'Enabled' if padding_settings.get('mode', 'never') != 'never' else 'Disabled'}")
+        log.info(f"5. Brightness/Contrast: {'Enabled' if brightness_contrast_settings.get('enable_bc', False) else 'Disabled'}")
+        log.info(f"6. Force Aspect Ratio: {'Enabled' if individual_mode_settings.get('enable_force_aspect_ratio', False) else 'Disabled'} ")
+        log.info(f"7. Max Dimensions: W:{individual_mode_settings.get('max_output_width', 'N/A')}, "
+                f"H:{individual_mode_settings.get('max_output_height', 'N/A')}")
+        log.info(f"8. Final Exact Canvas: W:{individual_mode_settings.get('final_exact_width', 'N/A')}, "
+                f"H:{individual_mode_settings.get('final_exact_height', 'N/A')}")
+        log.info("-------------------------")
+        
+        # Get list of files to process
+        files = get_image_files(input_folder)
         log.info(f"Found {len(files)} files to process.")
-        if not files: return
-    except Exception as e: log.error(f"Error reading input directory {abs_input_path}: {e}"); return
-
-    # --- 5. Инициализация для Цикла ---
-    processed_files_count = 0; skipped_files_count = 0; error_files_count = 0
-    source_files_to_potentially_delete = []
-    processed_output_file_map = {} # {final_output_path: original_basename}
-    output_ext = f".{output_format}"
-
-    # --- 6. Основной Цикл Обработки ---
-    total_files = len(files)
-    for file_index, file in enumerate(files):
-        source_file_path = os.path.join(abs_input_path, file)
-        log.info(f"--- [{file_index + 1}/{total_files}] Processing: {file} ---")
-        img_current = None
-        original_basename = os.path.splitext(file)[0]
-        success_flag = False # Успех для текущего файла
-
-        try:
-            # 6.1. Бекап
-            if backup_enabled:
-                try: shutil.copy2(source_file_path, os.path.join(abs_backup_path, file)); log.debug("  > Backup created.")
-                except Exception as backup_err: log.error(f"  ! Backup failed for {file}: {backup_err}")
-
-            # 6.2. Открытие
+        
+        # Process each file
+        for i, file_path in enumerate(files, 1):
             try:
-                with Image.open(source_file_path) as img_opened:
-                    img_opened.load()
-                    img_current = img_opened.copy()
-                    log.debug(f"  > Opened. Orig size: {img_current.size}, Mode: {img_current.mode}")
-            except UnidentifiedImageError: log.error(f"  ! Cannot identify image: {file}"); skipped_files_count += 1; continue
-            except FileNotFoundError: log.error(f"  ! File not found during open: {file}"); skipped_files_count += 1; continue
-            except Exception as open_err: log.error(f"  ! Error opening {file}: {open_err}", exc_info=True); error_files_count += 1; continue
-            if not img_current or img_current.size[0] <= 0 or img_current.size[1] <= 0:
-                log.error(f"  ! Image empty/zero size after open: {file}"); error_files_count += 1; image_utils.safe_close(img_current); continue
-
-            # --- Конвейер Обработки ---
-            step_counter = 1
-            log.debug(f"  Step {step_counter}: Pre-resize")
-            if enable_preresize: img_current = _apply_preresize(img_current, preresize_width, preresize_height)
-            if not img_current: raise ValueError("Image became None after pre-resize.")
-            step_counter += 1
-
-            log.debug(f"  Step {step_counter}: Whitening")
-            if enable_whitening:
-                 img_original = img_current
-                 img_current = image_utils.whiten_image_by_darkest_perimeter(img_current, whitening_cancel_threshold)
-                 if img_current is not img_original: log.debug("    Whitening applied.")
-            if not img_current: raise ValueError("Image became None after whitening.")
-            step_counter += 1
-
-            # Проверка периметра для полей (если включены поля и не режим 'always')
-            if enable_padding and padding_mode != 'always':
-                log.debug(f"  Checking padding perimeter (Mode: {padding_mode}, Tolerance: {perimeter_check_tolerance})")
-                padding_perimeter_is_white = _check_padding_perimeter(img_current, perimeter_check_tolerance, 1)
-                # Сохраняем результат для использования позже
-                all_settings['padding_perimeter_is_white'] = padding_perimeter_is_white
-                log.debug(f"  Stored padding perimeter result: {padding_perimeter_is_white}")
-            step_counter += 1
-
-            pre_crop_width, pre_crop_height = img_current.size
-
-            log.debug(f"  Step {step_counter}: BG Removal / Crop (Enabled: {enable_bg_crop})")
-            cropped_image_dimensions = img_current.size
-            if enable_bg_crop:
-                img_original = img_current
+                filename = os.path.basename(file_path)
+                log.info(f"--- [{i}/{len(files)}] Processing: {filename} ---")
                 
-                # Check perimeter before removing background if option enabled
-                should_remove_bg = True
-                if check_perimeter:
-                    log.debug(f"  Checking if image perimeter is white before removing background (tolerance: {perimeter_tolerance})")
-                    perimeter_is_white = image_utils.check_perimeter_is_white(img_current, perimeter_tolerance, 1)  # Check 1px perimeter
-                    
-                    if perimeter_mode == 'if_white':
-                        if not perimeter_is_white:
-                            log.info("    Background removal skipped: perimeter is NOT white and mode is 'if_white'")
-                            should_remove_bg = False
-                        else:
-                            log.info("    Background will be removed: perimeter IS white and mode is 'if_white'")
-                    else:  # mode is 'if_not_white'
-                        if perimeter_is_white:
-                            log.info("    Background removal skipped: perimeter IS white and mode is 'if_not_white'")
-                            should_remove_bg = False
-                        else:
-                            log.info("    Background will be removed: perimeter is NOT white and mode is 'if_not_white'")
+                # Load image
+                img = Image.open(file_path)
                 
-                if should_remove_bg:
-                    img_current = image_utils.remove_white_background(img_current, white_tolerance)
-                    if not img_current: raise ValueError("Image became None after background removal.")
-                    if img_current is not img_original: log.debug("    Background removed/converted.")
-
-                img_original = img_current # Обновляем для сравнения после обрезки
-                img_current = image_utils.crop_image(img_current, crop_symmetric_axes, crop_symmetric_absolute)
-                if not img_current: raise ValueError("Image became None after cropping.")
-                if img_current is not img_original: log.debug("    Cropping applied.")
-                cropped_image_dimensions = img_current.size # Обновляем размер ПОСЛЕ обрезки
-            step_counter += 1
-
-            log.debug(f"  Step {step_counter}: Padding (Mode: {padding_mode})")
-            apply_padding = False
-            if enable_padding:
-                current_w, current_h = cropped_image_dimensions
-                if current_w > 0 and current_h > 0 and padding_percent > 0:
-                    padding_pixels = int(round(max(current_w, current_h) * (padding_percent / 100.0)))
-                    
-                    if padding_pixels > 0:
-                        # Проверяем условия размера
-                        potential_padded_w = current_w + 2 * padding_pixels
-                        potential_padded_h = current_h + 2 * padding_pixels
-                        size_check_passed = (potential_padded_w <= pre_crop_width and potential_padded_h <= pre_crop_height)
-                        size_ok = allow_expansion or size_check_passed
-                        log.debug(f"  Padding size check: current={current_w}x{current_h}, potential={potential_padded_w}x{potential_padded_h}, size_ok={size_ok}")
+                # Apply preprocessing steps
+                if preprocessing_settings.get('enable_preresize', False):
+                    img = _apply_preresize(img, 
+                                         preprocessing_settings.get('preresize_width', 0),
+                                         preprocessing_settings.get('preresize_height', 0))
+                
+                if whitening_settings.get('enable_whitening', False):
+                    img = _apply_whitening(img, whitening_settings.get('whitening_cancel_threshold', 765))
+                
+                if background_crop_settings.get('enable_bg_crop', False):
+                    img = _apply_background_crop(img, background_crop_settings)
+                
+                if padding_settings.get('mode', 'never') != 'never':
+                    img = _apply_padding(img, padding_settings)
+                
+                if brightness_contrast_settings.get('enable_bc', False):
+                    img = _apply_brightness_contrast(img, brightness_contrast_settings)
+                
+                # Apply merge with template if enabled
+                if enable_merge and template_path:
+                    try:
+                        template = Image.open(template_path)
+                        if process_template:
+                            # Apply same processing steps to template
+                            if preprocessing_settings.get('enable_preresize', False):
+                                template = _apply_preresize(template, 
+                                                         preprocessing_settings.get('preresize_width', 0),
+                                                         preprocessing_settings.get('preresize_height', 0))
+                            if whitening_settings.get('enable_whitening', False):
+                                template = _apply_whitening(template, whitening_settings.get('whitening_cancel_threshold', 765))
+                            if background_crop_settings.get('enable_bg_crop', False):
+                                template = _apply_background_crop(template, background_crop_settings)
+                            if padding_settings.get('mode', 'never') != 'never':
+                                template = _apply_padding(template, padding_settings)
+                            if brightness_contrast_settings.get('enable_bc', False):
+                                template = _apply_brightness_contrast(template, brightness_contrast_settings)
                         
-                        # Определяем, нужно ли добавлять поля в зависимости от режима
-                        if padding_mode == 'always':
-                            # Всегда добавляем поля, если размер позволяет
-                            if size_ok:
-                                apply_padding = True
-                                log.info("    Padding will be applied (mode: always, size conditions met).")
-                            else:
-                                log.info("    Padding skipped: Size check failed & expansion disabled.")
-                        else:
-                            # Используем сохраненный результат проверки периметра
-                            padding_perimeter_is_white = all_settings.get('padding_perimeter_is_white', False)
-                            log.debug(f"  Retrieved padding perimeter result: {padding_perimeter_is_white}")
-                            if padding_mode == 'if_white' and padding_perimeter_is_white:
-                                if size_ok:
-                                    apply_padding = True
-                                    log.info("    Padding will be applied (mode: if_white, perimeter IS white, size conditions met).")
-                                else:
-                                    log.info("    Padding skipped: Size check failed & expansion disabled.")
-                            elif padding_mode == 'if_not_white' and not padding_perimeter_is_white:
-                                if size_ok:
-                                    apply_padding = True
-                                    log.info("    Padding will be applied (mode: if_not_white, perimeter is NOT white, size conditions met).")
-                                else:
-                                    log.info("    Padding skipped: Size check failed & expansion disabled.")
-                            else:
-                                log.info(f"    Padding skipped: Perimeter condition not met for mode '{padding_mode}' (perimeter_is_white: {padding_perimeter_is_white}).")
-                    else:
-                        log.info("    Padding skipped: Calculated padding is zero pixels.")
-                else:
-                    log.info("    Padding skipped: Invalid image dimensions or padding percent.")
-            else:
-                log.debug("    Padding step skipped: padding mode is 'never'.")
-
-            # Вызываем функцию добавления полей, только если флаг установлен
-            if apply_padding:
-                log.debug("  Applying padding...")
-                img_original = img_current
-                img_current = image_utils.add_padding(img_current, padding_percent)
-                if not img_current: raise ValueError("Image became None after padding.")
-                if img_current is not img_original: log.info(f"    Padding applied successfully. New size: {img_current.size}")
-            step_counter += 1
-
-            log.debug(f"  Step {step_counter}: Brightness/Contrast")
-            if enable_bc:
-                log.debug("  Calling apply_brightness_contrast...") # Доп. лог
-                img_current = image_utils.apply_brightness_contrast(
-                    img_current, 
-                    brightness_factor=bc_settings.get('brightness_factor', 1.0),
-                    contrast_factor=bc_settings.get('contrast_factor', 1.0)
-                )
-                if not img_current: 
-                    log.warning(f"  Skipping file after brightness/contrast failed (returned None).")
-                    continue
-                log.info(f"    Brightness/Contrast applied. New size: {img_current.size}") # Доп. лог
-
-            log.debug(f"  Step {step_counter}: Force Aspect Ratio")
-            if ind_settings.get('enable_force_aspect_ratio'): # Проверяем флаг
-                aspect_ratio_ind = ind_settings.get('force_aspect_ratio')
-                if aspect_ratio_ind:
-                    # Вызов ТОЛЬКО если флаг True и значение есть
-                    img_current = _apply_force_aspect_ratio(img_current, aspect_ratio_ind)
-                    if not img_current: log.warning(f"  Skipping file after force aspect ratio failed."); continue
-                    log.info(f"    Force Aspect Ratio applied. New size: {img_current.size}")
-                else:
-                    log.warning("  Force aspect ratio enabled but ratio value is missing/invalid.")
-            step_counter += 1
-
-            log.debug(f"  Step {step_counter}: Max Dimensions")
-            if ind_settings.get('enable_max_dimensions'): # Проверяем флаг
-                img_current = _apply_max_dimensions(img_current, max_output_width, max_output_height)
-                if not img_current: raise ValueError("Image became None after max dimensions.")
-            step_counter += 1
-
-            log.debug(f"  Step {step_counter}: Final Canvas / Prepare")
-            # --- Логика точного холста / подготовки --- 
-            canvas_applied = False
-            img_before_prepare = img_current # Сохраняем ссылку для лога
-            log.debug(f"    Image before final step: {repr(img_before_prepare)}") 
-            
-            if ind_settings.get('enable_exact_canvas'): # Проверяем флаг точного холста
-                exact_w = ind_settings.get('final_exact_width', 0)
-                exact_h = ind_settings.get('final_exact_height', 0)
-                if exact_w > 0 and exact_h > 0:
-                    img_processed = _apply_final_canvas_or_prepare(
-                        img_current, exact_w, exact_h, output_format, valid_jpg_bg
-                    )
-                    if not img_processed: log.warning(f"  Skipping file after exact canvas failed."); continue
-                    log.info(f"    Exact Canvas applied. New size: {img_processed.size}")
-                    img_current = None 
-                    canvas_applied = True
-                else:
-                    log.warning("  Exact canvas enabled but width/height are zero.")
-            
-            if not canvas_applied:
-                log.debug("  Applying prepare mode (no exact canvas applied).")
-                img_processed = _apply_final_canvas_or_prepare(
-                    img_current, 0, 0, output_format, valid_jpg_bg
-                )
-                if not img_processed: log.warning(f"  Skipping file after prepare mode failed."); continue
-                img_current = None
+                        # Merge image with template
+                        img = _merge_with_template(img, template, merge_settings)
+                    except Exception as e:
+                        log.error(f"Error merging with template: {e}")
                 
-            log.debug(f"    Image after final step: {repr(img_processed)}") # Логируем результат
-            step_counter += 1
-            # ----------------------------------------
-
-            # 6.3. Сохранение
-            log.debug(f"  Step {step_counter}: Saving")
-            temp_output_filename = f"{original_basename}{output_ext}"
-            final_output_path = os.path.join(abs_output_path, temp_output_filename)
-            # === ПЕРЕДАЕМ img_processed В СОХРАНЕНИЕ ===
-            save_successful = _save_image(img_processed, final_output_path, output_format, jpeg_quality)
-            
-            # Закрываем img_processed после сохранения
-            image_utils.safe_close(img_processed)
-
-            if save_successful:
-                processed_files_count += 1
-                success_flag = True
-                processed_output_file_map[final_output_path] = original_basename
-                if os.path.exists(source_file_path) and source_file_path not in source_files_to_potentially_delete:
-                     source_files_to_potentially_delete.append(source_file_path)
-            else:
-                error_files_count += 1
-                log.error(f"Failed to save processed file: {file}")
-
-        # --- Обработка Ошибок для Файла ---
-        except MemoryError as e:
-             log.critical(f"!!! MEMORY ERROR processing {file}: {e}. Attempting GC.", exc_info=True)
-             error_files_count += 1; gc.collect(); success_flag = False
-        except ValueError as e: # Ловим наши ошибки None
-             log.error(f"!!! PROCESSING error for {file}: {e}", exc_info=False) # Не нужен полный трейсбек
-             error_files_count += 1; success_flag = False
-        except Exception as e:
-             log.critical(f"!!! UNEXPECTED error processing {file}: {e}", exc_info=True)
-             error_files_count += 1; success_flag = False
-        finally:
-            image_utils.safe_close(img_current) # Закрываем в любом случае
-            if not success_flag and source_file_path in source_files_to_potentially_delete:
-                 try: source_files_to_potentially_delete.remove(source_file_path); log.warning(f"  Removed {os.path.basename(source_file_path)} from deletion list due to error.")
-                 except ValueError: pass
-            log.info(f"--- Finished processing: {file} {'(Success)' if success_flag else '(Failed)'} ---")
-
-
-    # --- 7. Финальные Действия (Статистика, Удаление, Переименование) ---
-    log.info("\n" + "=" * 30)
-    log.info("--- Final Summary ---")
-    log.info(f"Successfully processed: {processed_files_count}")
-    log.info(f"Skipped (unreadable/not found): {skipped_files_count}")
-    log.info(f"Errors during processing/saving: {error_files_count}")
-    log.info(f"Total analyzed: {processed_files_count + skipped_files_count + error_files_count} / {total_files}")
-    total_time = time.time() - start_time
-    log.info(f"Total processing time: {total_time:.2f} seconds")
-
-    # 7.1. Удаление оригиналов - ТЕПЕРЬ ВЫПОЛНЯЕТСЯ ДО ПЕРЕИМЕНОВАНИЯ
-    if effective_delete_originals and source_files_to_potentially_delete:
-        log.info(f"\n--- Deleting {len(source_files_to_potentially_delete)} original files from '{abs_input_path}' ---")
-        removed_count = 0; remove_errors = 0
-        
-        # Получаем список всех обработанных базовых имен файлов (без расширения)
-        processed_basenames = set()
-        for output_path, orig_name in processed_output_file_map.items():
-            # Получаем базовое имя без расширения
-            base_name = os.path.splitext(orig_name)[0]
-            processed_basenames.add(base_name)
-        
-        log.debug(f"Base names of processed files: {processed_basenames}")
-        
-        # Запоминаем расширение выходных файлов для проверки
-        output_ext_lower = output_ext.lower()
-        same_directory = abs_input_path == abs_output_path
-        
-        # Стандартное удаление файлов из списка
-        for file_to_remove in list(source_files_to_potentially_delete):
-            try:
-                if os.path.exists(file_to_remove): 
-                    # Дополнительная проверка для одной директории
-                    if same_directory:
-                        file_ext = os.path.splitext(file_to_remove)[1].lower()
-                        # Если расширение совпадает с выходным форматом, не удаляем
-                        if file_ext == output_ext_lower:
-                            log.warning(f"  Skip deleting output format file in same directory: {os.path.basename(file_to_remove)}")
-                            continue
-                    
-                    os.remove(file_to_remove)
-                    removed_count += 1
-                    log.debug(f"  Deleted original file: {os.path.basename(file_to_remove)}")
-                else: 
-                    log.warning(f"  File to delete not found: {os.path.basename(file_to_remove)}")
-            except Exception as remove_error: 
-                log.error(f"  Error deleting {os.path.basename(file_to_remove)}: {remove_error}")
-                remove_errors += 1
-        
-        # Дополнительно удаляем файлы с другими расширениями, но с теми же базовыми именами
-        # Теперь эта логика работает независимо от того, совпадают ли пути ввода/вывода
-        if processed_basenames:
-            log.info("  Looking for additional files with the same base names but different extensions...")
-            extra_removed = 0
-            
-            try:
-                # Получаем все файлы во входной директории
-                all_input_files = [f for f in os.listdir(abs_input_path) 
-                                  if os.path.isfile(os.path.join(abs_input_path, f))]
+                # Apply final adjustments
+                if individual_mode_settings.get('enable_force_aspect_ratio', False):
+                    img = _apply_force_aspect_ratio(img, individual_mode_settings.get('force_aspect_ratio', [1, 1]))
                 
-                # Проходим по всем файлам и проверяем базовые имена
-                for filename in all_input_files:
-                    file_path = os.path.join(abs_input_path, filename)
-                    # Пропускаем если файл уже был удален
-                    if file_path in source_files_to_potentially_delete:
-                        continue
-                    
-                    # Получаем базовое имя без расширения и расширение файла
-                    base_name = os.path.splitext(filename)[0]
-                    file_ext = os.path.splitext(filename)[1].lower()
-                    
-                    # Если базовое имя есть в списке обработанных, удаляем этот файл
-                    if base_name in processed_basenames:
-                        # Не удаляем файлы с выходным расширением при одинаковых директориях
-                        if same_directory and file_ext == output_ext_lower:
-                            log.warning(f"  Skip deleting output file with same base name: {filename}")
-                            continue
-                        
-                        try:
-                            os.remove(file_path)
-                            extra_removed += 1
-                            log.debug(f"  Deleted additional file: {filename}")
-                        except Exception as ex:
-                            log.error(f"  Error deleting additional file {filename}: {ex}")
-                            remove_errors += 1
+                if individual_mode_settings.get('enable_max_dimensions', False):
+                    img = _apply_max_dimensions(img, 
+                                             individual_mode_settings.get('max_output_width', 0),
+                                             individual_mode_settings.get('max_output_height', 0))
+                
+                if individual_mode_settings.get('enable_exact_canvas', False):
+                    img = _apply_final_canvas_or_prepare(img,
+                                                       individual_mode_settings.get('final_exact_width', 0),
+                                                       individual_mode_settings.get('final_exact_height', 0),
+                                                       output_format,
+                                                       individual_mode_settings.get('jpg_background_color', [255, 255, 255]))
+                
+                # Save processed image
+                output_filename = filename
+                if individual_mode_settings.get('enable_rename', False):
+                    article = individual_mode_settings.get('article_name', '')
+                    if article:
+                        output_filename = f"{article}_{i}.{output_format}"
+                
+                output_path = os.path.join(output_folder, output_filename)
+                _save_image(img, output_path, output_format, individual_mode_settings.get('jpeg_quality', 95))
+                
+                # Delete original if enabled
+                if individual_mode_settings.get('delete_originals', False):
+                    try:
+                        os.remove(file_path)
+                        log.info(f"Deleted original file: {filename}")
+                    except Exception as e:
+                        log.error(f"Error deleting original file {filename}: {e}")
+                
+                log.info(f"--- Finished processing: {filename} (Success) ---")
+                
             except Exception as e:
-                log.error(f"  Error searching for additional files to delete: {e}")
-            
-            if extra_removed > 0:
-                log.info(f"  -> Additionally deleted {extra_removed} files with same base names but different extensions.")
-            else:
-                log.debug("  No additional files with matching base names found.")
+                log.critical(f"!!! UNEXPECTED error processing {filename}: {e}")
+                log.exception("Error details")
+                log.info(f"--- Finished processing: {filename} (Failed) ---")
         
-        log.info(f"  -> Total files deleted: {removed_count + extra_removed}. Deletion errors: {remove_errors}.")
-        source_files_to_potentially_delete.clear()
-    elif delete_originals: log.info("\n--- Deletion of originals skipped (check paths or successful processing). ---")
-    else: log.info("\n--- Deletion of originals disabled. ---")
-
-    # 7.2. Переименование - ТЕПЕРЬ ВЫПОЛНЯЕТСЯ ПОСЛЕ УДАЛЕНИЯ ОРИГИНАЛОВ
-    enable_renaming_actual = bool(article_name and str(article_name).strip())
-    if enable_renaming_actual and processed_output_file_map:
-        log.info(f"\n--- Renaming {len(processed_output_file_map)} files in '{abs_output_path}' using article '{article_name}' ---")
-        files_to_rename = list(processed_output_file_map.items()) # [(path, orig_basename), ...]
-        if not files_to_rename: log.info("  No files available for renaming stage.")
-        else:
-            # ... (Полный код переименования с двумя этапами и логированием, как в предыдущем ответе) ...
-            try: sorted_files_for_rename = natsorted(files_to_rename, key=lambda item: item[1])
-            except Exception as sort_err: log.error(f"! Error sorting for renaming: {sort_err}"); sorted_files_for_rename = files_to_rename
-            temp_rename_map = {}; rename_step1_errors = 0; temp_prefix = f"__temp_{os.getpid()}_"; log.info("  Step 1: Renaming to temporary names...")
-            for i, (current_path, original_basename) in enumerate(sorted_files_for_rename):
-                temp_filename = f"{temp_prefix}{i}_{original_basename}{output_ext}"; temp_path = os.path.join(abs_output_path, temp_filename)
-                try: log.debug(f"    '{os.path.basename(current_path)}' -> '{temp_filename}'"); os.rename(current_path, temp_path); temp_rename_map[temp_path] = original_basename
-                except Exception as rename_error: log.error(f"  ! Temp rename error for '{os.path.basename(current_path)}': {rename_error}"); rename_step1_errors += 1
-            if rename_step1_errors > 0: log.warning(f"  ! Temp renaming errors: {rename_step1_errors}")
-            log.info("  Step 2: Renaming to final names...")
-            rename_step2_errors = 0; renamed_final_count = 0; occupied_final_names = set()
-            existing_temp_paths = [p for p, ob in temp_rename_map.items() if os.path.exists(p)]
-            if not existing_temp_paths: log.warning("  ! No temporary files found for final renaming.")
-            else:
-                all_temp_files_sorted = sorted(existing_temp_paths)
-                found_exact_match = False; exact_match_orig_name = None
-                for temp_p in all_temp_files_sorted:
-                     orig_bn = temp_rename_map.get(temp_p)
-                     if orig_bn and orig_bn.lower() == str(article_name).lower(): found_exact_match = True; exact_match_orig_name = orig_bn; log.info(f"    * Found exact match for '{article_name}' (original: '{orig_bn}')."); break
-                if not found_exact_match: log.info(f"    * Exact match for '{article_name}' not found.")
-                base_name_assigned = False; numeric_counter = 1
-                for temp_path in all_temp_files_sorted:
-                    original_basename = temp_rename_map.get(temp_path, "unknown_original")
-                    target_filename = None; target_path = None; assign_base = False
-                    is_exact_match = original_basename.lower() == str(article_name).lower()
-                    if is_exact_match and not base_name_assigned: assign_base = True; log.debug(f"    Assigning base name '{article_name}' to exact match '{original_basename}'.")
-                    elif not found_exact_match and not base_name_assigned: assign_base = True; log.debug(f"    Assigning base name '{article_name}' to first file '{original_basename}'.")
-                    if assign_base:
-                        target_filename = f"{article_name}{output_ext}"; target_path = os.path.join(abs_output_path, target_filename); norm_target_path = os.path.normcase(target_path)
-                        if norm_target_path in occupied_final_names or (os.path.exists(target_path) and os.path.normcase(temp_path) != norm_target_path): log.warning(f"    ! Conflict: Base name '{target_filename}' exists/occupied. Numbering."); assign_base = False
-                        else: base_name_assigned = True
-                    if not assign_base:
-                        while True:
-                            target_filename = f"{article_name}_{numeric_counter}{output_ext}"; target_path = os.path.join(abs_output_path, target_filename); norm_target_path = os.path.normcase(target_path)
-                            if norm_target_path not in occupied_final_names and not (os.path.exists(target_path) and os.path.normcase(temp_path) != norm_target_path): break
-                            numeric_counter += 1
-                        numeric_counter += 1
-                    try: log.debug(f"    '{os.path.basename(temp_path)}' -> '{target_filename}'"); os.rename(temp_path, target_path); renamed_final_count += 1; occupied_final_names.add(os.path.normcase(target_path))
-                    except Exception as rename_error: log.error(f"    ! Final renaming error '{os.path.basename(temp_path)}' -> '{target_filename}': {rename_error}"); rename_step2_errors += 1
-            log.info(f"  -> Files renamed: {renamed_final_count}. Step 2 errors: {rename_step2_errors}.")
-            try:
-                remaining_temp = [f for f in os.listdir(abs_output_path) if f.startswith(temp_prefix) and os.path.isfile(os.path.join(abs_output_path, f))]
-                if remaining_temp: log.warning(f"  ! Temp files might remain: {remaining_temp}")
-            except Exception as list_err: log.error(f"! Could not check for remaining temp files: {list_err}")
-    elif enable_renaming_actual: log.info("\n--- Renaming skipped: No files successfully processed. ---")
-    else: log.info("\n--- Renaming disabled. ---")
-
-    log.info("=" * 30)
-    log.info("--- Individual File Processing Function Finished ---")
-
+        return True
+        
+    except Exception as e:
+        log.critical(f"!!! UNEXPECTED error in run_individual_processing: {e}")
+        log.exception("Error details")
+        return False
 
 # ==============================================================================
 # === ОСНОВНАЯ ФУНКЦИЯ: СОЗДАНИЕ КОЛЛАЖА =======================================
@@ -1253,3 +844,263 @@ def run_collage_processing(**all_settings: Dict[str, Any]) -> bool:
     log.info(f"Total collage processing time: {total_time:.2f} seconds. Success: {success_flag}")
     log.info("--- Collage Processing Function Finished ---")
     return success_flag # Возвращаем флаг
+
+def _merge_with_template(img: Image.Image, template: Image.Image, settings: Dict[str, Any]) -> Optional[Image.Image]:
+    """
+    Merge an image with a template according to the specified settings.
+    
+    Args:
+        img: The image to merge
+        template: The template image
+        settings: Dictionary containing merge settings
+        
+    Returns:
+        Merged image or None if merging fails
+    """
+    try:
+        log.info("=== Starting _merge_with_template function ===")
+        log.info(f"Input image size: {img.size}, mode: {img.mode}")
+        log.info(f"Template size: {template.size}, mode: {template.mode}")
+        log.info(f"Settings: {settings}")
+        
+        # Get merge settings
+        size_ratio = settings.get('size_ratio', 1.0)
+        position = settings.get('position', 'center')
+        template_on_top = settings.get('template_on_top', True)
+        
+        # Convert images to RGBA if needed
+        if img.mode != 'RGBA':
+            img = img.convert('RGBA')
+        if template.mode != 'RGBA':
+            template = template.convert('RGBA')
+        
+        # Calculate new size for the image based on ratio
+        new_width = int(template.width * size_ratio)
+        new_height = int(template.height * size_ratio)
+        
+        # Resize image while maintaining aspect ratio
+        img.thumbnail((new_width, new_height), Image.Resampling.LANCZOS)
+        
+        # Calculate paste position
+        paste_x, paste_y = _calculate_paste_position(img.size, template.size, position)
+        
+        # Create a copy of the template to work with
+        result = template.copy()
+        
+        # Paste the image onto the template
+        if template_on_top:
+            # Create a new image with the template size
+            result = Image.new('RGBA', template.size, (0, 0, 0, 0))
+            # Paste the main image first
+            result.paste(img, (paste_x, paste_y))
+            # Then paste the template on top
+            result.paste(template, (0, 0), template)
+        else:
+            # Paste the image onto the template
+            result.paste(img, (paste_x, paste_y))
+        
+        log.info(f"Final merged image size: {result.size}, mode: {result.mode}")
+        return result
+        
+    except Exception as e:
+        log.error(f"Error in _merge_with_template: {e}")
+        log.exception("Error details")
+        return None
+
+def _process_image_for_merge(img: Image.Image, merge_settings: Dict[str, Any]) -> Optional[Image.Image]:
+    """Обрабатывает изображение перед слиянием с шаблоном."""
+    try:
+        log.info("=== Starting _process_image_for_merge function ===")
+        log.info(f"Input image size: {img.size}, mode: {img.mode}")
+        log.info(f"Settings: {merge_settings}")
+        
+        # Get template path and clean it
+        template_path = merge_settings.get('template_path', '')
+        if template_path:
+            # Remove any quotes and clean the path
+            template_path = template_path.strip('"\'')
+            template_path = os.path.normpath(template_path)
+            
+            if not os.path.exists(template_path):
+                log.error(f"Template file not found: {template_path}")
+                return None
+            
+            try:
+                # Check if file is PSD
+                if template_path.lower().endswith('.psd'):
+                    try:
+                        from psd_tools import PSDImage
+                        psd = PSDImage.open(template_path)
+                        # Convert PSD to PIL Image
+                        template = psd.compose()
+                        if template.mode == 'CMYK':
+                            template = template.convert('RGB')
+                    except ImportError:
+                        log.error("psd_tools library not installed. Cannot process PSD files.")
+                        return None
+                else:
+                    template = Image.open(template_path)
+                    template.load()
+                
+                # Process template if enabled
+                if merge_settings.get('process_template', False):
+                    template = _process_image_for_collage(template, merge_settings)
+                    if not template:
+                        log.error("Failed to process template image")
+                        return None
+                
+                # Convert to RGBA for transparency
+                if template.mode != 'RGBA':
+                    template = template.convert('RGBA')
+                
+                # Merge with template
+                result = _merge_with_template(img, template, merge_settings)
+                if not result:
+                    log.error("Failed to merge with template")
+                    return None
+                
+                return result
+                
+            except Exception as e:
+                log.error(f"Error processing template: {e}")
+                log.exception("Error details")
+                return None
+        
+        return img
+        
+    except Exception as e:
+        log.error(f"Error in _process_image_for_merge: {e}")
+        log.exception("Error details")
+        return None
+
+def _calculate_paste_position(img_size: Tuple[int, int], template_size: Tuple[int, int], position: str) -> Tuple[int, int]:
+    """
+    Calculate the paste position for the image on the template based on the specified position.
+    
+    Args:
+        img_size: Size of the image to paste (width, height)
+        template_size: Size of the template (width, height)
+        position: Position string ('center', 'top', 'bottom', 'left', 'right', 'top-left', etc.)
+        
+    Returns:
+        Tuple of (x, y) coordinates for pasting
+    """
+    img_width, img_height = img_size
+    template_width, template_height = template_size
+    
+    # Calculate center position
+    center_x = (template_width - img_width) // 2
+    center_y = (template_height - img_height) // 2
+    
+    # Calculate positions based on the specified position
+    if position == 'center':
+        return (center_x, center_y)
+    elif position == 'top':
+        return (center_x, 0)
+    elif position == 'bottom':
+        return (center_x, template_height - img_height)
+    elif position == 'left':
+        return (0, center_y)
+    elif position == 'right':
+        return (template_width - img_width, center_y)
+    elif position == 'top-left':
+        return (0, 0)
+    elif position == 'top-right':
+        return (template_width - img_width, 0)
+    elif position == 'bottom-left':
+        return (0, template_height - img_height)
+    elif position == 'bottom-right':
+        return (template_width - img_width, template_height - img_height)
+    else:
+        # Default to center if position is not recognized
+        return (center_x, center_y)
+
+def get_image_files(folder_path: str) -> List[str]:
+    """Находит все изображения в указанной папке."""
+    try:
+        log.info(f"Searching for images in: {folder_path}")
+        if not os.path.exists(folder_path):
+            log.error(f"Folder does not exist: {folder_path}")
+            return []
+
+        # Добавляем поддержку PSD файлов
+        image_extensions = ('.jpg', '.jpeg', '.png', '.webp', '.tiff', '.bmp', '.gif', '.psd')
+        files = []
+        for file in os.listdir(folder_path):
+            if file.lower().endswith(image_extensions):
+                files.append(os.path.join(folder_path, file))
+
+        log.info(f"Found {len(files)} image files")
+        return files
+
+    except Exception as e:
+        log.exception("Error in get_image_files")
+        return []
+
+def _apply_background_crop(img: Image.Image, settings: Dict[str, Any]) -> Optional[Image.Image]:
+    """
+    Applies background removal and cropping to an image based on settings.
+    
+    Args:
+        img: The image to process
+        settings: Dictionary containing background crop settings
+        
+    Returns:
+        Processed image or None if processing fails
+    """
+    try:
+        log.info("=== Starting _apply_background_crop function ===")
+        log.info(f"Input image size: {img.size}, mode: {img.mode}")
+        log.info(f"Settings: {settings}")
+        
+        # Get settings
+        white_tolerance = settings.get('white_tolerance', 10)
+        force_absolute_symmetry = settings.get('force_absolute_symmetry', False)
+        force_axes_symmetry = settings.get('force_axes_symmetry', False)
+        check_perimeter = settings.get('check_perimeter', False)
+        perimeter_mode = settings.get('perimeter_mode', 'if_white')
+        perimeter_tolerance = settings.get('perimeter_tolerance', 10)
+        
+        # Convert to RGBA if needed
+        if img.mode != 'RGBA':
+            img = img.convert('RGBA')
+        
+        # Check perimeter if enabled
+        should_remove_bg = True
+        if check_perimeter:
+            log.debug(f"Checking if image perimeter is white (tolerance: {perimeter_tolerance})")
+            perimeter_is_white = image_utils.check_perimeter_is_white(img, perimeter_tolerance, 1)
+            
+            if perimeter_mode == 'if_white':
+                if not perimeter_is_white:
+                    log.info("Background removal skipped: perimeter is NOT white and mode is 'if_white'")
+                    should_remove_bg = False
+                else:
+                    log.info("Background will be removed: perimeter IS white and mode is 'if_white'")
+            else:  # mode is 'if_not_white'
+                if perimeter_is_white:
+                    log.info("Background removal skipped: perimeter IS white and mode is 'if_not_white'")
+                    should_remove_bg = False
+                else:
+                    log.info("Background will be removed: perimeter is NOT white and mode is 'if_not_white'")
+        
+        # Remove background if needed
+        if should_remove_bg:
+            img = image_utils.remove_white_background(img, white_tolerance)
+            if not img:
+                log.error("Failed to remove background")
+                return None
+        
+        # Apply cropping
+        img = image_utils.crop_image(img, force_axes_symmetry, force_absolute_symmetry)
+        if not img:
+            log.error("Failed to crop image")
+            return None
+        
+        log.info(f"Final image size: {img.size}, mode: {img.mode}")
+        return img
+        
+    except Exception as e:
+        log.error(f"Error in _apply_background_crop: {e}")
+        log.exception("Error details")
+        return None

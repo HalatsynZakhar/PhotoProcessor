@@ -721,6 +721,55 @@ with st.sidebar:
             set_setting('brightness_contrast.contrast_factor', contrast_factor)
     # ========================
 
+    # === НОВЫЙ ЭКСПАНДЕР ДЛЯ СЛИЯНИЯ С ШАБЛОНОМ ===
+    with st.expander("6. Слияние с шаблоном", expanded=False):
+        enable_merge = st.checkbox("Включить слияние с шаблоном",
+                                 value=get_setting('merge_settings.enable_merge', False),
+                                 key='merge_enable',
+                                 help="Активирует слияние изображений с указанным шаблоном.")
+        set_setting('merge_settings.enable_merge', enable_merge)
+        
+        if enable_merge:
+            # Выбор шаблона
+            template_path = st.text_input("Путь к шаблону (PSD или изображение)",
+                                        value=get_setting('merge_settings.template_path', ''),
+                                        key='merge_template_path',
+                                        help="Укажите полный путь к файлу шаблона (PSD или изображение)")
+            set_setting('merge_settings.template_path', template_path)
+            
+            # Положение изображения на шаблоне
+            position_options = ["center", "top", "bottom", "left", "right", "top-left", "top-right", "bottom-left", "bottom-right"]
+            position = st.selectbox("Положение изображения",
+                                  options=position_options,
+                                  index=position_options.index(get_setting('merge_settings.position', 'center')),
+                                  key='merge_position',
+                                  help="Выберите положение изображения относительно шаблона")
+            set_setting('merge_settings.position', position)
+            
+            # Размер изображения относительно шаблона
+            size_ratio = st.slider("Размер изображения (%)",
+                                 min_value=1,
+                                 max_value=100,
+                                 value=get_setting('merge_settings.size_ratio', 100),
+                                 key='merge_size_ratio',
+                                 help="Размер изображения в процентах от размера шаблона")
+            set_setting('merge_settings.size_ratio', size_ratio)
+            
+            # Порядок слоев
+            template_on_top = st.checkbox("Шаблон поверх изображения",
+                                        value=get_setting('merge_settings.template_on_top', True),
+                                        key='merge_template_on_top',
+                                        help="Если включено, шаблон будет наложен поверх изображения. Если выключено, изображение будет наложено поверх шаблона.")
+            set_setting('merge_settings.template_on_top', template_on_top)
+            
+            # Обработка шаблона
+            process_template = st.checkbox("Обрабатывать шаблон",
+                                         value=get_setting('merge_settings.process_template', False),
+                                         key='merge_process_template',
+                                         help="Если включено, шаблон будет обработан теми же настройками, что и основное изображение")
+            set_setting('merge_settings.process_template', process_template)
+    # ==============================================
+
     # Настройки, зависящие от режима
     current_mode_local_for_settings = st.session_state.selected_processing_mode
 
