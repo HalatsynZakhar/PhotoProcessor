@@ -599,6 +599,14 @@ with st.sidebar:
                               key='bgc_tol', 
                               help="Определяет, насколько цвет пикселя может отличаться от чисто белого (RGB 255,255,255), чтобы считаться фоном. Меньшие значения более строгие, большие - более гибкие. Рекомендуется не выше 20.")
             set_setting('background_crop.white_tolerance', bgc_tol)
+            
+            # Добавляем отдельную опцию для обрезки
+            enable_crop = st.checkbox("Обрезать изображение", 
+                                    value=get_setting('background_crop.enable_crop', True), 
+                                    key='bgc_crop', 
+                                    help="Если включено, изображение будет обрезано по границам объекта после удаления фона. Если выключено, фон будет удален, но размер холста останется прежним.")
+            set_setting('background_crop.enable_crop', enable_crop)
+            
             bgc_per = st.checkbox("Проверять периметр", 
                                 value=get_setting('background_crop.check_perimeter', True), 
                                 key='bgc_perimeter', 
