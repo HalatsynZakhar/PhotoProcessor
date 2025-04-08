@@ -966,7 +966,7 @@ def _merge_with_template(image, template_path_or_image, settings=None):
     
     # Получаем настройки
     position = settings.get('position', 'center')
-    template_position = settings.get('template_position', 'center')
+    template_position = settings.get('template_position', 'center')  # Новая настройка для позиции шаблона
     template_on_top = settings.get('template_on_top', True)
     no_scaling = settings.get('no_scaling', False)
     width_ratio = settings.get('width_ratio', [1.0, 1.0])
@@ -1131,7 +1131,7 @@ def _merge_with_template(image, template_path_or_image, settings=None):
     
     # Вычисляем позиции для размещения
     image_pos = _calculate_paste_position(scaled_image.size, canvas.size, position)
-    template_pos = _calculate_template_position(scaled_template.size, canvas.size, template_position)
+    template_pos = _calculate_template_position(scaled_template.size, canvas.size, template_position)  # Используем специальную функцию для шаблона
     
     # Размещаем изображения в зависимости от порядка
     if template_on_top:
@@ -1228,35 +1228,82 @@ def _calculate_paste_position(image_size, canvas_size, position='center'):
     Вычисляет позицию для размещения изображения на холсте.
     
     Args:
-        image_size (tuple): Размер изображения (ширина, высота)
-        canvas_size (tuple): Размер холста (ширина, высота)
-        position (str): Позиция ('center', 'top', 'bottom', 'left', 'right')
+        image_size (tuple): Размер изображения (width, height)
+        canvas_size (tuple): Размер холста (width, height)
+        position (str): Позиция ('center', 'top', 'bottom', 'left', 'right', 'top-left', 'top-right', 'bottom-left', 'bottom-right')
         
     Returns:
         tuple: Координаты (x, y) для размещения изображения
     """
-    image_width, image_height = image_size
-    canvas_width, canvas_height = canvas_size
+    x = (canvas_size[0] - image_size[0]) // 2
+    y = (canvas_size[1] - image_size[1]) // 2
     
     if position == 'center':
-        x = (canvas_width - image_width) // 2
-        y = (canvas_height - image_height) // 2
+        pass  # Используем значения по умолчанию
     elif position == 'top':
-        x = (canvas_width - image_width) // 2
         y = 0
     elif position == 'bottom':
-        x = (canvas_width - image_width) // 2
-        y = canvas_height - image_height
+        y = canvas_size[1] - image_size[1]
     elif position == 'left':
         x = 0
-        y = (canvas_height - image_height) // 2
     elif position == 'right':
-        x = canvas_width - image_width
-        y = (canvas_height - image_height) // 2
+        x = canvas_size[0] - image_size[0]
+    elif position == 'top-left':
+        x = 0
+        y = 0
+    elif position == 'top-right':
+        x = canvas_size[0] - image_size[0]
+        y = 0
+    elif position == 'bottom-left':
+        x = 0
+        y = canvas_size[1] - image_size[1]
+    elif position == 'bottom-right':
+        x = canvas_size[0] - image_size[0]
+        y = canvas_size[1] - image_size[1]
     else:
-        # По умолчанию центрируем
-        x = (canvas_width - image_width) // 2
-        y = (canvas_height - image_height) // 2
+        logger.warning(f"Неизвестная позиция '{position}', используем центр")
+    
+    return (x, y)
+
+def _calculate_template_position(template_size, canvas_size, position='center'):
+    """
+    Вычисляет позицию для размещения шаблона на холсте.
+    
+    Args:
+        template_size (tuple): Размер шаблона (width, height)
+        canvas_size (tuple): Размер холста (width, height)
+        position (str): Позиция ('center', 'top', 'bottom', 'left', 'right', 'top-left', 'top-right', 'bottom-left', 'bottom-right')
+        
+    Returns:
+        tuple: Координаты (x, y) для размещения шаблона
+    """
+    x = (canvas_size[0] - template_size[0]) // 2
+    y = (canvas_size[1] - template_size[1]) // 2
+    
+    if position == 'center':
+        pass  # Используем значения по умолчанию
+    elif position == 'top':
+        y = 0
+    elif position == 'bottom':
+        y = canvas_size[1] - template_size[1]
+    elif position == 'left':
+        x = 0
+    elif position == 'right':
+        x = canvas_size[0] - template_size[0]
+    elif position == 'top-left':
+        x = 0
+        y = 0
+    elif position == 'top-right':
+        x = canvas_size[0] - template_size[0]
+        y = 0
+    elif position == 'bottom-left':
+        x = 0
+        y = canvas_size[1] - template_size[1]
+    elif position == 'bottom-right':
+        x = canvas_size[0] - template_size[0]
+        y = canvas_size[1] - template_size[1]
+    else:
+        logger.warning(f"Неизвестная позиция '{position}', используем центр")
     
     return (x, y)
 
@@ -1343,43 +1390,6 @@ def _apply_background_crop(img: Image.Image, white_tolerance: int = 10, perimete
         log.error(f"Error in _apply_background_crop: {e}")
         log.exception("Error details")
         return None
-
-def _calculate_template_position(template_size, canvas_size, position='center'):
-    """
-    Вычисляет позицию для размещения шаблона на холсте.
-    
-    Args:
-        template_size (tuple): Размер шаблона (ширина, высота)
-        canvas_size (tuple): Размер холста (ширина, высота)
-        position (str): Позиция ('center', 'top', 'bottom', 'left', 'right')
-        
-    Returns:
-        tuple: Координаты (x, y) для размещения шаблона
-    """
-    template_width, template_height = template_size
-    canvas_width, canvas_height = canvas_size
-    
-    if position == 'center':
-        x = (canvas_width - template_width) // 2
-        y = (canvas_height - template_height) // 2
-    elif position == 'top':
-        x = (canvas_width - template_width) // 2
-        y = 0
-    elif position == 'bottom':
-        x = (canvas_width - template_width) // 2
-        y = canvas_height - template_height
-    elif position == 'left':
-        x = 0
-        y = (canvas_height - template_height) // 2
-    elif position == 'right':
-        x = canvas_width - template_width
-        y = (canvas_height - template_height) // 2
-    else:
-        # По умолчанию центрируем
-        x = (canvas_width - template_width) // 2
-        y = (canvas_height - template_height) // 2
-    
-    return (x, y)
 
 def _scale_image(image, target_size, mode='fit'):
     """

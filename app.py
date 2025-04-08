@@ -843,10 +843,10 @@ with st.sidebar:
             template_on_top = st.checkbox("Шаблон поверх изображения", value=get_setting('merge_settings.template_on_top', True), key="merge_template_on_top")
             set_setting('merge_settings.template_on_top', template_on_top)
             
-            # Позиция
-            st.caption("Позиция")
+            # Позиция изображения
+            st.caption("Позиция изображения")
             position = st.selectbox(
-                "Позиция",
+                "Позиция изображения",
                 options=['center', 'top', 'bottom', 'left', 'right', 'top-left', 'top-right', 'bottom-left', 'bottom-right'],
                 index=['center', 'top', 'bottom', 'left', 'right', 'top-left', 'top-right', 'bottom-left', 'bottom-right'].index(get_setting('merge_settings.position', 'center')),
                 format_func=lambda x: {
@@ -862,6 +862,26 @@ with st.sidebar:
                 }[x]
             )
             set_setting('merge_settings.position', position)
+            
+            # Позиция шаблона
+            st.caption("Позиция шаблона")
+            template_position = st.selectbox(
+                "Позиция шаблона",
+                options=['center', 'top', 'bottom', 'left', 'right', 'top-left', 'top-right', 'bottom-left', 'bottom-right'],
+                index=['center', 'top', 'bottom', 'left', 'right', 'top-left', 'top-right', 'bottom-left', 'bottom-right'].index(get_setting('merge_settings.template_position', 'center')),
+                format_func=lambda x: {
+                    'center': 'Центр',
+                    'top': 'Верх',
+                    'bottom': 'Низ',
+                    'left': 'Лево',
+                    'right': 'Право',
+                    'top-left': 'Верх-лево',
+                    'top-right': 'Верх-право',
+                    'bottom-left': 'Низ-лево',
+                    'bottom-right': 'Низ-право'
+                }[x]
+            )
+            set_setting('merge_settings.template_position', template_position)
             
             # Обработка шаблона
             process_template = st.checkbox("Обрабатывать шаблон", value=get_setting('merge_settings.process_template', False), key="merge_process_template")

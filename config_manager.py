@@ -24,6 +24,19 @@ DEFAULT_SETTINGS = {
         "backup_folder_path": "", # Бэкап по умолчанию выключен (пустой путь)
         "output_filename": "collage"
     },
+    "merge_settings": {
+        "enable_merge": False,
+        "template_path": "",
+        "template_position": "center",  # Позиция шаблона по умолчанию
+        "position": "center",  # Позиция изображения по умолчанию
+        "template_on_top": True,
+        "process_template": False,
+        "width_ratio": [1.0, 1.0],
+        "enable_width_ratio": False,
+        "fit_image_to_template": False,
+        "fit_template_to_image": False,
+        "no_scaling": False
+    },
     "ui_display": {
         "show_results": True,           # Отображать результаты обработки
         "show_all_images": False,       # Показывать все обработанные изображения
