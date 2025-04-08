@@ -739,7 +739,9 @@ with st.sidebar:
             # Проверяем, изменилось ли значение
             current_template_path = get_setting('merge_settings.template_path', '')
             if template_path != current_template_path:
-                set_setting('merge_settings.template_path', template_path)
+                # Удаляем кавычки перед сохранением
+                clean_template_path = template_path.strip('"\'')
+                set_setting('merge_settings.template_path', clean_template_path)
                 
             # Валидация шаблона (выполняется при каждом обновлении страницы)
             if template_path:

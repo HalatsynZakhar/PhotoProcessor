@@ -233,6 +233,12 @@ def run_individual_processing(**all_settings: Dict[str, Any]) -> bool:
         merge_settings = all_settings.get('merge_settings', {})
         enable_merge = merge_settings.get('enable_merge', False)
         template_path = merge_settings.get('template_path', '')
+        # Remove any quotes from template path
+        if template_path:
+            template_path = template_path.strip('"\'')
+            template_path = os.path.normpath(template_path)
+            # Update the template path in merge_settings
+            merge_settings['template_path'] = template_path
         process_template = merge_settings.get('process_template', False)
         
         # Extract other settings
