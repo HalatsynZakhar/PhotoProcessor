@@ -157,16 +157,29 @@ if 'initialized' not in st.session_state:
 
 # --- Вспомогательные функции для доступа к настройкам (Единственный блок) ---
 # Убедимся, что они определены до первого использования
-def get_setting(key_path: str, default: Any = None) -> Any:
-    keys = key_path.split('.')
-    value = st.session_state.current_settings
+def get_setting(setting_path: str, default: Any = None) -> Any:
+    """Получение значения настройки из текущего профиля"""
     try:
-        for key in keys: value = value[key]
-        if isinstance(value, (list, dict)): return value.copy()
-        return value
-    except (KeyError, TypeError):
-        # log.debug(f"Setting '{key_path}' not found, returning default: {default}") # Отключим для чистоты лога
-        if isinstance(default, (list, dict)): return default.copy()
+        # Разбиваем путь на части
+        parts = setting_path.split('.')
+        current = st.session_state.current_settings
+        
+        # Проходим по всем частям пути
+        for part in parts:
+            if part not in current:
+                return default
+            current = current[part]
+            
+        # Специальная обработка для width_ratio
+        if setting_path == 'merge_settings.width_ratio':
+            if not isinstance(current, (list, tuple)) or len(current) != 2:
+                return [1.0, 1.0]
+            # Проверяем минимальные значения
+            return [max(0.1, float(current[0])), max(0.1, float(current[1]))]
+            
+        return current
+    except Exception as e:
+        log.error(f"Error getting setting {setting_path}: {str(e)}")
         return default
 
 def set_setting(key_path: str, value: Any):
@@ -475,7 +488,7 @@ with st.sidebar:
 
         # --- Input Path ---
         st.caption("Основной путь ввода")
-        current_input_path = get_setting('paths.input_folder_path')
+        current_input_path = get_setting('paths.input_folder_path', '')
         input_path_default_value = current_input_path if current_input_path else user_downloads_folder
         input_path_val = st.text_input(
             "Папка с исходными файлами:",

@@ -961,7 +961,11 @@ def _merge_with_template(image: Image.Image, template_path_or_image: Union[str, 
             width_ratio = [1.0, 1.0]
             log.warning("  > Invalid width ratio format, using default [1.0, 1.0]")
         
-        width_ratio_w, width_ratio_h = width_ratio
+        # Проверяем минимальные значения
+        width_ratio_w = max(0.1, float(width_ratio[0]))
+        width_ratio_h = max(0.1, float(width_ratio[1]))
+        width_ratio = [width_ratio_w, width_ratio_h]
+        
         log.info(f"  > Width ratio settings: enable={enable_width_ratio}, w={width_ratio_w}, h={width_ratio_h}")
         
         # Конвертируем изображения в RGBA если нужно
