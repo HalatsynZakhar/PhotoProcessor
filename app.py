@@ -756,13 +756,26 @@ with st.sidebar:
             # Настройки слияния
             st.subheader("Настройки слияния")
             
+            # --- ДОБАВЛЕНО: Отображение текущего шаблона из настроек ---
+            current_relative_path = get_setting('merge_settings.template_path', '')
+            if current_relative_path:
+                current_absolute_path = os.path.abspath(current_relative_path)
+                if os.path.isfile(current_absolute_path):
+                    st.caption(f"✅ Текущий шаблон: `{current_relative_path}` (Найден)")
+                else:
+                    st.caption(f"❌ Текущий шаблон не найден: `{current_relative_path}`")
+            else:
+                st.caption("ℹ️ Текущий шаблон не выбран в настройках.")
+            # -----------------------------------------------------------
+
             # Путь к шаблону - только загрузка файла
-            st.caption("Выберите файл шаблона")
+            st.caption("Загрузить НОВЫЙ файл шаблона (заменит текущий)") # Изменена подпись
             uploaded_file = st.file_uploader(
                 "Перетащите файл шаблона сюда",
                 accept_multiple_files=False,
                 type=['jpg', 'jpeg', 'png', 'psd'],
-                key='template_uploader'
+                key='template_uploader',
+                label_visibility="collapsed" # Скрываем стандартную метку
             )
             
             if uploaded_file:
@@ -773,22 +786,25 @@ with st.sidebar:
                 
                 # Сохраняем загруженный файл в папку templates
                 template_path = os.path.join(templates_folder, uploaded_file.name)
-                with open(template_path, "wb") as f:
-                    f.write(uploaded_file.getbuffer())
+                try:
+                    with open(template_path, "wb") as f:
+                        f.write(uploaded_file.getbuffer())
+                    
+                    # Сохраняем относительный путь к шаблону
+                    relative_template_path = os.path.join("templates", uploaded_file.name)
+                    set_setting('merge_settings.template_path', relative_template_path)
+                    st.success(f"Новый шаблон успешно загружен и сохранен: {relative_template_path}")
+                    # --- УДАЛЕНО: Небольшая задержка и rerun, чтобы UI обновился и показал новый путь ---
+                    # time.sleep(0.5) 
+                    # st.rerun()
+                except Exception as e_save:
+                     st.error(f"Ошибка сохранения шаблона '{template_path}': {e_save}")
                 
-                # Сохраняем относительный путь к шаблону
-                relative_template_path = os.path.join("templates", uploaded_file.name)
-                set_setting('merge_settings.template_path', relative_template_path)
-                st.success(f"Шаблон успешно загружен и сохранен: {template_path}")
-                
-                # Проверяем существование файла
-                if os.path.isfile(template_path):
-                    st.caption(f"✅ Файл шаблона найден: {os.path.abspath(template_path)}")
-                else:
-                    st.caption(f"❌ Файл шаблона не найден: {os.path.abspath(template_path)}")
-            else:
-                st.caption("ℹ️ Файл шаблона не выбран")
-            
+                # Убраны старые проверки существования файла отсюда, т.к. они теперь выше
+
+            # --- Убрана секция else: st.caption("ℹ️ Файл шаблона не выбран") --- 
+            # Она больше не нужна, т.к. статус показывается выше до загрузчика
+
             # Чекбокс для включения/отключения соотношения размеров
             scaling_mode = st.radio(
                 "Режим масштабирования",
