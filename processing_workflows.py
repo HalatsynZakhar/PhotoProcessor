@@ -205,7 +205,7 @@ def _save_image(img, output_path, output_format, jpeg_quality, jpg_background_co
                     img_to_save = rgb_image
                 else:
                     img_to_save = img.convert('RGB')
-                must_close_img_to_save = True
+                    must_close_img_to_save = True
         elif output_format == 'png':
             format_name = "PNG"
             save_options["compress_level"] = 6
@@ -301,7 +301,7 @@ def run_individual_processing(**all_settings: Dict[str, Any]) -> bool:
         log.info(f"8. Final Exact Canvas: W:{individual_mode_settings.get('final_exact_width', 'N/A')}, "
                 f"H:{individual_mode_settings.get('final_exact_height', 'N/A')}")
         log.info("-------------------------")
-        
+
         # Get list of files to process
         files = get_image_files(input_folder)
         log.info(f"Found {len(files)} files to process.")
@@ -526,7 +526,7 @@ def _process_image_for_collage(image_path: str, prep_settings, white_settings, b
                 check_perimeter=check_perimeter,
                 enable_crop=enable_crop
             )
-        
+
         # 5. Добавление полей (если вкл)
         enable_padding = pad_settings.get('mode', 'never') != 'never' # Включено, если не равно 'never'
         padding_mode = pad_settings.get('mode', 'never')
@@ -928,262 +928,218 @@ def run_collage_processing(**all_settings: Dict[str, Any]) -> bool:
     log.info("--- Collage Processing Function Finished ---")
     return success_flag # Возвращаем флаг
 
-def _merge_with_template(image: Image.Image, template_path_or_image: Union[str, Image.Image], settings: Dict[str, Any]) -> Optional[Image.Image]:
-    """Объединяет изображение с шаблоном."""
+def _merge_with_template(image, template_path_or_image, settings=None):
+    """
+    Объединяет изображение с шаблоном с учетом настроек позиционирования и масштабирования.
+    Всегда использует максимально возможный размер и качество, увеличивая меньшее изображение.
+    
+    Args:
+        image: Исходное изображение
+        template_path_or_image: Путь к файлу шаблона или объект Image
+        settings: Словарь с настройками
+        
+    Returns:
+        Image: Результат объединения или None в случае ошибки
+    """
+    if settings is None:
+        settings = {}
+        
     try:
-        log.info(f"  > Merging with template: {template_path_or_image}")
-        
-        # Загружаем шаблон или используем переданный объект
-        try:
-            if isinstance(template_path_or_image, str):
-                # Check if file is PSD
-                if template_path_or_image.lower().endswith('.psd'):
-                    try:
-                        from psd_tools import PSDImage
-                        psd = PSDImage.open(template_path_or_image)
-                        # Convert PSD to PIL Image using the correct method
-                        template = psd.topil()
-                        if template.mode == 'CMYK':
-                            template = template.convert('RGB')
-                    except ImportError:
-                        log.error("psd_tools library not installed. Cannot process PSD files.")
-                        return None
-                else:
-                    template = Image.open(template_path_or_image)
-                    template.load()
-            elif isinstance(template_path_or_image, Image.Image):
-                template = template_path_or_image
-            else:
-                log.error(f"Invalid template type: {type(template_path_or_image)}")
+        # Загружаем шаблон
+        if isinstance(template_path_or_image, str):
+            if not os.path.exists(template_path_or_image):
+                log.error(f"  > Template file not found: {template_path_or_image}")
                 return None
-        except Exception as e:
-            log.error(f"  > Error loading template: {str(e)}")
+            else:
+                template = Image.open(template_path_or_image)
+                template.load()
+        elif isinstance(template_path_or_image, Image.Image):
+            template = template_path_or_image
+        else:
+            log.error(f"Invalid template type: {type(template_path_or_image)}")
             return None
-            
-        log.info(f"  > Template loaded. Size: {template.size}, mode: {template.mode}")
+    except Exception as e:
+        log.error(f"  > Error loading template: {str(e)}")
+        return None
         
-        # Получаем настройки
-        position = settings.get('position', 'center')
-        template_on_top = settings.get('template_on_top', True)
-        process_template = settings.get('process_template', False)
-        width_ratio = settings.get('width_ratio', [1.0, 1.0])
-        enable_width_ratio = settings.get('enable_width_ratio', False)
-        fit_image_to_template = settings.get('fit_image_to_template', False)
-        fit_template_to_image = settings.get('fit_template_to_image', False)
-        no_scaling = settings.get('no_scaling', False)  # New setting for no scaling mode
+    log.info(f"  > Template loaded. Size: {template.size}, mode: {template.mode}")
+    
+    # Получаем настройки
+    position = settings.get('position', 'center')
+    template_position = settings.get('template_position', 'center')
+    template_on_top = settings.get('template_on_top', True)
+    no_scaling = settings.get('no_scaling', False)
+    width_ratio = settings.get('width_ratio', [1.0, 1.0])
+    enable_width_ratio = settings.get('enable_width_ratio', False)
+    fit_image_to_template = settings.get('fit_image_to_template', False)
+    fit_template_to_image = settings.get('fit_template_to_image', False)
+    
+    # Конвертируем изображения в RGBA если нужно
+    if image.mode != 'RGBA':
+        image = image.convert('RGBA')
+    if template.mode != 'RGBA':
+        template = template.convert('RGBA')
+    
+    # Получаем размеры
+    image_width, image_height = image.size
+    template_width, template_height = template.size
+    
+    log.info(f"  > Original sizes - Image: {image_width}x{image_height}, Template: {template_width}x{template_height}")
+    
+    # Определяем размеры холста и масштабирование
+    canvas_width = max(image_width, template_width)
+    canvas_height = max(image_height, template_height)
+    scaled_image = image
+    scaled_template = template
+    
+    if no_scaling:
+        # В режиме без масштабирования используем максимальные размеры
+        log.info("  > No scaling mode - Using maximum sizes")
+        log.info(f"  > Canvas size: {canvas_width}x{canvas_height}")
+    elif enable_width_ratio:
+        # Вычисляем целевые размеры на основе соотношения площадей
+        # Если соотношение 1:2, то площадь второго изображения должна быть в 2 раза больше
+        target_area_ratio = width_ratio[0] / width_ratio[1]  # Соотношение площадей
         
-        # Проверяем соотношение размеров
-        if not isinstance(width_ratio, (list, tuple)) or len(width_ratio) != 2:
-            width_ratio = [1.0, 1.0]
-            log.warning("  > Invalid width ratio format, using default [1.0, 1.0]")
+        # Вычисляем площади
+        image_area = image_width * image_height
+        template_area = template_width * template_height
         
-        # Проверяем минимальные значения
-        width_ratio_w = max(0.1, float(width_ratio[0]))
-        width_ratio_h = max(0.1, float(width_ratio[1]))
-        width_ratio = [width_ratio_w, width_ratio_h]
-        
-        log.info(f"  > Width ratio settings: enable={enable_width_ratio}, w={width_ratio_w}, h={width_ratio_h}")
-        log.info(f"  > Fit settings: image_to_template={fit_image_to_template}, template_to_image={fit_template_to_image}")
-        log.info(f"  > No scaling mode: {no_scaling}")
-        
-        # Конвертируем изображения в RGBA если нужно
-        if image.mode != 'RGBA':
-            image = image.convert('RGBA')
-        if template.mode != 'RGBA':
-            template = template.convert('RGBA')
-            
-        # Вычисляем размеры
-        template_width, template_height = template.size
-        image_width, image_height = image.size
-        log.info(f"  > Original sizes - Image: {image_width}x{image_height}, Template: {template_width}x{template_height}")
-        
-        # Определяем новый размер изображения
-        new_width = image_width
-        new_height = image_height
-        
-        if no_scaling:
-            # В режиме без масштабирования используем оригинальные размеры
-            log.info("  > No scaling mode - Using original image size")
-        elif enable_width_ratio:
-            # Вычисляем целевые размеры на основе соотношения с шаблоном
-            target_width = int(template_width * width_ratio_w)
-            target_height = int(template_height * width_ratio_h)
-            
-            # Вычисляем площади
-            template_area = template_width * template_height
-            target_area = target_width * target_height
-            image_area = image_width * image_height
-            
-            # Вычисляем коэффициент масштабирования на основе площадей
-            # Используем квадратный корень из отношения целевой площади к площади изображения
+        # Определяем, какое изображение нужно увеличить
+        if image_area < template_area * target_area_ratio:
+            # Нужно увеличить изображение
+            target_area = template_area * target_area_ratio
             area_scale = math.sqrt(target_area / image_area)
             
-            # Применяем масштабирование с сохранением пропорций
             new_width = int(image_width * area_scale)
             new_height = int(image_height * area_scale)
             
-            log.info(f"  > Width ratio enabled - Target size: {target_width}x{target_height}")
-            log.info(f"  > Area-based scale factor: {area_scale:.3f}, New size: {new_width}x{new_height}")
-            log.info(f"  > Areas: template={template_area}, target={target_area}, image={image_area}")
-            
-            # Явно масштабируем изображение
+            # Масштабируем изображение
             scaled_image = image.resize((new_width, new_height), Image.Resampling.LANCZOS)
-            log.info(f"  > Image scaled to: {scaled_image.size}")
             
-            # Создаем холст размером с максимальные размеры
+            # Обновляем размеры холста
             canvas_width = max(template_width, new_width)
             canvas_height = max(template_height, new_height)
-            result = Image.new('RGBA', (canvas_width, canvas_height), (255, 255, 255, 0))
             
-            # Вычисляем позиции для центрирования
-            template_x = (canvas_width - template_width) // 2
-            template_y = (canvas_height - template_height) // 2
-            image_x = (canvas_width - new_width) // 2
-            image_y = (canvas_height - new_height) // 2
+            log.info(f"  > Width ratio enabled - Scaling image to match area ratio {target_area_ratio:.2f}")
+            log.info(f"  > Area-based scale factor: {area_scale:.3f}, New size: {new_width}x{new_height}")
+        else:
+            # Нужно увеличить шаблон
+            target_area = image_area / target_area_ratio
+            area_scale = math.sqrt(target_area / template_area)
             
-            # Накладываем изображения в зависимости от порядка
-            if template_on_top:
-                # Сначала накладываем изображение
-                result.paste(scaled_image, (image_x, image_y), scaled_image)
-                # Затем накладываем шаблон поверх
-                result.paste(template, (template_x, template_y), template)
-            else:
-                # Сначала накладываем шаблон
-                result.paste(template, (template_x, template_y), template)
-                # Затем накладываем изображение поверх
-                result.paste(scaled_image, (image_x, image_y), scaled_image)
+            new_width = int(template_width * area_scale)
+            new_height = int(template_height * area_scale)
             
-            log.info(f"  > Merged image size: {result.size}, mode: {result.mode}")
-            return result
+            # Масштабируем шаблон
+            scaled_template = template.resize((new_width, new_height), Image.Resampling.LANCZOS)
+            
+            # Обновляем размеры холста
+            canvas_width = max(image_width, new_width)
+            canvas_height = max(image_height, new_height)
+            
+            log.info(f"  > Width ratio enabled - Scaling template to match area ratio {target_area_ratio:.2f}")
+            log.info(f"  > Area-based scale factor: {area_scale:.3f}, New size: {new_width}x{new_height}")
         
-        elif fit_image_to_template:
-            # Масштабируем изображение, чтобы оно помещалось в шаблон с сохранением пропорций
+        log.info(f"  > Canvas size: {canvas_width}x{canvas_height}")
+    elif fit_image_to_template:
+        # Масштабируем изображение, чтобы оно помещалось в шаблон
+        # Если изображение меньше шаблона, увеличиваем его
+        if image_width < template_width and image_height < template_height:
+            # Изображение меньше шаблона, увеличиваем его
             width_ratio = template_width / image_width
             height_ratio = template_height / image_height
-            scale_factor = min(width_ratio, height_ratio)
+            scale_factor = max(width_ratio, height_ratio)  # Используем max для максимального увеличения
+            
             new_width = int(image_width * scale_factor)
             new_height = int(image_height * scale_factor)
             
-            log.info(f"  > Fit image to template - Scale factor: {scale_factor:.3f}, New size: {new_width}x{new_height}")
+            # Масштабируем изображение
+            scaled_image = image.resize((new_width, new_height), Image.Resampling.LANCZOS)
             
-            # Создаем холст размером с шаблон
-            result = Image.new('RGBA', template.size, (255, 255, 255, 0))
+            # Обновляем размеры холста
+            canvas_width = max(template_width, new_width)
+            canvas_height = max(template_height, new_height)
             
-            # Вычисляем позицию для центрирования
-            paste_x = (template_width - new_width) // 2
-            paste_y = (template_height - new_height) // 2
+            log.info(f"  > Fit image to template - Image is smaller, scaling up with factor: {scale_factor:.3f}")
+            log.info(f"  > New image size: {new_width}x{new_height}")
+        else:
+            # Изображение больше шаблона, увеличиваем шаблон
+            width_ratio = image_width / template_width
+            height_ratio = image_height / template_height
+            scale_factor = max(width_ratio, height_ratio)  # Используем max для максимального увеличения
             
-            # Накладываем изображения в зависимости от порядка
-            if template_on_top:
-                # Сначала накладываем изображение
-                result.paste(image, (paste_x, paste_y), image)
-                # Затем накладываем шаблон поверх
-                result = Image.alpha_composite(result, template)
-            else:
-                # Сначала накладываем шаблон
-                result.paste(template, (0, 0), template)
-                # Затем накладываем изображение поверх
-                result.paste(image, (paste_x, paste_y), image)
+            new_width = int(template_width * scale_factor)
+            new_height = int(template_height * scale_factor)
             
-            log.info(f"  > Merged image size: {result.size}, mode: {result.mode}")
-            return result
+            # Масштабируем шаблон
+            scaled_template = template.resize((new_width, new_height), Image.Resampling.LANCZOS)
             
-        elif fit_template_to_image:
-            # Масштабируем шаблон, чтобы он помещался в изображение с сохранением пропорций
+            # Обновляем размеры холста
+            canvas_width = max(image_width, new_width)
+            canvas_height = max(image_height, new_height)
+            
+            log.info(f"  > Fit image to template - Template is smaller, scaling up with factor: {scale_factor:.3f}")
+            log.info(f"  > New template size: {new_width}x{new_height}")
+        
+        log.info(f"  > Canvas size: {canvas_width}x{canvas_height}")
+    elif fit_template_to_image:
+        # Масштабируем шаблон, чтобы он помещался в изображение
+        # Если шаблон меньше изображения, увеличиваем его
+        if template_width < image_width and template_height < image_height:
+            # Шаблон меньше изображения, увеличиваем его
             width_ratio = image_width / template_width
             height_ratio = image_height / template_height
             scale_factor = min(width_ratio, height_ratio)
-            template_width = int(template_width * scale_factor)
-            template_height = int(template_height * scale_factor)
-            template = template.resize((template_width, template_height), Image.Resampling.LANCZOS)
             
-            # Создаем новое изображение с размерами исходного изображения
-            result = Image.new('RGBA', (image_width, image_height), (255, 255, 255, 0))
+            new_width = int(template_width * scale_factor)
+            new_height = int(template_height * scale_factor)
             
-            # Вычисляем позицию для центрирования шаблона
-            paste_x = (image_width - template_width) // 2
-            paste_y = (image_height - template_height) // 2
+            # Масштабируем шаблон
+            scaled_template = template.resize((new_width, new_height), Image.Resampling.LANCZOS)
             
-            # Накладываем изображения в зависимости от порядка
-            if template_on_top:
-                # Сначала накладываем изображение
-                result.paste(image, (0, 0), image)
-                # Затем накладываем шаблон поверх
-                result.paste(template, (paste_x, paste_y), template)
-            else:
-                # Сначала накладываем шаблон
-                result.paste(template, (paste_x, paste_y), template)
-                # Затем накладываем изображение поверх
-                result.paste(image, (0, 0), image)
-            
-            log.info(f"  > Merged image size: {result.size}, mode: {result.mode}")
-            return result
-        
-        # Изменяем размер изображения если нужно (кроме режима без масштабирования)
-        if not no_scaling and (new_width != image_width or new_height != image_height):
-            image = image.resize((new_width, new_height), Image.Resampling.LANCZOS)
-            log.info(f"  > Resized image to: {image.size}")
-        
-        # Определяем позицию для вставки с учетом режима без масштабирования
-        paste_x = 0
-        paste_y = 0
-        
-        if no_scaling:
-            # В режиме без масштабирования центрируем изображение
-            paste_x = (template_width - image_width) // 2
-            paste_y = (template_height - image_height) // 2
-            log.info(f"  > No scaling mode - Centered position: ({paste_x}, {paste_y})")
+            log.info(f"  > Fit template to image - Template is smaller, scaling up with factor: {scale_factor:.3f}")
+            log.info(f"  > New template size: {new_width}x{new_height}")
         else:
-            # Стандартное позиционирование для других режимов
-            if position == 'center':
-                paste_x = (template_width - new_width) // 2
-                paste_y = (template_height - new_height) // 2
-            elif position == 'top':
-                paste_x = (template_width - new_width) // 2
-                paste_y = 0
-            elif position == 'bottom':
-                paste_x = (template_width - new_width) // 2
-                paste_y = template_height - new_height
-            elif position == 'left':
-                paste_x = 0
-                paste_y = (template_height - new_height) // 2
-            elif position == 'right':
-                paste_x = template_width - new_width
-                paste_y = (template_height - new_height) // 2
-            elif position == 'top-left':
-                paste_x = 0
-                paste_y = 0
-            elif position == 'top-right':
-                paste_x = template_width - new_width
-                paste_y = 0
-            elif position == 'bottom-left':
-                paste_x = 0
-                paste_y = template_height - new_height
-            elif position == 'bottom-right':
-                paste_x = template_width - new_width
-                paste_y = template_height - new_height
-        
-        # Создаем новое изображение с фоном
-        result = Image.new('RGBA', template.size, (255, 255, 255, 0))
-        
-        # Накладываем изображения в зависимости от порядка
-        if template_on_top:
-            # Сначала накладываем изображение
-            result.paste(image, (paste_x, paste_y), image)
-            # Затем накладываем шаблон поверх
-            result = Image.alpha_composite(result, template)
-        else:
-            # Сначала накладываем шаблон
-            result.paste(template, (0, 0), template)
-            # Затем накладываем изображение поверх
-            result.paste(image, (paste_x, paste_y), image)
-        
-        log.info(f"  > Merged image size: {result.size}, mode: {result.mode}")
-        return result
-        
-    except Exception as e:
-        log.error(f"  > Error merging with template: {str(e)}")
-        return None
+            # Шаблон больше изображения, увеличиваем изображение
+            width_ratio = template_width / image_width
+            height_ratio = template_height / image_height
+            scale_factor = max(width_ratio, height_ratio)
+            
+            new_width = int(image_width * scale_factor)
+            new_height = int(image_height * scale_factor)
+            
+            # Масштабируем изображение
+            scaled_image = image.resize((new_width, new_height), Image.Resampling.LANCZOS)
+            
+            # Обновляем размеры холста
+            canvas_width = template_width
+            canvas_height = template_height
+            
+            log.info(f"  > Fit template to image - Image is smaller, scaling up with factor: {scale_factor:.3f}")
+            log.info(f"  > New image size: {new_width}x{new_height}")
+    
+    # Создаем холст нужного размера
+    canvas = Image.new('RGBA', (canvas_width, canvas_height), (0, 0, 0, 0))
+    log.info(f"  > Created canvas: {canvas_width}x{canvas_height}")
+    
+    # Вычисляем позиции для размещения
+    image_pos = _calculate_paste_position(scaled_image.size, canvas.size, position)
+    template_pos = _calculate_template_position(scaled_template.size, canvas.size, template_position)
+    
+    # Размещаем изображения в зависимости от порядка
+    if template_on_top:
+        canvas.paste(scaled_image, image_pos, scaled_image if scaled_image.mode == 'RGBA' else None)
+        canvas.paste(scaled_template, template_pos, scaled_template if scaled_template.mode == 'RGBA' else None)
+    else:
+        canvas.paste(scaled_template, template_pos, scaled_template if scaled_template.mode == 'RGBA' else None)
+        canvas.paste(scaled_image, image_pos, scaled_image if scaled_image.mode == 'RGBA' else None)
+    
+    log.info(f"  > Image position: {image_pos}")
+    log.info(f"  > Template position: {template_pos}")
+    log.info(f"  > Template on top: {template_on_top}")
+    
+    return canvas
 
 def _process_image_for_merge(img: Image.Image, merge_settings: Dict[str, Any]) -> Optional[Image.Image]:
     """Обрабатывает изображение перед слиянием с шаблоном."""
@@ -1261,47 +1217,42 @@ def _process_image_for_merge(img: Image.Image, merge_settings: Dict[str, Any]) -
         log.exception("Error details")
         return None
 
-def _calculate_paste_position(img_size: Tuple[int, int], template_size: Tuple[int, int], position: str) -> Tuple[int, int]:
+def _calculate_paste_position(image_size, canvas_size, position='center'):
     """
-    Calculate the paste position for the image on the template based on the specified position.
+    Вычисляет позицию для размещения изображения на холсте.
     
     Args:
-        img_size: Size of the image to paste (width, height)
-        template_size: Size of the template (width, height)
-        position: Position string ('center', 'top', 'bottom', 'left', 'right', 'top-left', etc.)
+        image_size (tuple): Размер изображения (ширина, высота)
+        canvas_size (tuple): Размер холста (ширина, высота)
+        position (str): Позиция ('center', 'top', 'bottom', 'left', 'right')
         
     Returns:
-        Tuple of (x, y) coordinates for pasting
+        tuple: Координаты (x, y) для размещения изображения
     """
-    img_width, img_height = img_size
-    template_width, template_height = template_size
+    image_width, image_height = image_size
+    canvas_width, canvas_height = canvas_size
     
-    # Calculate center position
-    center_x = (template_width - img_width) // 2
-    center_y = (template_height - img_height) // 2
-    
-    # Calculate positions based on the specified position
     if position == 'center':
-        return (center_x, center_y)
+        x = (canvas_width - image_width) // 2
+        y = (canvas_height - image_height) // 2
     elif position == 'top':
-        return (center_x, 0)
+        x = (canvas_width - image_width) // 2
+        y = 0
     elif position == 'bottom':
-        return (center_x, template_height - img_height)
+        x = (canvas_width - image_width) // 2
+        y = canvas_height - image_height
     elif position == 'left':
-        return (0, center_y)
+        x = 0
+        y = (canvas_height - image_height) // 2
     elif position == 'right':
-        return (template_width - img_width, center_y)
-    elif position == 'top-left':
-        return (0, 0)
-    elif position == 'top-right':
-        return (template_width - img_width, 0)
-    elif position == 'bottom-left':
-        return (0, template_height - img_height)
-    elif position == 'bottom-right':
-        return (template_width - img_width, template_height - img_height)
+        x = canvas_width - image_width
+        y = (canvas_height - image_height) // 2
     else:
-        # Default to center if position is not recognized
-        return (center_x, center_y)
+        # По умолчанию центрируем
+        x = (canvas_width - image_width) // 2
+        y = (canvas_height - image_height) // 2
+    
+    return (x, y)
 
 def get_image_files(folder_path: str) -> List[str]:
     """Находит все изображения в указанной папке."""
@@ -1386,3 +1337,72 @@ def _apply_background_crop(img: Image.Image, white_tolerance: int = 10, perimete
         log.error(f"Error in _apply_background_crop: {e}")
         log.exception("Error details")
         return None
+
+def _calculate_template_position(template_size, canvas_size, position='center'):
+    """
+    Вычисляет позицию для размещения шаблона на холсте.
+    
+    Args:
+        template_size (tuple): Размер шаблона (ширина, высота)
+        canvas_size (tuple): Размер холста (ширина, высота)
+        position (str): Позиция ('center', 'top', 'bottom', 'left', 'right')
+        
+    Returns:
+        tuple: Координаты (x, y) для размещения шаблона
+    """
+    template_width, template_height = template_size
+    canvas_width, canvas_height = canvas_size
+    
+    if position == 'center':
+        x = (canvas_width - template_width) // 2
+        y = (canvas_height - template_height) // 2
+    elif position == 'top':
+        x = (canvas_width - template_width) // 2
+        y = 0
+    elif position == 'bottom':
+        x = (canvas_width - template_width) // 2
+        y = canvas_height - template_height
+    elif position == 'left':
+        x = 0
+        y = (canvas_height - template_height) // 2
+    elif position == 'right':
+        x = canvas_width - template_width
+        y = (canvas_height - template_height) // 2
+    else:
+        # По умолчанию центрируем
+        x = (canvas_width - template_width) // 2
+        y = (canvas_height - template_height) // 2
+    
+    return (x, y)
+
+def _scale_image(image, target_size, mode='fit'):
+    """
+    Масштабирует изображение с сохранением пропорций.
+    
+    Args:
+        image: Исходное изображение
+        target_size: Целевой размер (ширина, высота)
+        mode: Режим масштабирования ('fit' - вписать в размер, 'fill' - заполнить размер)
+        
+    Returns:
+        Image: Масштабированное изображение
+    """
+    source_width, source_height = image.size
+    target_width, target_height = target_size
+    
+    # Вычисляем коэффициенты масштабирования
+    width_ratio = target_width / source_width
+    height_ratio = target_height / source_height
+    
+    # Определяем итоговый коэффициент масштабирования
+    if mode == 'fit':
+        scale_factor = min(width_ratio, height_ratio)
+    else:  # fill
+        scale_factor = max(width_ratio, height_ratio)
+    
+    # Вычисляем новые размеры
+    new_width = int(source_width * scale_factor)
+    new_height = int(source_height * scale_factor)
+    
+    # Масштабируем изображение
+    return image.resize((new_width, new_height), Image.Resampling.LANCZOS)
