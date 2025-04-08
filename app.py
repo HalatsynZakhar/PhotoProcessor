@@ -729,53 +729,6 @@ with st.sidebar:
                                  help="Активирует слияние изображений с указанным шаблоном.")
         set_setting('merge_settings.enable_merge', enable_merge)
         
-        # Инициализация состояния валидации в session_state
-        if 'template_validation_status' not in st.session_state:
-            st.session_state.template_validation_status = None
-        
-        # Функция валидации шаблона
-        def validate_template_path(path):
-            if path:
-                if os.path.isfile(path):
-                    try:
-                        # Проверяем, является ли файл PSD
-                        if path.lower().endswith('.psd'):
-                            try:
-                                from psd_tools import PSDImage
-                                psd = PSDImage.open(path)
-                                st.session_state.template_validation_status = {
-                                    'type': 'success',
-                                    'message': f"✅ PSD шаблон успешно загружен. Размер: {psd.size}"
-                                }
-                            except ImportError:
-                                st.session_state.template_validation_status = {
-                                    'type': 'error',
-                                    'message': "❌ Для работы с PSD файлами требуется установить библиотеку psd-tools"
-                                }
-                        else:
-                            # Для обычных изображений
-                            from PIL import Image
-                            img = Image.open(path)
-                            st.session_state.template_validation_status = {
-                                'type': 'success',
-                                'message': f"✅ Шаблон успешно загружен. Размер: {img.size}"
-                            }
-                    except Exception as e:
-                        st.session_state.template_validation_status = {
-                            'type': 'error',
-                            'message': f"❌ Ошибка при загрузке шаблона: {str(e)}"
-                        }
-                else:
-                    st.session_state.template_validation_status = {
-                        'type': 'error',
-                        'message': f"❌ Файл шаблона не найден: {os.path.abspath(path)}"
-                    }
-            else:
-                st.session_state.template_validation_status = {
-                    'type': 'warning',
-                    'message': "⚠️ Укажите путь к шаблону"
-                }
-        
         if enable_merge:
             # Выбор шаблона
             template_path = st.text_input("Путь к шаблону (PSD или изображение)",
@@ -784,20 +737,33 @@ with st.sidebar:
                                         help="Укажите полный путь к файлу шаблона (PSD или изображение)")
             
             # Проверяем, изменилось ли значение
-            if template_path != get_setting('merge_settings.template_path', ''):
+            current_template_path = get_setting('merge_settings.template_path', '')
+            if template_path != current_template_path:
                 set_setting('merge_settings.template_path', template_path)
-                # Вызываем валидацию только если значение изменилось
-                validate_template_path(template_path)
-            
-            # Отображение статуса валидации
-            if st.session_state.template_validation_status:
-                status = st.session_state.template_validation_status
-                if status['type'] == 'success':
-                    st.success(status['message'])
-                elif status['type'] == 'error':
-                    st.error(status['message'])
-                elif status['type'] == 'warning':
-                    st.warning(status['message'])
+                
+            # Валидация шаблона (выполняется при каждом обновлении страницы)
+            if template_path:
+                if os.path.isfile(template_path):
+                    try:
+                        # Проверяем, является ли файл PSD
+                        if template_path.lower().endswith('.psd'):
+                            try:
+                                from psd_tools import PSDImage
+                                psd = PSDImage.open(template_path)
+                                st.success(f"✅ PSD шаблон успешно загружен. Размер: {psd.size}")
+                            except ImportError:
+                                st.error("❌ Для работы с PSD файлами требуется установить библиотеку psd-tools")
+                        else:
+                            # Для обычных изображений
+                            from PIL import Image
+                            img = Image.open(template_path)
+                            st.success(f"✅ Шаблон успешно загружен. Размер: {img.size}")
+                    except Exception as e:
+                        st.error(f"❌ Ошибка при загрузке шаблона: {str(e)}")
+                else:
+                    st.error(f"❌ Файл шаблона не найден: {os.path.abspath(template_path)}")
+            else:
+                st.warning("⚠️ Укажите путь к шаблону")
             
             # Положение изображения на шаблоне
             position_options = ["center", "top", "bottom", "left", "right", "top-left", "top-right", "bottom-left", "bottom-right"]
@@ -1136,6 +1102,7 @@ with st.sidebar:
 st.title("🖼️ Инструмент Обработки Изображений")
 st.subheader(f"**Режим:** {st.session_state.selected_processing_mode} | **Активный набор:** {st.session_state.active_preset}")
 
+# --- Секция статуса ---
 # --- Стилизация кнопки ---
 st.markdown("""
     <style>
