@@ -821,15 +821,15 @@ with st.sidebar:
             
             # Настройки соотношения размеров
             if scaling_mode == "Использовать соотношение размеров":
-                st.caption("Соотношение размеров (ШxВ)")
+                st.caption("Соотношение размеров изображения к шаблону")
                 col1, col2 = st.columns(2)
                 with col1:
-                    width_ratio_w = st.number_input("Ширина", min_value=0.1, max_value=10.0, value=get_setting('merge_settings.width_ratio', [1.0, 1.0])[0], step=0.1, key="merge_width_ratio_w", help="Соотношение ширины изображения к ширине шаблона")
+                    width_ratio_w = st.number_input("Шаблон", min_value=0.1, max_value=10.0, value=get_setting('merge_settings.width_ratio', [1.0, 1.0])[0], step=0.1, key="merge_width_ratio_w", help="Соотношение ширины шаблона к ширине изображения. Например: 2.0 означает, что шаблон будет в 2 раза шире изображения")
                 with col2:
-                    width_ratio_h = st.number_input("Высота", min_value=0.1, max_value=10.0, value=get_setting('merge_settings.width_ratio', [1.0, 1.0])[1], step=0.1, key="merge_width_ratio_h", help="Соотношение высоты изображения к высоте шаблона")
+                    width_ratio_h = st.number_input("Изображение", min_value=0.1, max_value=10.0, value=get_setting('merge_settings.width_ratio', [1.0, 1.0])[1], step=0.1, key="merge_width_ratio_h", help="Соотношение высоты изображения к высоте шаблона. Например: 2.0 означает, что изображение будет в 2 раза выше шаблона")
                 
-                # Добавляем пояснение
-                st.caption("Например: 1.0, 1.0 - изображение будет такого же размера как шаблон; 0.8, 0.8 - изображение будет 80% от размера шаблона")
+                # Обновляем пояснение
+                st.caption("Например: 1.0, 1.0 - изображение будет такого же размера как шаблон; 2.0, 2.0 - изображение будет в 2 раза больше шаблона; 0.5, 0.5 - изображение будет в 2 раза меньше шаблона")
                 
                 # Сохраняем настройки соотношения размеров только если значения валидны
                 if width_ratio_w > 0 and width_ratio_h > 0:
