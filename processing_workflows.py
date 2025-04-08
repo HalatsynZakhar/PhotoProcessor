@@ -763,98 +763,104 @@ def run_collage_processing(**all_settings: Dict[str, Any]) -> bool:
     log.info(f"--- Successfully processed {num_processed} images. Starting assembly... ---")
 
 
-    # --- 6. Пропорциональное Масштабирование (опц.) ---
+    # --- 6. Вычисление Размеров и Масштабирование Коллажа ---
+    log.info("--- Calculating collage dimensions and scaling factors ---")
+    # Передаем все настройки, включая 'collage_mode'
+    collage_width, collage_height, scale_factors = _calculate_collage_dimensions(processed_images, coll_settings) 
+    
+    log.info(f"  Calculated base collage size: {collage_width}x{collage_height}")
+    log.info(f"  Calculated scale factors: {scale_factors}")
+    
     scaled_images: List[Image.Image] = []
-    if proportional_placement and num_processed > 0:
-        # ... (логика масштабирования с логированием как в предыдущем ответе) ...
-        log.info("Applying proportional scaling...")
-        base_img = processed_images[0]; base_w, base_h = base_img.size
-        if base_w > 0 and base_h > 0:
-            log.debug(f"  Base size: {base_w}x{base_h}")
-            base_area = base_w * base_h
-            log.debug(f"  Base area: {base_area} pixels")
-            ratios = placement_ratios if placement_ratios else [1.0] * num_processed
-            for i, img in enumerate(processed_images):
-                 temp_img = None; current_w, current_h = img.size; target_w, target_h = base_w, base_h
-                 if i < len(ratios):
-                      try: ratio = max(0.01, float(ratios[i])); target_w, target_h = int(round(base_w*ratio)), int(round(base_h*ratio))
-                      except: pass # ignore ratio error
-                 if current_w > 0 and current_h > 0 and target_w > 0 and target_h > 0:
-                      # Вычисляем площади
-                      current_area = current_w * current_h
-                      target_area = target_w * target_h
-                      
-                      # Вычисляем коэффициент масштабирования на основе площадей
-                      area_scale = math.sqrt(target_area / current_area)
-                      
-                      # Применяем масштабирование с сохранением пропорций
-                      nw = max(1, int(round(current_w * area_scale)))
-                      nh = max(1, int(round(current_h * area_scale)))
-                      
-                      log.debug(f"  Image {i+1} areas: current={current_area}, target={target_area}, scale={area_scale:.3f}")
-                      
-                      if nw != current_w or nh != current_h:
-                           try:
-                               log.debug(f"  Scaling image {i+1} ({current_w}x{current_h} -> {nw}x{nh})")
-                               temp_img = img.resize((nw, nh), Image.Resampling.LANCZOS); scaled_images.append(temp_img); image_utils.safe_close(img)
-                           except Exception as e_scale: log.error(f"  ! Error scaling image {i+1}: {e_scale}"); scaled_images.append(img)
-                      else: scaled_images.append(img)
-                 else: scaled_images.append(img)
-            processed_images = []
-        else: log.error("  Base image zero size. Scaling skipped."); scaled_images = processed_images; processed_images = []
-    else: log.info("Proportional scaling disabled or no images."); scaled_images = processed_images; processed_images = []
-
+    if num_processed > 0 and len(scale_factors) == num_processed:
+        for i, img in enumerate(processed_images):
+            try:
+                current_w, current_h = img.size
+                scale_factor = scale_factors[i]
+                # Вычисляем новые размеры на основе scale_factor
+                # scale_factor уже нормализован так, чтобы подогнать изображения под max_width/max_height
+                # и учесть proportional_placement
+                nw = max(1, int(round(current_w * scale_factor)))
+                nh = max(1, int(round(current_h * scale_factor)))
+                
+                if nw != current_w or nh != current_h:
+                    log.debug(f"  Scaling image {i+1} ({current_w}x{current_h} -> {nw}x{nh}) using factor {scale_factor:.3f}")
+                    temp_img = img.resize((nw, nh), Image.Resampling.LANCZOS)
+                    scaled_images.append(temp_img)
+                    image_utils.safe_close(img) # Закрываем оригинал
+                else:
+                    log.debug(f"  Image {i+1} already at target size ({nw}x{nh}). No scaling needed.")
+                    scaled_images.append(img) # Используем оригинал без масштабирования
+            except Exception as e_scale:
+                log.error(f"  ! Error scaling image {i+1}: {e_scale}")
+                scaled_images.append(img) # Добавляем оригинал в случае ошибки
+        processed_images = [] # Очищаем старый список
+    else:
+        log.warning("Scale factors calculation error or mismatch. Using original processed images.")
+        scaled_images = processed_images # Используем то, что есть
+        processed_images = []
 
     # --- 7. Сборка Коллажа ---
     num_final_images = len(scaled_images)
     if num_final_images == 0:
-        log.error("No images left after scaling step (if enabled). Cannot create collage.")
+        log.error("No images left after scaling step. Cannot create collage.")
         log.info(">>> Exiting: No images left after scaling.")
-        # Очистка, если что-то осталось в scaled_images (хотя не должно)
+        # Очистка, если что-то осталось в scaled_images
         for img in scaled_images: image_utils.safe_close(img)
         return False # Возвращаем False
     log.info(f"--- Assembling collage ({num_final_images} images) ---")
     
-    # === Убедимся, что расчет grid_cols и grid_rows на месте ===
+    # Определяем сетку
     grid_cols = forced_cols if forced_cols > 0 else max(1, int(math.ceil(math.sqrt(num_final_images))))
     grid_rows = max(1, int(math.ceil(num_final_images / grid_cols))) 
-    # ==========================================================
-
-    max_w = max((img.width for img in scaled_images if img), default=1)
-    max_h = max((img.height for img in scaled_images if img), default=1)
-    spacing_px_h = int(round(max_w * (spacing_percent / 100.0)))
-    spacing_px_v = int(round(max_h * (spacing_percent / 100.0)))
-    canvas_width = (grid_cols * max_w) + ((grid_cols + 1) * spacing_px_h)
-    canvas_height = (grid_rows * max_h) + ((grid_rows + 1) * spacing_px_v)
-    log.debug(f"  Grid: {grid_rows}x{grid_cols}, Cell: {max_w}x{max_h}, Space H/V: {spacing_px_h}/{spacing_px_v}, Canvas: {canvas_width}x{canvas_height}")
+    
+    # Определяем максимальные размеры *после* масштабирования
+    max_w_scaled = max((img.width for img in scaled_images if img), default=1)
+    max_h_scaled = max((img.height for img in scaled_images if img), default=1)
+    
+    # Рассчитываем отступы на основе масштабированных размеров
+    spacing_px_h = int(round(max_w_scaled * (spacing_percent / 100.0)))
+    spacing_px_v = int(round(max_h_scaled * (spacing_percent / 100.0)))
+    
+    # Рассчитываем итоговый размер холста
+    canvas_width = (grid_cols * max_w_scaled) + ((grid_cols + 1) * spacing_px_h)
+    canvas_height = (grid_rows * max_h_scaled) + ((grid_rows + 1) * spacing_px_v)
+    log.debug(f"  Grid: {grid_rows}x{grid_cols}, Max Scaled Cell: {max_w_scaled}x{max_h_scaled}, Space H/V: {spacing_px_h}/{spacing_px_v}, Final Canvas: {canvas_width}x{canvas_height}")
 
     collage_canvas = None; final_collage = None
     try:
         collage_canvas = Image.new('RGBA', (canvas_width, canvas_height), (0, 0, 0, 0))
-        # === ЛОГ 1 ===
         log.debug(f"    Canvas created: {repr(collage_canvas)}") 
-        # ============
         current_idx = 0
         for r in range(grid_rows):
             for c in range(grid_cols):
-                if current_idx >= num_final_images: break # Этот break внутри цикла
+                if current_idx >= num_final_images: break 
                 img = scaled_images[current_idx]
                 if img and img.width > 0 and img.height > 0:
-                     px = spacing_px_h + c * (max_w + spacing_px_h); py = spacing_px_v + r * (max_h + spacing_px_v)
-                     paste_x = px + (max_w - img.width) // 2; paste_y = py + (max_h - img.height) // 2
-                     try: collage_canvas.paste(img, (paste_x, paste_y), mask=img)
-                     except Exception as e_paste: log.error(f"  ! Error pasting image {current_idx+1}: {e_paste}")
+                     # Позиция верхнего левого угла ячейки
+                     cell_x = spacing_px_h + c * (max_w_scaled + spacing_px_h)
+                     cell_y = spacing_px_v + r * (max_h_scaled + spacing_px_v)
+                     # Центрируем изображение внутри ячейки
+                     paste_x = cell_x + (max_w_scaled - img.width) // 2
+                     paste_y = cell_y + (max_h_scaled - img.height) // 2
+                     try: 
+                         # Убедимся, что изображение в RGBA для корректной вставки с маской
+                         img_to_paste = img if img.mode == 'RGBA' else img.convert('RGBA')
+                         collage_canvas.paste(img_to_paste, (paste_x, paste_y), mask=img_to_paste)
+                         if img_to_paste is not img: image_utils.safe_close(img_to_paste) # Закрываем временное RGBA
+                     except Exception as e_paste: 
+                         log.error(f"  ! Error pasting image {current_idx+1}: {e_paste}")
+                         # Закрываем временное RGBA, если оно было создано при ошибке
+                         if 'img_to_paste' in locals() and img_to_paste is not img: image_utils.safe_close(img_to_paste)
                 current_idx += 1
-            if current_idx >= num_final_images: break # Этот break внутри цикла
+            if current_idx >= num_final_images: break 
         
         log.info("  Images placed on collage canvas.")
-        for img in scaled_images: image_utils.safe_close(img) # Закрываем исходники
+        for img in scaled_images: image_utils.safe_close(img) # Закрываем масштабированные исходники
         scaled_images = []
         
         final_collage = collage_canvas # Передаем владение
-        # === ЛОГ 2 ===
         log.debug(f"    final_collage assigned: {repr(final_collage)}") 
-        # ============
         collage_canvas = None # Очищаем старую переменную
 
         # --- 8. Трансформации Коллажу ---
@@ -1433,3 +1439,126 @@ def _scale_image(image, target_size, mode='fit'):
     
     # Масштабируем изображение
     return image.resize((new_width, new_height), Image.Resampling.LANCZOS)
+
+def _calculate_collage_dimensions(images: List[Image.Image], settings: Dict[str, Any]) -> Tuple[int, int, List[float]]:
+    """
+    Вычисляет размеры коллажа и коэффициенты масштабирования для изображений.
+    Нормализует коэффициенты масштабирования, делая наименьший из них равным 1.
+    
+    Args:
+        images: Список изображений для коллажа
+        settings: Настройки коллажа (словарь 'collage_mode' из общих настроек)
+        
+    Returns:
+        Tuple[int, int, List[float]]: (ширина коллажа, высота коллажа, коэффициенты масштабирования)
+    """
+    if not images:
+        return 0, 0, []
+        
+    # Находим максимальные размеры среди всех изображений
+    max_width = max(img.width for img in images)
+    max_height = max(img.height for img in images)
+    
+    # Рассчитываем коэффициенты масштабирования для каждого изображения
+    # (чтобы все вписались в max_width x max_height)
+    scale_factors = []
+    for img in images:
+        if img.width > 0 and img.height > 0:
+            width_ratio = max_width / img.width
+            height_ratio = max_height / img.height
+            # Используем минимальный коэффициент для масштабирования (чтобы вписать)
+            scale_factor = min(width_ratio, height_ratio)
+            scale_factors.append(scale_factor)
+        else:
+            scale_factors.append(0.0) # Для изображений с нулевым размером
+    
+    # Нормализуем коэффициенты масштабирования, делая наименьший из них равным 1
+    # Это устанавливает базовый размер перед применением соотношений
+    non_zero_scales = [s for s in scale_factors if s > 0]
+    if non_zero_scales:
+        min_scale = min(non_zero_scales)
+        if min_scale > 0:  # Избегаем деления на ноль
+            normalized_scale_factors = [(scale / min_scale) if scale > 0 else 0.0 for scale in scale_factors]
+            scale_factors = normalized_scale_factors
+            log.info(f"  > Base normalized scale factors (min=1): {scale_factors}")
+        else: 
+             log.warning("  Minimum scale factor is zero, skipping base normalization.")
+    else:
+        log.warning("  All scale factors are zero, skipping base normalization.")
+
+    # Применяем пользовательские соотношения размеров, если они заданы
+    # Используем прямой доступ к ключам в словаре settings ('collage_mode')
+    if settings.get('proportional_placement', False):
+        placement_ratios = settings.get('placement_ratios', [1.0] * len(images))
+        log.debug(f"  Applying proportional placement with ratios: {placement_ratios}")
+        
+        # Убедимся, что количество соотношений совпадает
+        if len(placement_ratios) != len(images):
+            log.warning(f"  Mismatch between number of images ({len(images)}) and ratios ({len(placement_ratios)}). Using default ratios [1.0, ...]")
+            placement_ratios = [1.0] * len(images)
+        
+        # Нормализуем соотношения, делая наименьшее равным 1
+        valid_ratios = [r for r in placement_ratios if isinstance(r, (int, float)) and r > 0]
+        if valid_ratios:
+            min_ratio = min(valid_ratios)
+            normalized_ratios = [(ratio / min_ratio) if isinstance(ratio, (int, float)) and ratio > 0 else 1.0 for ratio in placement_ratios]
+            log.info(f"  > Normalized placement ratios (min=1): {normalized_ratios}")
+            
+            # Применяем соотношения к коэффициентам масштабирования
+            scale_factors = [scale * ratio for scale, ratio in zip(scale_factors, normalized_ratios)]
+            log.info(f"  > Scale factors after applying ratios: {scale_factors}")
+        else:
+            log.warning("  No valid positive placement ratios found. Skipping ratio application.")
+    else:
+         log.debug("  Proportional placement disabled.")
+
+    # Рассчитываем итоговые размеры коллажа на основе масштабированных размеров
+    # (Это определяет размер ячейки сетки)
+    scaled_widths = [img.width * scale for img, scale in zip(images, scale_factors)]
+    scaled_heights = [img.height * scale for img, scale in zip(images, scale_factors)]
+    
+    # Базовый размер - максимальный из масштабированных
+    final_max_width = max(int(round(w)) for w in scaled_widths if w > 0) if any(w > 0 for w in scaled_widths) else 1
+    final_max_height = max(int(round(h)) for h in scaled_heights if h > 0) if any(h > 0 for h in scaled_heights) else 1
+    
+    log.debug(f"  Calculated max scaled dimensions for grid cell: {final_max_width}x{final_max_height}")
+
+    # Применяем ограничения максимального размера КОЛЛАЖА, если они заданы
+    # Используем прямой доступ к ключам
+    final_scale_adjustment = 1.0
+    if settings.get('enable_max_dimensions', False):
+        max_width_limit = settings.get('max_collage_width', 0)
+        max_height_limit = settings.get('max_collage_height', 0)
+        
+        # Оцениваем примерный размер коллажа (нужны колонки)
+        forced_cols = settings.get('forced_cols', 0)
+        num_final_images = len(images)
+        grid_cols = forced_cols if forced_cols > 0 else max(1, int(math.ceil(math.sqrt(num_final_images))))
+        grid_rows = max(1, int(math.ceil(num_final_images / grid_cols))) 
+        # Упрощенная оценка без учета spacing
+        estimated_width = grid_cols * final_max_width
+        estimated_height = grid_rows * final_max_height
+        log.debug(f"  Estimated collage size for max dimension check: {estimated_width}x{estimated_height} (Grid: {grid_rows}x{grid_cols})")
+        
+        apply_limit = False
+        limit_scale = 1.0
+        if max_width_limit > 0 and estimated_width > max_width_limit:
+            limit_scale = min(limit_scale, max_width_limit / estimated_width)
+            apply_limit = True
+        if max_height_limit > 0 and estimated_height > max_height_limit:
+             limit_scale = min(limit_scale, max_height_limit / estimated_height)
+             apply_limit = True
+
+        if apply_limit and limit_scale < 1.0:
+            log.info(f"  Applying max dimension limit. Scaling down by {limit_scale:.3f}")
+            final_max_width = int(round(final_max_width * limit_scale))
+            final_max_height = int(round(final_max_height * limit_scale))
+            # Корректируем ИТОГОВЫЕ коэффициенты масштабирования
+            final_scale_adjustment = limit_scale
+            scale_factors = [factor * limit_scale for factor in scale_factors]
+            log.info(f"  > Scale factors after max dimension limit: {scale_factors}")
+        else:
+             log.debug("  Max dimension limit not exceeded or not enabled.")
+
+    # Возвращаем максимальные размеры ячейки (для построения сетки) и финальные факторы масштабирования
+    return final_max_width, final_max_height, scale_factors
