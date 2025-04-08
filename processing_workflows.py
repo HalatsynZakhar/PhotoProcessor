@@ -309,6 +309,55 @@ def run_individual_processing(**all_settings: Dict[str, Any]) -> bool:
         # Track overall success
         overall_success = True
         
+        # Pre-process template if merge is enabled
+        processed_template = None
+        if enable_merge and template_path:
+            try:
+                log.info("--- Pre-processing template ---")
+                # Load template
+                if template_path.lower().endswith('.psd'):
+                    try:
+                        from psd_tools import PSDImage
+                        psd = PSDImage.open(template_path)
+                        # Convert PSD to PIL Image using the correct method
+                        processed_template = psd.topil()
+                        if processed_template.mode == 'CMYK':
+                            processed_template = processed_template.convert('RGB')
+                    except ImportError:
+                        log.error("psd_tools library not installed. Cannot process PSD files.")
+                        return False
+                else:
+                    processed_template = Image.open(template_path)
+                    processed_template.load()
+                    
+                if process_template:
+                    # Apply same processing steps to template
+                    if preprocessing_settings.get('enable_preresize', False):
+                        processed_template = _apply_preresize(processed_template, 
+                                                         preprocessing_settings.get('preresize_width', 0),
+                                                         preprocessing_settings.get('preresize_height', 0))
+                    if whitening_settings.get('enable_whitening', False):
+                        processed_template = image_utils.whiten_image_by_darkest_perimeter(processed_template, whitening_settings.get('whitening_cancel_threshold', 765))
+                    if background_crop_settings.get('enable_bg_crop', False):
+                        processed_template = _apply_background_crop(
+                            processed_template,
+                            background_crop_settings.get('white_tolerance', 0),
+                            background_crop_settings.get('perimeter_tolerance', 10),
+                            background_crop_settings.get('force_absolute_symmetry', False),
+                            background_crop_settings.get('force_axes_symmetry', False),
+                            background_crop_settings.get('check_perimeter', False),
+                            background_crop_settings.get('enable_crop', True)
+                        )
+                    if padding_settings.get('mode', 'never') != 'never':
+                        processed_template = _apply_padding(processed_template, padding_settings)
+                    if brightness_contrast_settings.get('enable_bc', False):
+                        processed_template = image_utils.apply_brightness_contrast(processed_template, brightness_contrast_settings.get('brightness_factor', 1.0), brightness_contrast_settings.get('contrast_factor', 1.0))
+                
+                log.info(f"Template pre-processing completed. Size: {processed_template.size}, Mode: {processed_template.mode}")
+            except Exception as e:
+                log.error(f"Error pre-processing template: {e}")
+                return False
+        
         # Process each file
         for i, file_path in enumerate(files, 1):
             try:
@@ -345,52 +394,13 @@ def run_individual_processing(**all_settings: Dict[str, Any]) -> bool:
                     img = image_utils.apply_brightness_contrast(img, brightness_contrast_settings.get('brightness_factor', 1.0), brightness_contrast_settings.get('contrast_factor', 1.0))
                 
                 # Apply merge with template if enabled
-                if enable_merge and template_path:
+                if enable_merge and processed_template is not None:
                     try:
-                        # Load template
-                        if template_path.lower().endswith('.psd'):
-                            try:
-                                from psd_tools import PSDImage
-                                psd = PSDImage.open(template_path)
-                                # Convert PSD to PIL Image using the correct method
-                                template = psd.topil()
-                                if template.mode == 'CMYK':
-                                    template = template.convert('RGB')
-                            except ImportError:
-                                log.error("psd_tools library not installed. Cannot process PSD files.")
-                                continue
-                        else:
-                            template = Image.open(template_path)
-                            template.load()
-                            
-                        if process_template:
-                            # Apply same processing steps to template
-                            if preprocessing_settings.get('enable_preresize', False):
-                                template = _apply_preresize(template, 
-                                                         preprocessing_settings.get('preresize_width', 0),
-                                                         preprocessing_settings.get('preresize_height', 0))
-                            if whitening_settings.get('enable_whitening', False):
-                                template = image_utils.whiten_image_by_darkest_perimeter(template, whitening_settings.get('whitening_cancel_threshold', 765))
-                            if background_crop_settings.get('enable_bg_crop', False):
-                                template = _apply_background_crop(
-                                    template,
-                                    background_crop_settings.get('white_tolerance', 0),
-                                    background_crop_settings.get('perimeter_tolerance', 10),
-                                    background_crop_settings.get('force_absolute_symmetry', False),
-                                    background_crop_settings.get('force_axes_symmetry', False),
-                                    background_crop_settings.get('check_perimeter', False),
-                                    background_crop_settings.get('enable_crop', True)
-                                )
-                            if padding_settings.get('mode', 'never') != 'never':
-                                template = _apply_padding(template, padding_settings)
-                            if brightness_contrast_settings.get('enable_bc', False):
-                                template = image_utils.apply_brightness_contrast(template, brightness_contrast_settings.get('brightness_factor', 1.0), brightness_contrast_settings.get('contrast_factor', 1.0))
-                        
                         # Add jpg_background_color to merge_settings
                         merge_settings['jpg_background_color'] = individual_mode_settings.get('jpg_background_color', [255, 255, 255])
                         
                         # Merge image with template
-                        img = _merge_with_template(img, template, merge_settings)
+                        img = _merge_with_template(img, processed_template, merge_settings)
                         if img is None:
                             log.error(f"Failed to merge with template for {filename}")
                             log.info(f"--- Finished processing: {filename} (Failed) ---")
@@ -437,28 +447,29 @@ def run_individual_processing(**all_settings: Dict[str, Any]) -> bool:
                     overall_success = False
                     continue
                 
-                # Delete original if enabled
-                if individual_mode_settings.get('delete_originals', False):
+                # Backup original if enabled
+                if backup_folder and individual_mode_settings.get('delete_originals', False):
                     try:
+                        backup_path = os.path.join(backup_folder, filename)
+                        shutil.copy2(file_path, backup_path)
                         os.remove(file_path)
-                        log.info(f"Deleted original file: {filename}")
+                        log.info(f"Original backed up and deleted: {filename}")
                     except Exception as e:
-                        log.error(f"Error deleting original file {filename}: {e}")
+                        log.error(f"Failed to backup/delete original: {e}")
                 
                 log.info(f"--- Finished processing: {filename} (Success) ---")
                 
             except Exception as e:
-                log.critical(f"!!! UNEXPECTED error processing {filename}: {e}")
+                log.error(f"Error processing file {filename}: {e}")
                 log.exception("Error details")
-                log.info(f"--- Finished processing: {filename} (Failed) ---")
                 overall_success = False
+                continue
         
-        if not overall_success:
-            log.error("--- Processing completed with errors ---")
-            return False
-        else:
-            log.info("--- Processing completed successfully ---")
-            return True
+        # Clean up
+        if processed_template:
+            processed_template.close()
+        
+        return overall_success
         
     except Exception as e:
         log.critical(f"!!! UNEXPECTED error in run_individual_processing: {e}")
