@@ -180,7 +180,7 @@ def _apply_final_canvas_or_prepare(img, exact_width, exact_height, output_format
                 except Exception as e_conv: log.error(f"    ! Simple RGB conversion failed: {e_conv}"); image_utils.safe_close(converted_img); return img
 
 
-def _save_image(img, output_path, output_format, jpeg_quality):
+def _save_image(img, output_path, output_format, jpeg_quality, jpg_background_color=None):
     """(Helper) Сохраняет изображение в указанном формате с опциями."""
     if not img: log.error("! Cannot save None image."); return False
     # ... (код функции _save_image из предыдущего ответа, с log.*) ...
@@ -198,7 +198,14 @@ def _save_image(img, output_path, output_format, jpeg_quality):
             save_options["progressive"] = True
             if img.mode != 'RGB':
                 log.warning(f"    Mode is {img.mode}, converting to RGB for JPEG save.")
-                img_to_save = img.convert('RGB')
+                if jpg_background_color and img.mode in ('RGBA', 'LA', 'PA'):
+                    # Create a new RGB image with the specified background color
+                    rgb_image = Image.new("RGB", img.size, tuple(jpg_background_color))
+                    # Paste the image onto the background
+                    rgb_image.paste(img, (0, 0), img)
+                    img_to_save = rgb_image
+                else:
+                    img_to_save = img.convert('RGB')
                 must_close_img_to_save = True
         elif output_format == 'png':
             format_name = "PNG"
@@ -343,6 +350,9 @@ def run_individual_processing(**all_settings: Dict[str, Any]) -> bool:
                             if brightness_contrast_settings.get('enable_bc', False):
                                 template = _apply_brightness_contrast(template, brightness_contrast_settings)
                         
+                        # Add jpg_background_color to merge_settings
+                        merge_settings['jpg_background_color'] = individual_mode_settings.get('jpg_background_color', [255, 255, 255])
+                        
                         # Merge image with template
                         img = _merge_with_template(img, template, merge_settings)
                         if img is None:
@@ -380,7 +390,7 @@ def run_individual_processing(**all_settings: Dict[str, Any]) -> bool:
                         output_filename = f"{article}_{i}.{output_format}"
                 
                 output_path = os.path.join(output_folder, output_filename)
-                if not _save_image(img, output_path, output_format, individual_mode_settings.get('jpeg_quality', 95)):
+                if not _save_image(img, output_path, output_format, individual_mode_settings.get('jpeg_quality', 95), individual_mode_settings.get('jpg_background_color', [255, 255, 255])):
                     log.error(f"Failed to save image: {output_filename}")
                     log.info(f"--- Finished processing: {filename} (Failed) ---")
                     overall_success = False
@@ -584,6 +594,7 @@ def run_collage_processing(**all_settings: Dict[str, Any]) -> bool:
         pad_settings = all_settings.get('padding', {})
         bc_settings = all_settings.get('brightness_contrast', {})
         coll_settings = all_settings.get('collage_mode', {})
+        merge_settings = all_settings.get('merge_settings', {})
 
         source_dir = paths_settings.get('input_folder_path')
         output_filename_base = paths_settings.get('output_filename') # Имя без расширения от пользователя
@@ -598,8 +609,12 @@ def run_collage_processing(**all_settings: Dict[str, Any]) -> bool:
         final_collage_exact_width = int(coll_settings.get('final_collage_exact_width', 0))
         final_collage_exact_height = int(coll_settings.get('final_collage_exact_height', 0))
         output_format = str(coll_settings.get('output_format', 'jpg')).lower()
-        jpg_background_color = coll_settings.get('jpg_background_color', [255, 255, 255])
         jpeg_quality = int(coll_settings.get('jpeg_quality', 95))
+        jpg_background_color = coll_settings.get('jpg_background_color', [255, 255, 255])
+        valid_jpg_bg = tuple(jpg_background_color) if isinstance(jpg_background_color, list) and len(jpg_background_color) == 3 else (255, 255, 255)
+        
+        # Add jpg_background_color to merge_settings
+        merge_settings['jpg_background_color'] = jpg_background_color
 
         if not source_dir or not output_filename_base:
              raise ValueError("Source directory or output filename base missing.")
@@ -610,7 +625,6 @@ def run_collage_processing(**all_settings: Dict[str, Any]) -> bool:
 
         if output_format not in ['jpg', 'png']: raise ValueError(f"Unsupported collage output format: {output_format}")
 
-        valid_jpg_bg = tuple(jpg_background_color) if isinstance(jpg_background_color, list) and len(jpg_background_color) == 3 else (255, 255, 255)
         valid_collage_aspect_ratio = tuple(force_collage_aspect_ratio) if force_collage_aspect_ratio and len(force_collage_aspect_ratio) == 2 else None
 
         log.debug("Collage settings extracted.")
@@ -848,7 +862,7 @@ def run_collage_processing(**all_settings: Dict[str, Any]) -> bool:
 
         # --- 9. Сохранение Коллажа ---
         log.info("--- Saving final collage ---")
-        save_successful = _save_image(final_collage, output_file_path, output_format, jpeg_quality)
+        save_successful = _save_image(final_collage, output_file_path, output_format, jpeg_quality, valid_jpg_bg)
         if save_successful:
             log.info(f"--- Collage processing finished successfully! Saved to {output_file_path} ---")
             success_flag = True # Устанавливаем флаг успеха
@@ -899,6 +913,10 @@ def _merge_with_template(img: Image.Image, template: Image.Image, settings: Dict
         position = settings.get('position', 'center')
         template_on_top = settings.get('template_on_top', True)
         
+        # Get background color for JPEG
+        jpg_background_color = settings.get('jpg_background_color', [255, 255, 255])
+        log.info(f"  Using background color for JPEG: {tuple(jpg_background_color)}")
+        
         # Convert images to RGBA if needed
         if img.mode != 'RGBA':
             img = img.convert('RGBA')
@@ -921,7 +939,11 @@ def _merge_with_template(img: Image.Image, template: Image.Image, settings: Dict
         # Paste the image onto the template
         if template_on_top:
             # Create a new image with the template size
-            result = Image.new('RGBA', template.size, (0, 0, 0, 0))
+            # Use white background instead of transparent for JPEG compatibility
+            bg_color = tuple(jpg_background_color)  # Use RGB color without alpha
+            result = Image.new('RGB', template.size, bg_color)
+            # Convert to RGBA for transparency
+            result = result.convert('RGBA')
             # Paste the main image first
             result.paste(img, (paste_x, paste_y))
             # Then paste the template on top
@@ -948,9 +970,13 @@ def _process_image_for_merge(img: Image.Image, merge_settings: Dict[str, Any]) -
         # Get template path and clean it
         template_path = merge_settings.get('template_path', '')
         if template_path:
-            # Remove any quotes and clean the path
-            template_path = template_path.strip('"\'')
-            template_path = os.path.normpath(template_path)
+            # Check if path contains quotes
+            if template_path.startswith('"') or template_path.startswith("'"):
+                log.warning(f"Template path contains quotes: {template_path}")
+                # Remove quotes and clean the path
+                template_path = template_path.strip('"\'')
+                template_path = os.path.normpath(template_path)
+                log.info(f"Cleaned template path: {template_path}")
             
             if not os.path.exists(template_path):
                 log.error(f"Template file not found: {template_path}")
