@@ -1090,7 +1090,7 @@ def _merge_with_template(image, template_path_or_image, settings=None):
             # Шаблон меньше изображения, увеличиваем его
             width_ratio = image_width / template_width
             height_ratio = image_height / template_height
-            scale_factor = min(width_ratio, height_ratio)
+            scale_factor = max(width_ratio, height_ratio)  # Используем max для максимального увеличения
             
             new_width = int(template_width * scale_factor)
             new_height = int(template_height * scale_factor)
@@ -1098,13 +1098,17 @@ def _merge_with_template(image, template_path_or_image, settings=None):
             # Масштабируем шаблон
             scaled_template = template.resize((new_width, new_height), Image.Resampling.LANCZOS)
             
+            # Обновляем размеры холста
+            canvas_width = max(image_width, new_width)
+            canvas_height = max(image_height, new_height)
+            
             log.info(f"  > Fit template to image - Template is smaller, scaling up with factor: {scale_factor:.3f}")
             log.info(f"  > New template size: {new_width}x{new_height}")
         else:
             # Шаблон больше изображения, увеличиваем изображение
             width_ratio = template_width / image_width
             height_ratio = template_height / image_height
-            scale_factor = max(width_ratio, height_ratio)
+            scale_factor = max(width_ratio, height_ratio)  # Используем max для максимального увеличения
             
             new_width = int(image_width * scale_factor)
             new_height = int(image_height * scale_factor)
@@ -1113,11 +1117,13 @@ def _merge_with_template(image, template_path_or_image, settings=None):
             scaled_image = image.resize((new_width, new_height), Image.Resampling.LANCZOS)
             
             # Обновляем размеры холста
-            canvas_width = template_width
-            canvas_height = template_height
+            canvas_width = max(template_width, new_width)
+            canvas_height = max(template_height, new_height)
             
             log.info(f"  > Fit template to image - Image is smaller, scaling up with factor: {scale_factor:.3f}")
             log.info(f"  > New image size: {new_width}x{new_height}")
+        
+        log.info(f"  > Canvas size: {canvas_width}x{canvas_height}")
     
     # Создаем холст нужного размера
     canvas = Image.new('RGBA', (canvas_width, canvas_height), (0, 0, 0, 0))
