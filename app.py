@@ -1129,16 +1129,30 @@ if start_button_pressed_this_run:
     log.info(f"--- Start button was pressed this run. Starting validation... ---")
     paths_ok = True
     validation_errors = []
+    
+    # Проверка входной папки
     input_path = get_setting('paths.input_folder_path', '')
     abs_input_path = os.path.abspath(input_path) if input_path else ''
     if not input_path or not os.path.isdir(abs_input_path):
         validation_errors.append(f"Папка с исходными файлами не найдена или не указана: '{input_path}'")
         paths_ok = False
 
-    current_mode = st.session_state.selected_processing_mode # Используем из state
+    # Проверка пути шаблона, если включено слияние
+    if get_setting('merge_settings.enable_merge', False):
+        template_path = get_setting('merge_settings.template_path', '')
+        if template_path:
+            clean_path = template_path.strip('"\'')
+            if not os.path.isfile(clean_path):
+                validation_errors.append(f"❌ Файл шаблона не найден: {os.path.abspath(clean_path)}")
+                paths_ok = False
+        else:
+            validation_errors.append("❌ Не указан путь к файлу шаблона")
+            paths_ok = False
+
+    current_mode = st.session_state.selected_processing_mode
     if current_mode == "Обработка отдельных файлов":
         output_path_ind = get_setting('paths.output_folder_path', '')
-        if not output_path_ind: 
+        if not output_path_ind:
             validation_errors.append("Не указана папка для результатов!")
             paths_ok = False
         if paths_ok and get_setting('individual_mode.delete_originals') and input_path and output_path_ind:
@@ -1147,16 +1161,15 @@ if start_button_pressed_this_run:
                 log.warning("Original deletion will be skipped (paths are same).")
     elif current_mode == "Создание коллажей":
         output_filename_coll = get_setting('paths.output_filename', '')
-        if not output_filename_coll: 
+        if not output_filename_coll:
             validation_errors.append("Не указано имя файла для сохранения коллажа!")
             paths_ok = False
         elif input_path and paths_ok:
-            # Проверяем ПОЛНОЕ имя файла с расширением
             output_format_coll = get_setting('collage_mode.output_format', 'jpg').lower()
             base_name, _ = os.path.splitext(output_filename_coll)
             coll_filename_with_ext = f"{base_name}.{output_format_coll}"
             full_coll_path_with_ext = os.path.abspath(os.path.join(abs_input_path, coll_filename_with_ext))
-            if os.path.isdir(full_coll_path_with_ext): 
+            if os.path.isdir(full_coll_path_with_ext):
                 validation_errors.append(f"Имя файла коллажа '{coll_filename_with_ext}' указывает на папку!")
                 paths_ok = False
 
