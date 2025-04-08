@@ -91,8 +91,10 @@ def get_downloads_folder():
             import winreg
             subkey = r'Software\Microsoft\Windows\CurrentVersion\Explorer\Shell Folders'
             downloads_guid = '{374DE290-123F-4565-9164-39C4925E467B}'
-            log.debug(f"Downloads folder from registry: {location}")
-            return location
+            with winreg.OpenKey(winreg.HKEY_CURRENT_USER, subkey) as key:
+                location = winreg.QueryValueEx(key, downloads_guid)[0]
+                log.debug(f"Downloads folder from registry: {location}")
+                return location
         except ImportError:
             log.warning("winreg module not found, cannot get Downloads path from registry.")
         except FileNotFoundError: # Ключ или значение могут отсутствовать
@@ -786,11 +788,33 @@ with st.sidebar:
                 st.caption("ℹ️ Файл шаблона не выбран")
             
             # Чекбокс для включения/отключения соотношения размеров
-            enable_width_ratio = st.checkbox("Использовать соотношение размеров", value=get_setting('merge_settings.enable_width_ratio', False), key="enable_width_ratio")
-            set_setting('merge_settings.enable_width_ratio', enable_width_ratio)
+            scaling_mode = st.radio(
+                "Режим масштабирования",
+                options=["Без масштабирования", "Вписать изображение в шаблон", "Вписать шаблон в изображение", "Использовать соотношение размеров"],
+                index=0,
+                key="scaling_mode"
+            )
+            
+            # Сохраняем выбранный режим
+            if scaling_mode == "Без масштабирования":
+                set_setting('merge_settings.enable_width_ratio', False)
+                set_setting('merge_settings.fit_image_to_template', False)
+                set_setting('merge_settings.fit_template_to_image', False)
+            elif scaling_mode == "Вписать изображение в шаблон":
+                set_setting('merge_settings.enable_width_ratio', False)
+                set_setting('merge_settings.fit_image_to_template', True)
+                set_setting('merge_settings.fit_template_to_image', False)
+            elif scaling_mode == "Вписать шаблон в изображение":
+                set_setting('merge_settings.enable_width_ratio', False)
+                set_setting('merge_settings.fit_image_to_template', False)
+                set_setting('merge_settings.fit_template_to_image', True)
+            else:  # "Использовать соотношение размеров"
+                set_setting('merge_settings.enable_width_ratio', True)
+                set_setting('merge_settings.fit_image_to_template', False)
+                set_setting('merge_settings.fit_template_to_image', False)
             
             # Настройки соотношения размеров
-            if enable_width_ratio:
+            if scaling_mode == "Использовать соотношение размеров":
                 col1, col2 = st.columns(2)
                 with col1:
                     width_ratio_w = st.number_input("Ширина оригинала", min_value=0.1, max_value=10.0, value=get_setting('merge_settings.width_ratio', [1.0, 1.0])[0], step=0.1, key="merge_width_ratio_w")

@@ -955,6 +955,9 @@ def _merge_with_template(image: Image.Image, template_path_or_image: Union[str, 
         process_template = settings.get('process_template', False)
         width_ratio = settings.get('width_ratio', [1.0, 1.0])
         enable_width_ratio = settings.get('enable_width_ratio', False)
+        fit_image_to_template = settings.get('fit_image_to_template', False)
+        fit_template_to_image = settings.get('fit_template_to_image', False)
+        no_scaling = settings.get('no_scaling', False)  # New setting for no scaling mode
         
         # Проверяем соотношение размеров
         if not isinstance(width_ratio, (list, tuple)) or len(width_ratio) != 2:
@@ -967,6 +970,8 @@ def _merge_with_template(image: Image.Image, template_path_or_image: Union[str, 
         width_ratio = [width_ratio_w, width_ratio_h]
         
         log.info(f"  > Width ratio settings: enable={enable_width_ratio}, w={width_ratio_w}, h={width_ratio_h}")
+        log.info(f"  > Fit settings: image_to_template={fit_image_to_template}, template_to_image={fit_template_to_image}")
+        log.info(f"  > No scaling mode: {no_scaling}")
         
         # Конвертируем изображения в RGBA если нужно
         if image.mode != 'RGBA':
@@ -974,75 +979,100 @@ def _merge_with_template(image: Image.Image, template_path_or_image: Union[str, 
         if template.mode != 'RGBA':
             template = template.convert('RGBA')
             
-        # Вычисляем новый размер изображения с учетом соотношения размеров
+        # Вычисляем размеры
         template_width, template_height = template.size
         image_width, image_height = image.size
         log.info(f"  > Original sizes - Image: {image_width}x{image_height}, Template: {template_width}x{template_height}")
         
-        # Вычисляем коэффициент масштабирования на основе соотношения размеров
-        if enable_width_ratio:
-            # Вычисляем коэффициент масштабирования, сохраняя пропорции
+        # Определяем новый размер изображения
+        new_width = image_width
+        new_height = image_height
+        
+        if no_scaling:
+            # В режиме без масштабирования используем оригинальные размеры
+            log.info("  > No scaling mode - Using original image size")
+        elif enable_width_ratio:
+            # Вычисляем коэффициент масштабирования на основе соотношения размеров
             scale_factor = (template_width * width_ratio_w) / (image_width * width_ratio_h)
             new_width = int(image_width * scale_factor)
             new_height = int(image_height * scale_factor)
             log.info(f"  > Width ratio enabled - Scale factor: {scale_factor:.3f}, New size: {new_width}x{new_height}")
             log.info(f"  > Width ratio calculation: ({template_width} * {width_ratio_w}) / ({image_width} * {width_ratio_h}) = {scale_factor:.3f}")
-        else:
-            # Если соотношение размеров отключено, масштабируем изображение, чтобы оно помещалось в шаблон
-            # с сохранением пропорций
+        elif fit_image_to_template:
+            # Масштабируем изображение, чтобы оно помещалось в шаблон с сохранением пропорций
             width_ratio = template_width / image_width
             height_ratio = template_height / image_height
             scale_factor = min(width_ratio, height_ratio)
             new_width = int(image_width * scale_factor)
             new_height = int(image_height * scale_factor)
-            log.info(f"  > Width ratio disabled - Scale factor: {scale_factor:.3f}, New size: {new_width}x{new_height}")
-            log.info(f"  > Scaling to fit template while preserving aspect ratio")
+            log.info(f"  > Fit image to template - Scale factor: {scale_factor:.3f}, New size: {new_width}x{new_height}")
+        elif fit_template_to_image:
+            # Масштабируем шаблон, чтобы он помещался в изображение с сохранением пропорций
+            width_ratio = image_width / template_width
+            height_ratio = image_height / template_height
+            scale_factor = min(width_ratio, height_ratio)
+            template_width = int(template_width * scale_factor)
+            template_height = int(template_height * scale_factor)
+            template = template.resize((template_width, template_height), Image.Resampling.LANCZOS)
+            log.info(f"  > Fit template to image - Scale factor: {scale_factor:.3f}, New template size: {template_width}x{template_height}")
         
-        # Изменяем размер изображения с сохранением пропорций
-        image = image.resize((new_width, new_height), Image.Resampling.LANCZOS)
-        log.info(f"  > Resized image to: {image.size}")
+        # Изменяем размер изображения если нужно (кроме режима без масштабирования)
+        if not no_scaling and (new_width != image_width or new_height != image_height):
+            image = image.resize((new_width, new_height), Image.Resampling.LANCZOS)
+            log.info(f"  > Resized image to: {image.size}")
         
-        # Определяем позицию для вставки
+        # Определяем позицию для вставки с учетом режима без масштабирования
         paste_x = 0
         paste_y = 0
         
-        if position == 'center':
-            paste_x = (template_width - new_width) // 2
-            paste_y = (template_height - new_height) // 2
-        elif position == 'top':
-            paste_x = (template_width - new_width) // 2
-            paste_y = 0
-        elif position == 'bottom':
-            paste_x = (template_width - new_width) // 2
-            paste_y = template_height - new_height
-        elif position == 'left':
-            paste_x = 0
-            paste_y = (template_height - new_height) // 2
-        elif position == 'right':
-            paste_x = template_width - new_width
-            paste_y = (template_height - new_height) // 2
-        elif position == 'top-left':
-            paste_x = 0
-            paste_y = 0
-        elif position == 'top-right':
-            paste_x = template_width - new_width
-            paste_y = 0
-        elif position == 'bottom-left':
-            paste_x = 0
-            paste_y = template_height - new_height
-        elif position == 'bottom-right':
-            paste_x = template_width - new_width
-            paste_y = template_height - new_height
+        if no_scaling:
+            # В режиме без масштабирования центрируем изображение
+            paste_x = (template_width - image_width) // 2
+            paste_y = (template_height - image_height) // 2
+            log.info(f"  > No scaling mode - Centered position: ({paste_x}, {paste_y})")
+        else:
+            # Стандартное позиционирование для других режимов
+            if position == 'center':
+                paste_x = (template_width - new_width) // 2
+                paste_y = (template_height - new_height) // 2
+            elif position == 'top':
+                paste_x = (template_width - new_width) // 2
+                paste_y = 0
+            elif position == 'bottom':
+                paste_x = (template_width - new_width) // 2
+                paste_y = template_height - new_height
+            elif position == 'left':
+                paste_x = 0
+                paste_y = (template_height - new_height) // 2
+            elif position == 'right':
+                paste_x = template_width - new_width
+                paste_y = (template_height - new_height) // 2
+            elif position == 'top-left':
+                paste_x = 0
+                paste_y = 0
+            elif position == 'top-right':
+                paste_x = template_width - new_width
+                paste_y = 0
+            elif position == 'bottom-left':
+                paste_x = 0
+                paste_y = template_height - new_height
+            elif position == 'bottom-right':
+                paste_x = template_width - new_width
+                paste_y = template_height - new_height
             
         # Создаем новое изображение с фоном
         result = Image.new('RGBA', template.size, (255, 255, 255, 0))
         
         # Накладываем изображения в зависимости от порядка
         if template_on_top:
-            result.paste(image, (paste_x, paste_y))
+            # Сначала накладываем изображение
+            result.paste(image, (paste_x, paste_y), image)
+            # Затем накладываем шаблон поверх
             result = Image.alpha_composite(result, template)
         else:
-            result.paste(template, (0, 0))
+            # Сначала накладываем шаблон
+            result.paste(template, (0, 0), template)
+            # Затем накладываем изображение поверх
             result.paste(image, (paste_x, paste_y), image)
             
         log.info(f"  > Merged image size: {result.size}, mode: {result.mode}")
