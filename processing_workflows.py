@@ -811,8 +811,16 @@ def run_collage_processing(**all_settings: Dict[str, Any]) -> bool:
     log.info(f"--- Assembling collage ({num_final_images} images) ---")
     
     # Определяем сетку
-    grid_cols = forced_cols if forced_cols > 0 else max(1, int(math.ceil(math.sqrt(num_final_images))))
-    grid_rows = max(1, int(math.ceil(num_final_images / grid_cols))) 
+    # Используем значение forced_cols ТОЛЬКО если включен ручной выбор
+    enable_forced_cols = coll_settings.get('enable_forced_cols', False) # Получаем состояние галочки
+    if enable_forced_cols and forced_cols > 0:
+        grid_cols = forced_cols
+        log.info(f"  Using forced columns: {grid_cols}")
+    else:
+        grid_cols = max(1, int(math.ceil(math.sqrt(num_final_images))))
+        log.info(f"  Using automatic columns: {grid_cols}")
+    
+    grid_rows = max(1, int(math.ceil(num_final_images / grid_cols)))
     
     # Определяем максимальные размеры *после* масштабирования
     max_w_scaled = max((img.width for img in scaled_images if img), default=1)
