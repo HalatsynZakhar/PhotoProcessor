@@ -760,6 +760,8 @@ def run_collage_processing(**all_settings: Dict[str, Any]) -> bool:
         base_img = processed_images[0]; base_w, base_h = base_img.size
         if base_w > 0 and base_h > 0:
             log.debug(f"  Base size: {base_w}x{base_h}")
+            base_area = base_w * base_h
+            log.debug(f"  Base area: {base_area} pixels")
             ratios = placement_ratios if placement_ratios else [1.0] * num_processed
             for i, img in enumerate(processed_images):
                  temp_img = None; current_w, current_h = img.size; target_w, target_h = base_w, base_h
@@ -767,8 +769,19 @@ def run_collage_processing(**all_settings: Dict[str, Any]) -> bool:
                       try: ratio = max(0.01, float(ratios[i])); target_w, target_h = int(round(base_w*ratio)), int(round(base_h*ratio))
                       except: pass # ignore ratio error
                  if current_w > 0 and current_h > 0 and target_w > 0 and target_h > 0:
-                      scale = min(target_w / current_w, target_h / current_h)
-                      nw, nh = max(1, int(round(current_w * scale))), max(1, int(round(current_h * scale)))
+                      # Вычисляем площади
+                      current_area = current_w * current_h
+                      target_area = target_w * target_h
+                      
+                      # Вычисляем коэффициент масштабирования на основе площадей
+                      area_scale = math.sqrt(target_area / current_area)
+                      
+                      # Применяем масштабирование с сохранением пропорций
+                      nw = max(1, int(round(current_w * area_scale)))
+                      nh = max(1, int(round(current_h * area_scale)))
+                      
+                      log.debug(f"  Image {i+1} areas: current={current_area}, target={target_area}, scale={area_scale:.3f}")
+                      
                       if nw != current_w or nh != current_h:
                            try:
                                log.debug(f"  Scaling image {i+1} ({current_w}x{current_h} -> {nw}x{nh})")
@@ -992,12 +1005,57 @@ def _merge_with_template(image: Image.Image, template_path_or_image: Union[str, 
             # В режиме без масштабирования используем оригинальные размеры
             log.info("  > No scaling mode - Using original image size")
         elif enable_width_ratio:
-            # Вычисляем коэффициент масштабирования на основе соотношения размеров
-            scale_factor = (template_width * width_ratio_w) / (image_width * width_ratio_h)
-            new_width = int(image_width * scale_factor)
-            new_height = int(image_height * scale_factor)
-            log.info(f"  > Width ratio enabled - Scale factor: {scale_factor:.3f}, New size: {new_width}x{new_height}")
-            log.info(f"  > Width ratio calculation: ({template_width} * {width_ratio_w}) / ({image_width} * {width_ratio_h}) = {scale_factor:.3f}")
+            # Вычисляем целевые размеры на основе соотношения с шаблоном
+            target_width = int(template_width * width_ratio_w)
+            target_height = int(template_height * width_ratio_h)
+            
+            # Вычисляем площади
+            template_area = template_width * template_height
+            target_area = target_width * target_height
+            image_area = image_width * image_height
+            
+            # Вычисляем коэффициент масштабирования на основе площадей
+            # Используем квадратный корень из отношения целевой площади к площади изображения
+            area_scale = math.sqrt(target_area / image_area)
+            
+            # Применяем масштабирование с сохранением пропорций
+            new_width = int(image_width * area_scale)
+            new_height = int(image_height * area_scale)
+            
+            log.info(f"  > Width ratio enabled - Target size: {target_width}x{target_height}")
+            log.info(f"  > Area-based scale factor: {area_scale:.3f}, New size: {new_width}x{new_height}")
+            log.info(f"  > Areas: template={template_area}, target={target_area}, image={image_area}")
+            
+            # Явно масштабируем изображение
+            scaled_image = image.resize((new_width, new_height), Image.Resampling.LANCZOS)
+            log.info(f"  > Image scaled to: {scaled_image.size}")
+            
+            # Создаем холст размером с максимальные размеры
+            canvas_width = max(template_width, new_width)
+            canvas_height = max(template_height, new_height)
+            result = Image.new('RGBA', (canvas_width, canvas_height), (255, 255, 255, 0))
+            
+            # Вычисляем позиции для центрирования
+            template_x = (canvas_width - template_width) // 2
+            template_y = (canvas_height - template_height) // 2
+            image_x = (canvas_width - new_width) // 2
+            image_y = (canvas_height - new_height) // 2
+            
+            # Накладываем изображения в зависимости от порядка
+            if template_on_top:
+                # Сначала накладываем изображение
+                result.paste(scaled_image, (image_x, image_y), scaled_image)
+                # Затем накладываем шаблон поверх
+                result.paste(template, (template_x, template_y), template)
+            else:
+                # Сначала накладываем шаблон
+                result.paste(template, (template_x, template_y), template)
+                # Затем накладываем изображение поверх
+                result.paste(scaled_image, (image_x, image_y), scaled_image)
+            
+            log.info(f"  > Merged image size: {result.size}, mode: {result.mode}")
+            return result
+        
         elif fit_image_to_template:
             # Масштабируем изображение, чтобы оно помещалось в шаблон с сохранением пропорций
             width_ratio = template_width / image_width
@@ -1005,7 +1063,31 @@ def _merge_with_template(image: Image.Image, template_path_or_image: Union[str, 
             scale_factor = min(width_ratio, height_ratio)
             new_width = int(image_width * scale_factor)
             new_height = int(image_height * scale_factor)
+            
             log.info(f"  > Fit image to template - Scale factor: {scale_factor:.3f}, New size: {new_width}x{new_height}")
+            
+            # Создаем холст размером с шаблон
+            result = Image.new('RGBA', template.size, (255, 255, 255, 0))
+            
+            # Вычисляем позицию для центрирования
+            paste_x = (template_width - new_width) // 2
+            paste_y = (template_height - new_height) // 2
+            
+            # Накладываем изображения в зависимости от порядка
+            if template_on_top:
+                # Сначала накладываем изображение
+                result.paste(image, (paste_x, paste_y), image)
+                # Затем накладываем шаблон поверх
+                result = Image.alpha_composite(result, template)
+            else:
+                # Сначала накладываем шаблон
+                result.paste(template, (0, 0), template)
+                # Затем накладываем изображение поверх
+                result.paste(image, (paste_x, paste_y), image)
+            
+            log.info(f"  > Merged image size: {result.size}, mode: {result.mode}")
+            return result
+            
         elif fit_template_to_image:
             # Масштабируем шаблон, чтобы он помещался в изображение с сохранением пропорций
             width_ratio = image_width / template_width
@@ -1014,7 +1096,28 @@ def _merge_with_template(image: Image.Image, template_path_or_image: Union[str, 
             template_width = int(template_width * scale_factor)
             template_height = int(template_height * scale_factor)
             template = template.resize((template_width, template_height), Image.Resampling.LANCZOS)
-            log.info(f"  > Fit template to image - Scale factor: {scale_factor:.3f}, New template size: {template_width}x{template_height}")
+            
+            # Создаем новое изображение с размерами исходного изображения
+            result = Image.new('RGBA', (image_width, image_height), (255, 255, 255, 0))
+            
+            # Вычисляем позицию для центрирования шаблона
+            paste_x = (image_width - template_width) // 2
+            paste_y = (image_height - template_height) // 2
+            
+            # Накладываем изображения в зависимости от порядка
+            if template_on_top:
+                # Сначала накладываем изображение
+                result.paste(image, (0, 0), image)
+                # Затем накладываем шаблон поверх
+                result.paste(template, (paste_x, paste_y), template)
+            else:
+                # Сначала накладываем шаблон
+                result.paste(template, (paste_x, paste_y), template)
+                # Затем накладываем изображение поверх
+                result.paste(image, (0, 0), image)
+            
+            log.info(f"  > Merged image size: {result.size}, mode: {result.mode}")
+            return result
         
         # Изменяем размер изображения если нужно (кроме режима без масштабирования)
         if not no_scaling and (new_width != image_width or new_height != image_height):
@@ -1059,7 +1162,7 @@ def _merge_with_template(image: Image.Image, template_path_or_image: Union[str, 
             elif position == 'bottom-right':
                 paste_x = template_width - new_width
                 paste_y = template_height - new_height
-            
+        
         # Создаем новое изображение с фоном
         result = Image.new('RGBA', template.size, (255, 255, 255, 0))
         
@@ -1074,7 +1177,7 @@ def _merge_with_template(image: Image.Image, template_path_or_image: Union[str, 
             result.paste(template, (0, 0), template)
             # Затем накладываем изображение поверх
             result.paste(image, (paste_x, paste_y), image)
-            
+        
         log.info(f"  > Merged image size: {result.size}, mode: {result.mode}")
         return result
         
