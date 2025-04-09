@@ -624,7 +624,6 @@ def _process_image_for_collage(image_path: str, prep_settings, white_settings, b
         enable_padding = pad_settings.get('mode', 'never') != 'never' # Включено, если не равно 'never'
         padding_mode = pad_settings.get('mode', 'never')
         padding_percent = float(pad_settings.get('padding_percent', 0.0)) if enable_padding else 0.0
-        allow_expansion = bool(pad_settings.get('allow_expansion', True)) if enable_padding else False
         perimeter_check_tolerance = int(pad_settings.get('perimeter_check_tolerance', 10)) if enable_padding else 0
         # perimeter_margin removed, always using 1 px margin
         
@@ -1698,6 +1697,8 @@ def _apply_padding(img, pad_settings):
     padding_mode = pad_settings.get('mode', 'never')
     padding_percent = float(pad_settings.get('padding_percent', 0.0))
     perimeter_check_tolerance = int(pad_settings.get('perimeter_check_tolerance', 10))
+    # Добавляем получение параметра allow_expansion из настроек
+    allow_expansion = bool(pad_settings.get('allow_expansion', True))
     
     # Определяем, нужно ли добавлять поля
     apply_padding = False
