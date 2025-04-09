@@ -4,6 +4,42 @@ import sys
 import os
 import time # Для небольшой паузы
 
+def update_pip():
+    """
+    Обновляет pip до последней версии.
+    Возвращает True, если обновление прошло успешно, иначе False.
+    """
+    print("=" * 50)
+    print("Обновление pip до последней версии...")
+    
+    try:
+        update_command = [
+            sys.executable,
+            "-m",
+            "pip",
+            "install",
+            "--upgrade",
+            "pip"
+        ]
+        
+        print(f"Выполнение команды: {' '.join(update_command)}")
+        process = subprocess.run(update_command, capture_output=True, text=True)
+        
+        if process.returncode != 0:
+            print(f"\n[!!! ОШИБКА ОБНОВЛЕНИЯ PIP !!!]")
+            print(f"Код ошибки: {process.returncode}")
+            print(f"Сообщение ошибки:\n{process.stderr}")
+            return False
+        
+        print("\n[ИНФОРМАЦИЯ] Pip успешно обновлен до последней версии.")
+        print(f"Подробности:\n{process.stdout}")
+        return True
+        
+    except Exception as e:
+        print(f"\n[!!! ОШИБКА !!!]")
+        print(f"Не удалось обновить pip: {e}")
+        return False
+
 def install_requirements():
     """
     Устанавливает необходимые зависимости из файла requirements.txt.
@@ -82,6 +118,10 @@ def main():
         # Даем пользователю время прочитать ошибку перед закрытием консоли
         time.sleep(10)
         sys.exit(1) # Выход с кодом ошибки
+    
+    # Обновляем pip перед установкой зависимостей
+    print("Обновление pip...")
+    update_pip()
     
     # Устанавливаем зависимости перед запуском
     print("Установка необходимых зависимостей...")
