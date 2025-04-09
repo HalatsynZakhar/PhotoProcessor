@@ -46,7 +46,6 @@ DEFAULT_SETTINGS = {
     "single": {
         "enabled_steps": { # Все шаги по умолчанию выключены
             "resize": False,
-            "padding": False,
             "border": False,
             "logo": False
         },
@@ -61,6 +60,7 @@ DEFAULT_SETTINGS = {
             "height": 1080
         },
         "padding": {
+            "mode": "never",
             "size_px": 100,
             "color": "#FFFFFF"
         },

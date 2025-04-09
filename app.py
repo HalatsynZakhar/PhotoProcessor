@@ -678,57 +678,51 @@ with st.sidebar:
     should_expand_padding = get_setting('padding.enable_padding', False)
     
     with st.expander("4. Добавление отступов", expanded=should_expand_padding):
-        enable_padding = st.checkbox("Включить добавление отступов", 
-                                   value=get_setting('padding.enable_padding', False),
-                                   key='enable_padding',
-                                   help="Включить добавление отступов вокруг изображения")
-        set_setting('padding.enable_padding', enable_padding)
-        if enable_padding:
-            # Определяем режим padding
-            padding_mode_options = {
-                'never': 'Никогда',
-                'always': 'Всегда',
-                'if_white': 'Если белый',
-                'if_not_white': 'Если не белый'
-            }
-            selected_padding_mode_key = st.radio(
-                "Режим добавления отступов",
-                options=list(padding_mode_options.keys()),
-                format_func=lambda x: padding_mode_options[x],
-                index=list(padding_mode_options.keys()).index(get_setting('padding.mode', 'never')),
-                key='padding_mode'
-            )
-            set_setting('padding.mode', selected_padding_mode_key)
+        # Определяем режим padding
+        padding_mode_options = {
+            'never': 'Никогда',
+            'always': 'Всегда',
+            'if_white': 'Если белый',
+            'if_not_white': 'Если не белый'
+        }
+        selected_padding_mode_key = st.radio(
+            "Режим добавления отступов",
+            options=list(padding_mode_options.keys()),
+            format_func=lambda x: padding_mode_options[x],
+            index=list(padding_mode_options.keys()).index(get_setting('padding.mode', 'never')),
+            key='padding_mode'
+        )
+        set_setting('padding.mode', selected_padding_mode_key)
 
-            # === УСЛОВНЫЕ НАСТРОЙКИ ===
-            check_perimeter_selected = selected_padding_mode_key in ['if_white', 'if_not_white']
+        # === УСЛОВНЫЕ НАСТРОЙКИ ===
+        check_perimeter_selected = selected_padding_mode_key in ['if_white', 'if_not_white']
 
-            if check_perimeter_selected:
-                st.caption("Настройки проверки периметра:")
-                # Удалено: Толщина проверки периметра всегда равна 1px
-                # Устанавливаем значение 1 для perimeter_margin
-                set_setting('padding.perimeter_margin', 1)
+        if check_perimeter_selected:
+            st.caption("Настройки проверки периметра:")
+            # Удалено: Толщина проверки периметра всегда равна 1px
+            # Устанавливаем значение 1 для perimeter_margin
+            set_setting('padding.perimeter_margin', 1)
 
-                # === НОВЫЙ НЕЗАВИСИМЫЙ ДОПУСК БЕЛОГО ===
-                pad_tol = st.slider("Допуск белого для проверки периметра", 0, 255, 
-                                     value=get_setting('padding.perimeter_check_tolerance', 10), 
-                                     key='pad_tolerance_conditional', 
-                                     help="Определяет, насколько цвет пикселя периметра может отличаться от чисто белого (RGB 255,255,255), чтобы считаться белым при проверке. Влияет только на решение о добавлении полей, но не на их размер.")
-                set_setting('padding.perimeter_check_tolerance', pad_tol)
+            # === НОВЫЙ НЕЗАВИСИМЫЙ ДОПУСК БЕЛОГО ===
+            pad_tol = st.slider("Допуск белого для проверки периметра", 0, 255, 
+                                 value=get_setting('padding.perimeter_check_tolerance', 10), 
+                                 key='pad_tolerance_conditional', 
+                                 help="Определяет, насколько цвет пикселя периметра может отличаться от чисто белого (RGB 255,255,255), чтобы считаться белым при проверке. Влияет только на решение о добавлении полей, но не на их размер.")
+            set_setting('padding.perimeter_check_tolerance', pad_tol)
 
-            if selected_padding_mode_key != 'never':
-                st.caption("Общие настройки полей:")
-                pad_p = st.slider("Процент полей", 0.0, 50.0, 
-                                  value=get_setting('padding.padding_percent', 5.0), 
-                                  step=0.5, key='pad_perc_conditional', format="%.1f%%",
-                                  help="Размер добавляемых полей в процентах от большей стороны изображения. Поля будут одинаковыми со всех сторон. Большие значения создают больше пространства вокруг объекта.")
-                set_setting('padding.padding_percent', pad_p)
+        if selected_padding_mode_key != 'never':
+            st.caption("Общие настройки полей:")
+            pad_p = st.slider("Процент полей", 0.0, 50.0, 
+                              value=get_setting('padding.padding_percent', 5.0), 
+                              step=0.5, key='pad_perc_conditional', format="%.1f%%",
+                              help="Размер добавляемых полей в процентах от большей стороны изображения. Поля будут одинаковыми со всех сторон. Большие значения создают больше пространства вокруг объекта.")
+            set_setting('padding.padding_percent', pad_p)
 
-                pad_exp = st.checkbox("Разрешить полям расширять холст", 
-                                      value=get_setting('padding.allow_expansion', True), 
-                                      key='pad_expand_conditional', 
-                                      help="Когда включено, поля могут увеличивать общий размер изображения. Если выключено, поля будут добавлены только если они не приведут к увеличению исходного размера изображения.")
-                set_setting('padding.allow_expansion', pad_exp)
+            pad_exp = st.checkbox("Разрешить полям расширять холст", 
+                                  value=get_setting('padding.allow_expansion', True), 
+                                  key='pad_expand_conditional', 
+                                  help="Когда включено, поля могут увеличивать общий размер изображения. Если выключено, поля будут добавлены только если они не приведут к увеличению исходного размера изображения.")
+            set_setting('padding.allow_expansion', pad_exp)
 
     # Проверяем, включена ли настройка яркости и контраста
     should_expand_brightness = get_setting('brightness_contrast.enable_bc', False)
