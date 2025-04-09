@@ -528,13 +528,7 @@ def run_individual_processing(**all_settings: Dict[str, Any]) -> bool:
                             image_metadata=template_metadata
                         )
                     if padding_settings.get('mode', 'never') != 'never':
-                        # Журналирование настроек padding и метаданных перед применением
-                        log.info(f"Padding settings for {filename} - Mode: {padding_settings.get('mode', 'never')}, " +
-                               f"Percentage: {padding_settings.get('padding_percent', 0)}%, " +
-                               f"Allow expansion: {padding_settings.get('allow_expansion', True)}")
-                        log.info(f"Image metadata before padding for {filename}: {image_metadata}")
-                        # Передаем metadata с информацией о периметре
-                        img = _apply_padding(img, padding_settings, image_metadata)
+                        processed_template = _apply_padding(processed_template, padding_settings, template_metadata)
                     if brightness_contrast_settings.get('enable_bc', False):
                         processed_template = image_utils.apply_brightness_contrast(processed_template, brightness_contrast_settings.get('brightness_factor', 1.0), brightness_contrast_settings.get('contrast_factor', 1.0))
                 
@@ -687,6 +681,8 @@ def _process_image_for_collage(image_path: str, prep_settings, white_settings, b
     """
     log.debug(f"-- Starting processing for collage: {os.path.basename(image_path)}")
     img_current = None
+    # Создаем словарь для хранения метаданных изображения
+    image_metadata = {}
     try:
         # 1. Открытие
         try:
@@ -702,6 +698,12 @@ def _process_image_for_collage(image_path: str, prep_settings, white_settings, b
         if enable_preresize: img_current = _apply_preresize(img_current, preresize_width, preresize_height)
         if not img_current: return None
 
+        # Проверяем периметр перед отбеливанием
+        perimeter_check_tolerance = int(pad_settings.get('perimeter_check_tolerance', 10))
+        has_white_perimeter = image_utils.check_perimeter_is_white(img_current, perimeter_check_tolerance, 1)
+        image_metadata["has_white_perimeter_before_whitening"] = has_white_perimeter
+        log.debug(f"Saved perimeter state before whitening: white_perimeter={has_white_perimeter}")
+
         # 3. Отбеливание (если вкл)
         enable_whitening = white_settings.get('enable_whitening', False)
         whitening_cancel_threshold = int(white_settings.get('whitening_cancel_threshold', 765))  # Default to 765 (0% on slider)
@@ -709,6 +711,11 @@ def _process_image_for_collage(image_path: str, prep_settings, white_settings, b
         if enable_whitening:
             img_current = image_utils.whiten_image_by_darkest_perimeter(img_current, whitening_cancel_threshold)
             if not img_current: return None # Если отбеливание вернуло None
+            
+            # Проверяем периметр после отбеливания
+            has_white_perimeter = image_utils.check_perimeter_is_white(img_current, perimeter_check_tolerance, 1)
+            image_metadata["has_white_perimeter_after_whitening"] = has_white_perimeter
+            log.debug(f"Saved perimeter state after whitening: white_perimeter={has_white_perimeter}")
 
         # 4. Удаление фона и Обрезка (если вкл)
         enable_bg_crop = bgc_settings.get('enable_bg_crop', False)
@@ -723,6 +730,11 @@ def _process_image_for_collage(image_path: str, prep_settings, white_settings, b
             enable_crop = bool(bgc_settings.get('enable_crop', True))
             perimeter_mode = bgc_settings.get('perimeter_mode', 'if_white')
             
+            # Проверяем периметр перед обрезкой
+            has_white_perimeter = image_utils.check_perimeter_is_white(img_current, perimeter_check_tolerance, 1)
+            image_metadata["has_white_perimeter_before_crop"] = has_white_perimeter
+            log.debug(f"Saved perimeter state before crop: white_perimeter={has_white_perimeter}")
+            
             img_current = _apply_background_crop(
                 img_current,
                 white_tolerance,
@@ -731,7 +743,8 @@ def _process_image_for_collage(image_path: str, prep_settings, white_settings, b
                 crop_symmetric_axes,
                 check_perimeter,
                 enable_crop,
-                perimeter_mode=perimeter_mode
+                perimeter_mode=perimeter_mode,
+                image_metadata=image_metadata
             )
             if not img_current: return None
 
@@ -740,6 +753,10 @@ def _process_image_for_collage(image_path: str, prep_settings, white_settings, b
         
         # Применяем _apply_padding с передачей image_metadata
         if enable_padding:
+            log.info(f"Padding settings for {os.path.basename(image_path)} - Mode: {pad_settings.get('mode', 'never')}, " +
+                    f"Percentage: {pad_settings.get('padding_percent', 0)}%, " +
+                    f"Allow expansion: {pad_settings.get('allow_expansion', True)}")
+            log.info(f"Image metadata before padding for {os.path.basename(image_path)}: {image_metadata}")
             img_current = _apply_padding(img_current, pad_settings, image_metadata)
             if not img_current: return None
 
