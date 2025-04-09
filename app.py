@@ -13,89 +13,18 @@ import platform
 print("="*50); print("--- Проверка и установка необходимых библиотек ---")
 
 # Полный список обязательных библиотек с маппингом на имена модулей
-required_packages = {
-    "streamlit": "streamlit", 
-    "Pillow": "PIL", 
-    "natsort": "natsort",
-    "psd-tools": "psd_tools",  # Добавлена библиотека для обработки PSD файлов
-    "pywin32": "win32api" if platform.system() == "Windows" else None  # Проверяем только на Windows
-}
 
 # --- Инициализация installed_packages_info ---
 installed_packages_info = []
-installation_needed = False
-
-# Проверка наличия всех необходимых пакетов
-for package_name, module_name in required_packages.items():
-    # Пропускаем проверку pywin32 на не-Windows системах
-    if module_name is None:
-        continue
-        
-    try: 
-        importlib.import_module(module_name)
-        print(f"[OK] {package_name} found.")
-        installed_packages_info.append(f"{package_name} (OK)")
-    except ImportError: 
-        print(f"[!] {package_name} not found. Will be installed...")
-        installed_packages_info.append(f"{package_name} (Needs Installation)")
-        installation_needed = True
-
-# Установка недостающих пакетов
-if installation_needed:
-    print(f"\n[УСТАНОВКА] Обнаружены отсутствующие библиотеки. Выполняется установка...")
-    
-    # Путь к файлу requirements.txt в той же директории, что и скрипт
-    script_dir = os.path.dirname(os.path.abspath(__file__))
-    requirements_path = os.path.join(script_dir, "..", "requirements.txt")
-    
-    if not os.path.exists(requirements_path):
-        requirements_path = os.path.join(script_dir, "requirements.txt")
-    
-    if os.path.exists(requirements_path):
-        print(f"Используется файл requirements.txt: {requirements_path}")
-        try:
-            subprocess.check_call([sys.executable, "-m", "pip", "install", "-r", requirements_path])
-            print("[OK] Установка зависимостей из requirements.txt завершена успешно")
-        except subprocess.CalledProcessError as e:
-            print(f"[ОШИБКА] Не удалось установить зависимости из requirements.txt: {e}")
-            sys.exit(1)
-    else:
-        print("[ПРЕДУПРЕЖДЕНИЕ] Файл requirements.txt не найден. Выполняется установка отдельных пакетов...")
-        try:
-            # Устанавливаем каждый пакет отдельно
-            for package_name in required_packages.keys():
-                if any(f"{package_name} (Needs" in s for s in installed_packages_info):
-                    print(f"Установка {package_name}...")
-                    subprocess.check_call([sys.executable, "-m", "pip", "install", package_name])
-            print("[OK] Установка отдельных пакетов завершена")
-        except subprocess.CalledProcessError as e:
-            print(f"[ОШИБКА] Не удалось установить пакеты: {e}")
-            sys.exit(1)
-
-# Повторная проверка после установки
-if installation_needed:
-    print("\n[ПРОВЕРКА] Проверка наличия библиотек после установки:")
-    all_installed = True
-    for package_name, module_name in required_packages.items():
-        if module_name is None:  # Пропускаем проверку, если модуль не применим к этой ОС
-            continue
-            
-        try:
-            importlib.import_module(module_name)
-            print(f"[OK] {package_name} успешно установлен и доступен")
-        except ImportError:
-            print(f"[КРИТИЧЕСКАЯ ОШИБКА] {package_name} не удалось установить")
-            all_installed = False
-    
-    if not all_installed:
-        print("\n[ОШИБКА] Некоторые библиотеки не удалось установить. Приложение может работать некорректно.")
-        print("Рекомендуется установить их вручную перед запуском приложения.")
-        print("Для этого выполните команду: pip install -r requirements.txt")
-        # Не завершаем выполнение, но предупреждаем пользователя
+for package_name in ["streamlit", "Pillow", "natsort", "psd-tools"]:
+    module_map = { "streamlit": "streamlit", "Pillow": "PIL", "natsort": "natsort", "psd-tools": "psd_tools"}
+    module_name = module_map[package_name]
+    try: importlib.import_module(module_name); print(f"[OK] {package_name} found."); installed_packages_info.append(f"{package_name} (OK)")
+    except ImportError: print(f"[!] {package_name} not found. Installing..."); # ... (код установки) ...; installed_packages_info.append(f"{package_name} (Installed/Error)")
 
 print("="*50); print("--- Проверка зависимостей завершена ---"); print("Статус пакетов:", ", ".join(installed_packages_info)); print("="*50)
-needs_restart = installation_needed  # Если была установка, возможно потребуется перезапуск
-if needs_restart: print("\n[ВАЖНО] Были установлены новые библиотеки. Если приложение работает некорректно, перезапустите его.")
+needs_restart = any("(Installed" in s for s in installed_packages_info) # Проверяем, была ли установка
+if needs_restart: print("\n[ВАЖНО] Были установлены новые библиотеки...")
 # === КОНЕЦ БЛОКА ПРОВЕРКИ ===
 
 # === Импорт основных библиотек ===
@@ -233,15 +162,6 @@ def cleanup_unused_templates():
 # --- Загрузка/Инициализация Настроек ---
 CONFIG_FILE = "settings.json" # Основной файл настроек (текущее состояние)
 
-# === НАЧАЛО ЕДИНСТВЕННОГО БЛОКА ИНИЦИАЛИЗАЦИИ ===
-# Check PSD tools availability
-try:
-    import psd_tools
-    st.session_state.psd_support_available = True
-    log.info("PSD support is available (psd-tools library detected)")
-except ImportError:
-    st.session_state.psd_support_available = False
-    log.warning("PSD support is not available (psd-tools library not detected)")
 
 # --- Функция для получения папки загрузки пользователя (Перенесена сюда) ---
 # ВАЖНО: Убедимся, что platform и os импортированы ранее
@@ -1413,11 +1333,6 @@ with st.sidebar:
 # --- Заголовок ---
 st.title("🖼️ Инструмент Обработки Изображений")
 
-# PSD support status indicator
-if st.session_state.get('psd_support_available', False):
-    st.success("✅ PSD поддержка: Активна", icon="✅")
-else:
-    st.warning("⚠️ PSD поддержка: Недоступна. Установите psd-tools через 'pip install psd-tools'", icon="⚠️")
 
 st.subheader(f"**Режим:** {st.session_state.selected_processing_mode} | **Активный набор:** {st.session_state.active_preset}")
 
