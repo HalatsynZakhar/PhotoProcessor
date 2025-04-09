@@ -739,165 +739,167 @@ with st.sidebar:
     # Проверяем, включена ли настройка слияния с шаблоном
     should_expand_merge = get_setting('merge_settings.enable_merge', False)
     
-    with st.expander("6. Слияние с шаблоном", expanded=should_expand_merge):
-        enable_merge = st.checkbox(
-            "Включить слияние с шаблоном", 
-            value=get_setting('merge_settings.enable_merge', False),
-            key='enable_merge',
-            help="Включить слияние изображения с шаблоном"
-        )
-        set_setting('merge_settings.enable_merge', enable_merge)
-        
-        if enable_merge:
-            # Настройки слияния
-            st.subheader("Настройки слияния")
-            
-            # --- ДОБАВЛЕНО: Отображение текущего шаблона из настроек ---
-            current_relative_path = get_setting('merge_settings.template_path', '')
-            if current_relative_path:
-                current_absolute_path = os.path.abspath(current_relative_path)
-                if os.path.isfile(current_absolute_path):
-                    st.caption(f"✅ Текущий шаблон: `{current_relative_path}` (Найден)")
-                else:
-                    st.caption(f"❌ Текущий шаблон не найден: `{current_relative_path}`")
-            else:
-                st.caption("ℹ️ Текущий шаблон не выбран в настройках.")
-            # -----------------------------------------------------------
-
-            # Путь к шаблону - только загрузка файла
-            st.caption("Загрузить НОВЫЙ файл шаблона (заменит текущий)") # Изменена подпись
-            uploaded_file = st.file_uploader(
-                "Перетащите файл шаблона сюда",
-                accept_multiple_files=False,
-                type=['jpg', 'jpeg', 'png', 'psd'],
-                key='template_uploader',
-                label_visibility="collapsed" # Скрываем стандартную метку
+    # Показываем экспандер только если не выбран режим "Создание коллажей"
+    if st.session_state.selected_processing_mode != "Создание коллажей":
+        with st.expander("6. Слияние с шаблоном", expanded=should_expand_merge):
+            enable_merge = st.checkbox(
+                "Включить слияние с шаблоном", 
+                value=get_setting('merge_settings.enable_merge', False),
+                key='enable_merge',
+                help="Включить слияние изображения с шаблоном"
             )
+            set_setting('merge_settings.enable_merge', enable_merge)
             
-            if uploaded_file:
-                # Создаем папку для шаблонов, если её еще нет
-                templates_folder = os.path.join(os.getcwd(), "templates")
-                if not os.path.exists(templates_folder):
-                    os.makedirs(templates_folder)
+            if enable_merge:
+                # Настройки слияния
+                st.subheader("Настройки слияния")
                 
-                # Сохраняем загруженный файл в папку templates
-                template_path = os.path.join(templates_folder, uploaded_file.name)
-                try:
-                    with open(template_path, "wb") as f:
-                        f.write(uploaded_file.getbuffer())
+                # --- ДОБАВЛЕНО: Отображение текущего шаблона из настроек ---
+                current_relative_path = get_setting('merge_settings.template_path', '')
+                if current_relative_path:
+                    current_absolute_path = os.path.abspath(current_relative_path)
+                    if os.path.isfile(current_absolute_path):
+                        st.caption(f"✅ Текущий шаблон: `{current_relative_path}` (Найден)")
+                    else:
+                        st.caption(f"❌ Текущий шаблон не найден: `{current_relative_path}`")
+                else:
+                    st.caption("ℹ️ Текущий шаблон не выбран в настройках.")
+                # -----------------------------------------------------------
+
+                # Путь к шаблону - только загрузка файла
+                st.caption("Загрузить НОВЫЙ файл шаблона (заменит текущий)") # Изменена подпись
+                uploaded_file = st.file_uploader(
+                    "Перетащите файл шаблона сюда",
+                    accept_multiple_files=False,
+                    type=['jpg', 'jpeg', 'png', 'psd'],
+                    key='template_uploader',
+                    label_visibility="collapsed" # Скрываем стандартную метку
+                )
+                
+                if uploaded_file:
+                    # Создаем папку для шаблонов, если её еще нет
+                    templates_folder = os.path.join(os.getcwd(), "templates")
+                    if not os.path.exists(templates_folder):
+                        os.makedirs(templates_folder)
                     
-                    # Сохраняем относительный путь к шаблону
-                    relative_template_path = os.path.join("templates", uploaded_file.name)
-                    set_setting('merge_settings.template_path', relative_template_path)
-                    st.success(f"Новый шаблон успешно загружен и сохранен: {relative_template_path}")
-                    # --- УДАЛЕНО: Небольшая задержка и rerun, чтобы UI обновился и показал новый путь ---
-                    # time.sleep(0.5) 
-                    # st.rerun()
-                except Exception as e_save:
-                     st.error(f"Ошибка сохранения шаблона '{template_path}': {e_save}")
-                
-                # Убраны старые проверки существования файла отсюда, т.к. они теперь выше
+                    # Сохраняем загруженный файл в папку templates
+                    template_path = os.path.join(templates_folder, uploaded_file.name)
+                    try:
+                        with open(template_path, "wb") as f:
+                            f.write(uploaded_file.getbuffer())
+                        
+                        # Сохраняем относительный путь к шаблону
+                        relative_template_path = os.path.join("templates", uploaded_file.name)
+                        set_setting('merge_settings.template_path', relative_template_path)
+                        st.success(f"Новый шаблон успешно загружен и сохранен: {relative_template_path}")
+                        # --- УДАЛЕНО: Небольшая задержка и rerun, чтобы UI обновился и показал новый путь ---
+                        # time.sleep(0.5) 
+                        # st.rerun()
+                    except Exception as e_save:
+                         st.error(f"Ошибка сохранения шаблона '{template_path}': {e_save}")
+                    
+                    # Убраны старые проверки существования файла отсюда, т.к. они теперь выше
 
-            # --- Убрана секция else: st.caption("ℹ️ Файл шаблона не выбран") --- 
-            # Она больше не нужна, т.к. статус показывается выше до загрузчика
+                # --- Убрана секция else: st.caption("ℹ️ Файл шаблона не выбран") --- 
+                # Она больше не нужна, т.к. статус показывается выше до загрузчика
 
-            # Чекбокс для включения/отключения соотношения размеров
-            scaling_mode = st.radio(
-                "Режим масштабирования",
-                options=["Без масштабирования", "Вписать изображение в шаблон", "Вписать шаблон в изображение", "Использовать соотношение размеров"],
-                index=0,
-                key="scaling_mode"
-            )
-            
-            # Сохраняем выбранный режим
-            if scaling_mode == "Без масштабирования":
-                set_setting('merge_settings.enable_width_ratio', False)
-                set_setting('merge_settings.fit_image_to_template', False)
-                set_setting('merge_settings.fit_template_to_image', False)
-                set_setting('merge_settings.no_scaling', True)  # Добавляем настройку no_scaling
-            elif scaling_mode == "Вписать изображение в шаблон":
-                set_setting('merge_settings.enable_width_ratio', False)
-                set_setting('merge_settings.fit_image_to_template', True)
-                set_setting('merge_settings.fit_template_to_image', False)
-                set_setting('merge_settings.no_scaling', False)  # Отключаем no_scaling
-            elif scaling_mode == "Вписать шаблон в изображение":
-                set_setting('merge_settings.enable_width_ratio', False)
-                set_setting('merge_settings.fit_image_to_template', False)
-                set_setting('merge_settings.fit_template_to_image', True)
-                set_setting('merge_settings.no_scaling', False)  # Отключаем no_scaling
-            else:  # "Использовать соотношение размеров"
-                set_setting('merge_settings.enable_width_ratio', True)
-                set_setting('merge_settings.fit_image_to_template', False)
-                set_setting('merge_settings.fit_template_to_image', False)
-                set_setting('merge_settings.no_scaling', False)  # Отключаем no_scaling
-            
-            # Настройки соотношения размеров
-            if scaling_mode == "Использовать соотношение размеров":
-                st.caption("Соотношение размеров изображения к шаблону")
-                col1, col2 = st.columns(2)
-                with col1:
-                    width_ratio_w = st.number_input("Шаблон", min_value=0.1, max_value=10.0, value=get_setting('merge_settings.width_ratio', [1.0, 1.0])[0], step=0.1, key="merge_width_ratio_w", help="Соотношение ширины шаблона к ширине изображения. Например: 2.0 означает, что шаблон будет в 2 раза шире изображения")
-                with col2:
-                    width_ratio_h = st.number_input("Изображение", min_value=0.1, max_value=10.0, value=get_setting('merge_settings.width_ratio', [1.0, 1.0])[1], step=0.1, key="merge_width_ratio_h", help="Соотношение высоты изображения к высоте шаблона. Например: 2.0 означает, что изображение будет в 2 раза выше шаблона")
+                # Чекбокс для включения/отключения соотношения размеров
+                scaling_mode = st.radio(
+                    "Режим масштабирования",
+                    options=["Без масштабирования", "Вписать изображение в шаблон", "Вписать шаблон в изображение", "Использовать соотношение размеров"],
+                    index=0,
+                    key="scaling_mode"
+                )
                 
-                # Обновляем пояснение
-                st.caption("Например: 1.0, 1.0 - изображение будет такого же размера как шаблон; 2.0, 2.0 - изображение будет в 2 раза больше шаблона; 0.5, 0.5 - изображение будет в 2 раза меньше шаблона")
+                # Сохраняем выбранный режим
+                if scaling_mode == "Без масштабирования":
+                    set_setting('merge_settings.enable_width_ratio', False)
+                    set_setting('merge_settings.fit_image_to_template', False)
+                    set_setting('merge_settings.fit_template_to_image', False)
+                    set_setting('merge_settings.no_scaling', True)  # Добавляем настройку no_scaling
+                elif scaling_mode == "Вписать изображение в шаблон":
+                    set_setting('merge_settings.enable_width_ratio', False)
+                    set_setting('merge_settings.fit_image_to_template', True)
+                    set_setting('merge_settings.fit_template_to_image', False)
+                    set_setting('merge_settings.no_scaling', False)  # Отключаем no_scaling
+                elif scaling_mode == "Вписать шаблон в изображение":
+                    set_setting('merge_settings.enable_width_ratio', False)
+                    set_setting('merge_settings.fit_image_to_template', False)
+                    set_setting('merge_settings.fit_template_to_image', True)
+                    set_setting('merge_settings.no_scaling', False)  # Отключаем no_scaling
+                else:  # "Использовать соотношение размеров"
+                    set_setting('merge_settings.enable_width_ratio', True)
+                    set_setting('merge_settings.fit_image_to_template', False)
+                    set_setting('merge_settings.fit_template_to_image', False)
+                    set_setting('merge_settings.no_scaling', False)  # Отключаем no_scaling
                 
-                # Сохраняем настройки соотношения размеров только если значения валидны
-                if width_ratio_w > 0 and width_ratio_h > 0:
-                    set_setting('merge_settings.width_ratio', [width_ratio_w, width_ratio_h])
-                    log.info(f"Width ratio settings updated - w: {width_ratio_w}, h: {width_ratio_h}")
-                else:
-                    st.warning("Значения соотношения размеров должны быть больше 0")
-            
-            # Порядок слоев
-            st.caption("Порядок слоев")
-            template_on_top = st.checkbox("Шаблон поверх изображения", value=get_setting('merge_settings.template_on_top', True), key="merge_template_on_top")
-            set_setting('merge_settings.template_on_top', template_on_top)
-            
-            # Позиция изображения
-            st.caption("Позиция изображения")
-            position = st.selectbox(
-                "Позиция изображения",
-                options=['center', 'top', 'bottom', 'left', 'right', 'top-left', 'top-right', 'bottom-left', 'bottom-right'],
-                index=['center', 'top', 'bottom', 'left', 'right', 'top-left', 'top-right', 'bottom-left', 'bottom-right'].index(get_setting('merge_settings.position', 'center')),
-                format_func=lambda x: {
-                    'center': 'Центр',
-                    'top': 'Верх',
-                    'bottom': 'Низ',
-                    'left': 'Лево',
-                    'right': 'Право',
-                    'top-left': 'Верх-лево',
-                    'top-right': 'Верх-право',
-                    'bottom-left': 'Низ-лево',
-                    'bottom-right': 'Низ-право'
-                }[x]
-            )
-            set_setting('merge_settings.position', position)
-            
-            # Позиция шаблона
-            st.caption("Позиция шаблона")
-            template_position = st.selectbox(
-                "Позиция шаблона",
-                options=['center', 'top', 'bottom', 'left', 'right', 'top-left', 'top-right', 'bottom-left', 'bottom-right'],
-                index=['center', 'top', 'bottom', 'left', 'right', 'top-left', 'top-right', 'bottom-left', 'bottom-right'].index(get_setting('merge_settings.template_position', 'center')),
-                format_func=lambda x: {
-                    'center': 'Центр',
-                    'top': 'Верх',
-                    'bottom': 'Низ',
-                    'left': 'Лево',
-                    'right': 'Право',
-                    'top-left': 'Верх-лево',
-                    'top-right': 'Верх-право',
-                    'bottom-left': 'Низ-лево',
-                    'bottom-right': 'Низ-право'
-                }[x]
-            )
-            set_setting('merge_settings.template_position', template_position)
-            
-            # Обработка шаблона
-            process_template = st.checkbox("Обрабатывать шаблон", value=get_setting('merge_settings.process_template', False), key="merge_process_template")
-            set_setting('merge_settings.process_template', process_template)
+                # Настройки соотношения размеров
+                if scaling_mode == "Использовать соотношение размеров":
+                    st.caption("Соотношение размеров изображения к шаблону")
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        width_ratio_w = st.number_input("Шаблон", min_value=0.1, max_value=10.0, value=get_setting('merge_settings.width_ratio', [1.0, 1.0])[0], step=0.1, key="merge_width_ratio_w", help="Соотношение ширины шаблона к ширине изображения. Например: 2.0 означает, что шаблон будет в 2 раза шире изображения")
+                    with col2:
+                        width_ratio_h = st.number_input("Изображение", min_value=0.1, max_value=10.0, value=get_setting('merge_settings.width_ratio', [1.0, 1.0])[1], step=0.1, key="merge_width_ratio_h", help="Соотношение высоты изображения к высоте шаблона. Например: 2.0 означает, что изображение будет в 2 раза выше шаблона")
+                    
+                    # Обновляем пояснение
+                    st.caption("Например: 1.0, 1.0 - изображение будет такого же размера как шаблон; 2.0, 2.0 - изображение будет в 2 раза больше шаблона; 0.5, 0.5 - изображение будет в 2 раза меньше шаблона")
+                    
+                    # Сохраняем настройки соотношения размеров только если значения валидны
+                    if width_ratio_w > 0 and width_ratio_h > 0:
+                        set_setting('merge_settings.width_ratio', [width_ratio_w, width_ratio_h])
+                        log.info(f"Width ratio settings updated - w: {width_ratio_w}, h: {width_ratio_h}")
+                    else:
+                        st.warning("Значения соотношения размеров должны быть больше 0")
+                
+                # Порядок слоев
+                st.caption("Порядок слоев")
+                template_on_top = st.checkbox("Шаблон поверх изображения", value=get_setting('merge_settings.template_on_top', True), key="merge_template_on_top")
+                set_setting('merge_settings.template_on_top', template_on_top)
+                
+                # Позиция изображения
+                st.caption("Позиция изображения")
+                position = st.selectbox(
+                    "Позиция изображения",
+                    options=['center', 'top', 'bottom', 'left', 'right', 'top-left', 'top-right', 'bottom-left', 'bottom-right'],
+                    index=['center', 'top', 'bottom', 'left', 'right', 'top-left', 'top-right', 'bottom-left', 'bottom-right'].index(get_setting('merge_settings.position', 'center')),
+                    format_func=lambda x: {
+                        'center': 'Центр',
+                        'top': 'Верх',
+                        'bottom': 'Низ',
+                        'left': 'Лево',
+                        'right': 'Право',
+                        'top-left': 'Верх-лево',
+                        'top-right': 'Верх-право',
+                        'bottom-left': 'Низ-лево',
+                        'bottom-right': 'Низ-право'
+                    }[x]
+                )
+                set_setting('merge_settings.position', position)
+                
+                # Позиция шаблона
+                st.caption("Позиция шаблона")
+                template_position = st.selectbox(
+                    "Позиция шаблона",
+                    options=['center', 'top', 'bottom', 'left', 'right', 'top-left', 'top-right', 'bottom-left', 'bottom-right'],
+                    index=['center', 'top', 'bottom', 'left', 'right', 'top-left', 'top-right', 'bottom-left', 'bottom-right'].index(get_setting('merge_settings.template_position', 'center')),
+                    format_func=lambda x: {
+                        'center': 'Центр',
+                        'top': 'Верх',
+                        'bottom': 'Низ',
+                        'left': 'Лево',
+                        'right': 'Право',
+                        'top-left': 'Верх-лево',
+                        'top-right': 'Верх-право',
+                        'bottom-left': 'Низ-лево',
+                        'bottom-right': 'Низ-право'
+                    }[x]
+                )
+                set_setting('merge_settings.template_position', template_position)
+                
+                # Обработка шаблона
+                process_template = st.checkbox("Обрабатывать шаблон", value=get_setting('merge_settings.process_template', False), key="merge_process_template")
+                set_setting('merge_settings.process_template', process_template)
     # ==============================================
 
     # Настройки, зависящие от режима
