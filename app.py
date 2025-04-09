@@ -712,7 +712,7 @@ with st.sidebar:
 
         if selected_padding_mode_key != 'never':
             st.caption("Общие настройки полей:")
-            pad_p = st.slider("Процент полей", 0.0, 50.0, 
+            pad_p = st.slider("Процент полей", 0.0, 200.0, 
                               value=get_setting('padding.padding_percent', 5.0), 
                               step=0.5, key='pad_perc_conditional', format="%.1f%%",
                               help="Размер добавляемых полей в процентах от большей стороны изображения. Поля будут одинаковыми со всех сторон. Большие значения создают больше пространства вокруг объекта.")
@@ -1082,7 +1082,7 @@ with st.sidebar:
                  st.caption("Кол-во столбцов: Авто")
             
             # --- Отступ (без изменений) ---
-            spc_coll = st.slider("Отступ между фото (%)", 0.0, 20.0, value=get_setting('collage_mode.spacing_percent', 2.0), step=0.5, key='coll_spacing', format="%.1f%%")
+            spc_coll = st.slider("Отступ между фото (%)", 0.0, 200.0, value=get_setting('collage_mode.spacing_percent', 2.0), step=0.5, key='coll_spacing', format="%.1f%%")
             set_setting('collage_mode.spacing_percent', spc_coll)
 
         with st.expander("Пропорциональное размещение", expanded=False):

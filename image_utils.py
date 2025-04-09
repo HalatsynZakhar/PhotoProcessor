@@ -459,7 +459,7 @@ def crop_image(img, symmetric_axes=False, symmetric_absolute=False):
     return final_image
 
 
-def add_padding(img, percent):
+def add_padding(img, percent, allow_expansion=True):
     """Adds transparent padding around the image (expects RGBA)."""
     if img is None or percent <= 0:
         if percent <= 0: log.debug("Padding skipped (percent is zero or negative).")
@@ -486,6 +486,12 @@ def add_padding(img, percent):
 
     new_width = w + 2 * padding_pixels
     new_height = h + 2 * padding_pixels
+
+    # Check if expansion is allowed
+    if not allow_expansion and (new_width > w or new_height > h):
+        log.debug("Padding skipped (expansion not allowed and new size would exceed original).")
+        return img
+
     log.info(f"Adding padding: {percent}% ({padding_pixels}px). New size: {new_width}x{new_height}")
 
     padded_img = None

@@ -570,7 +570,7 @@ def _process_image_for_collage(image_path: str, prep_settings, white_settings, b
         
         # Применяем padding только если нужно
         if apply_padding:
-            img_current = image_utils.add_padding(img_current, padding_percent)
+            img_current = image_utils.add_padding(img_current, padding_percent, allow_expansion)
             if not img_current: return None
             log.debug(f"    Padding applied. New size: {img_current.size}")
         elif enable_padding:
@@ -1614,7 +1614,7 @@ def _apply_padding(img, pad_settings):
     
     # Применяем padding только если нужно
     if apply_padding:
-        img = image_utils.add_padding(img, padding_percent)
+        img = image_utils.add_padding(img, padding_percent, allow_expansion)
         if img:
             log.debug(f"    Padding applied. New size: {img.size}")
         else:
