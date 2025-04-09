@@ -126,6 +126,7 @@ if 'initialized' not in st.session_state:
     st.session_state.initialized = True
     st.session_state.settings_changed = False
     st.session_state.is_processing = False  # Добавляем флаг состояния обработки
+    st.session_state.saved_logs = ""  # Добавляем переменную для сохранения логов
     
     # Загружаем настройки из settings.json ОДИН РАЗ для определения активного пресета
     initial_main_settings = config_manager.load_settings(CONFIG_FILE)
@@ -1243,7 +1244,9 @@ if st.button(f"🚀 Запустить: {st.session_state.selected_processing_mo
     start_button_pressed_this_run = True
     st.session_state.is_processing = True  # Устанавливаем флаг обработки
     log.info(f"--- Button '{st.session_state.selected_processing_mode}' CLICKED! Processing will start below. ---")
-    log_stream.seek(0); log_stream.truncate(0) # Очищаем лог для нового запуска
+    log_stream.seek(0)
+    log_stream.truncate(0) # Очищаем лог для нового запуска
+    st.session_state.saved_logs = ""  # Очищаем сохраненные логи
     log.info(f"--- Log cleared. Validating paths for mode '{st.session_state.selected_processing_mode}' ---")
 
 # --- Логика Запуска ---
@@ -1373,15 +1376,21 @@ if start_button_pressed_this_run:
         else:
             st.error("❌ Произошла ошибка во время выполнения операции!", icon="🔥")
         
+        # В конце, перед st.rerun(), добавим:
+        # Сохраняем текущие логи в session_state, чтобы они не потерялись при rerun
+        st.session_state.saved_logs = log_stream.getvalue()
+        log.info("--- Сохраняем логи перед rerun() ---")
         st.session_state.is_processing = False  # Сбрасываем флаг обработки после завершения
         st.rerun()  # Перезагружаем страницу, чтобы обновить состояние кнопки
 
 # --- Область для Логов ---
 st.subheader("Логи и предпросмотр:")
 
-# Блок лога
+# Блок лога - объединяем сохраненные логи и текущие
 with st.expander("📋 Журнал работы приложения", expanded=True):
-    st.text_area("Лог:", value=log_stream.getvalue(), height=300, 
+    # Объединяем сохраненные логи (из прошлого запуска) с текущими
+    combined_logs = st.session_state.saved_logs + log_stream.getvalue() 
+    st.text_area("Лог:", value=combined_logs, height=300, 
                key='log_output_display_area', disabled=True, 
                label_visibility="collapsed")
 
