@@ -403,28 +403,62 @@ def crop_image(img, symmetric_axes=False, symmetric_absolute=False):
             log.debug("Calculating axes symmetric crop box...")
             center_x = (left + right) / 2.0
             center_y = (upper + lower) / 2.0
-            # Calculate max distance from center to image edge
-            max_reach_x = max(center_x - 0, original_width - center_x)
-            max_reach_y = max(center_y - 0, original_height - center_y)
-            # Desired half-width/height based on max reach
-            half_width = max_reach_x
-            half_height = max_reach_y
-            # Calculate new bounds centered around bbox center
-            new_left = center_x - half_width
-            new_upper = center_y - half_height
-            new_right = center_x + half_width
-            new_lower = center_y + half_height
-            # Ensure bounds are within image and convert to int, using ceil for right/lower
-            nl_int = max(0, int(new_left))
-            nu_int = max(0, int(new_upper))
-            nr_int = min(original_width, int(math.ceil(new_right)))
-            nb_int = min(original_height, int(math.ceil(new_lower)))
-
-            if nl_int < nr_int and nu_int < nb_int:
-                crop_l, crop_u, crop_r, crop_b = nl_int, nu_int, nr_int, nb_int
-                log.debug(f"Using axes symmetric box: ({crop_l}, {crop_u}, {crop_r}, {crop_b})")
+            log.debug(f"Content center: ({center_x}, {center_y})")
+            
+            # Calculate max distance from center to content edges (не до края изображения)
+            # Сколько нужно пространства по X в каждую сторону от центра
+            width_from_center = (right - left) / 2.0
+            # Сколько нужно пространства по Y в каждую сторону от центра
+            height_from_center = (lower - upper) / 2.0
+            log.debug(f"Half-dimensions from center: width={width_from_center}, height={height_from_center}")
+            
+            # Рассчитываем расстояние от центра до края изображения
+            dist_to_left = center_x
+            dist_to_right = original_width - center_x
+            dist_to_top = center_y
+            dist_to_bottom = original_height - center_y
+            log.debug(f"Distances to edges: left={dist_to_left}, right={dist_to_right}, top={dist_to_top}, bottom={dist_to_bottom}")
+            
+            # Проверяем, достаточно ли пространства с каждой стороны
+            can_fit_left = dist_to_left >= width_from_center
+            can_fit_right = dist_to_right >= width_from_center
+            can_fit_top = dist_to_top >= height_from_center
+            can_fit_bottom = dist_to_bottom >= height_from_center
+            log.debug(f"Can fit content: left={can_fit_left}, right={can_fit_right}, top={can_fit_top}, bottom={can_fit_bottom}")
+            
+            if can_fit_left and can_fit_right and can_fit_top and can_fit_bottom:
+                # Можем вписать симметрично - используем точный расчет от центра
+                crop_l = max(0, int(center_x - width_from_center))
+                crop_r = min(original_width, int(center_x + width_from_center + 0.5))  # +0.5 для округления
+                crop_u = max(0, int(center_y - height_from_center))
+                crop_b = min(original_height, int(center_y + height_from_center + 0.5))  # +0.5 для округления
+                log.debug(f"Using axes symmetric box (exact fit): ({crop_l}, {crop_u}, {crop_r}, {crop_b})")
             else:
-                log.warning("Calculated axes symmetric box is invalid. Using standard bbox.")
+                # Используем старую логику (max_reach) в качестве запасного варианта
+                max_reach_x = max(center_x - 0, original_width - center_x)
+                max_reach_y = max(center_y - 0, original_height - center_y)
+                
+                # Desired half-width/height based on max reach
+                half_width = max_reach_x
+                half_height = max_reach_y
+                
+                # Calculate new bounds centered around bbox center
+                new_left = center_x - half_width
+                new_upper = center_y - half_height
+                new_right = center_x + half_width
+                new_lower = center_y + half_height
+                
+                # Ensure bounds are within image and convert to int, using ceil for right/lower
+                nl_int = max(0, int(new_left))
+                nu_int = max(0, int(new_upper))
+                nr_int = min(original_width, int(math.ceil(new_right)))
+                nb_int = min(original_height, int(math.ceil(new_lower)))
+
+                if nl_int < nr_int and nu_int < nb_int:
+                    crop_l, crop_u, crop_r, crop_b = nl_int, nu_int, nr_int, nb_int
+                    log.debug(f"Using axes symmetric box (fallback): ({crop_l}, {crop_u}, {crop_r}, {crop_b})")
+                else:
+                    log.warning("Calculated axes symmetric box is invalid. Using standard bbox.")
 
         # Use exact crop box without adding 1px padding
         final_crop_box = (crop_l, crop_u, crop_r, crop_b)

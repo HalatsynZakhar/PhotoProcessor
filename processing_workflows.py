@@ -8,6 +8,7 @@ import traceback
 import gc # Для сборки мусора при MemoryError
 from typing import Dict, Any, Optional, Tuple, List, Union
 import uuid
+import re
 
 # Используем абсолютный импорт (если все файлы в одной папке)
 import image_utils
@@ -184,12 +185,47 @@ def _save_image(img, output_path, output_format, jpeg_quality, jpg_background_co
     """(Helper) Сохраняет изображение в указанном формате с опциями."""
     if not img: log.error("! Cannot save None image."); return False
     if img.size[0] <= 0 or img.size[1] <= 0: log.error(f"! Cannot save zero-size image {img.size} to {output_path}"); return False
+    
+    # Проверяем и очищаем путь к файлу
+    try:
+        original_path = output_path
+        # Получаем директорию и имя файла
+        output_dir = os.path.dirname(output_path)
+        filename = os.path.basename(output_path)
+        
+        # Проверяем наличие недопустимых символов в имени файла
+        # Заменяем недопустимые символы в именах файлов Windows: \ / : * ? " < > |
+        invalid_chars = r'[\\/:\*\?"<>\|]'
+        safe_filename = re.sub(invalid_chars, '_', filename)
+        
+        # Проверяем на зарезервированные имена устройств в Windows
+        reserved_names = ['CON', 'PRN', 'AUX', 'NUL', 'COM1', 'COM2', 'COM3', 'COM4', 
+                        'COM5', 'COM6', 'COM7', 'COM8', 'COM9', 'LPT1', 'LPT2', 
+                        'LPT3', 'LPT4', 'LPT5', 'LPT6', 'LPT7', 'LPT8', 'LPT9']
+        
+        filename_without_ext = os.path.splitext(safe_filename)[0].upper()
+        if filename_without_ext in reserved_names:
+            safe_filename = f"_{safe_filename}"
+        
+        # Собираем очищенный путь
+        safe_output_path = os.path.join(output_dir, safe_filename)
+        
+        # Если путь изменился, логируем это
+        if safe_output_path != original_path:
+            log.warning(f"Unsafe filename detected. Changed from '{filename}' to '{safe_filename}'")
+            output_path = safe_output_path
+    except Exception as e:
+        log.error(f"Error sanitizing filename: {e}")
+        # Продолжаем с исходным путем
+    
     log.info(f"  > Saving image to {output_path} (Format: {output_format.upper()})")
     log.debug(f"    Image details before save: Mode={img.mode}, Size={img.size}")
+    
     try:
         save_options = {"optimize": True}
         img_to_save = img
         must_close_img_to_save = False
+        
         if output_format == 'jpg':
             format_name = "JPEG"
             save_options["quality"] = int(jpeg_quality) # Убедимся что int
@@ -220,7 +256,45 @@ def _save_image(img, output_path, output_format, jpeg_quality, jpg_background_co
                 save_options["optimize"] = False  # Отключаем оптимизацию для лучшего сохранения прозрачности
         else: log.error(f"! Unsupported output format for saving: {output_format}"); return False
 
-        img_to_save.save(output_path, format_name, **save_options)
+        # Проверяем существование директории и создаем при необходимости
+        output_dir = os.path.dirname(output_path)
+        if output_dir and not os.path.exists(output_dir):
+            try:
+                os.makedirs(output_dir, exist_ok=True)
+                log.info(f"Created output directory: {output_dir}")
+            except Exception as e:
+                log.error(f"Failed to create output directory: {e}")
+                return False
+
+        # Проверяем, не заблокирован ли файл
+        try:
+            if os.path.exists(output_path):
+                # Пробуем открыть файл для записи, чтобы проверить, не заблокирован ли он
+                with open(output_path, 'a'):
+                    pass
+        except PermissionError:
+            # Файл заблокирован, используем временное имя
+            base, ext = os.path.splitext(output_path)
+            output_path = f"{base}_{int(time.time())}{ext}"
+            log.warning(f"Original file is locked. Using alternative name: {os.path.basename(output_path)}")
+
+        # Сохраняем файл
+        try:
+            img_to_save.save(output_path, format_name, **save_options)
+        except OSError as e:
+            # Особая обработка ошибок OSError
+            if '[Errno 22]' in str(e) or 'Invalid argument' in str(e):
+                # Пробуем с еще более безопасным именем файла
+                base_dir = os.path.dirname(output_path)
+                ext = os.path.splitext(output_path)[1]
+                safe_path = os.path.join(base_dir, f"image_{int(time.time())}{ext}")
+                log.warning(f"OSError when saving. Trying with generic filename: {os.path.basename(safe_path)}")
+                img_to_save.save(safe_path, format_name, **save_options)
+                output_path = safe_path  # Обновляем путь для логов
+            else:
+                # Пробрасываем другие ошибки OSError
+                raise
+                
         if must_close_img_to_save: image_utils.safe_close(img_to_save)
         log.info(f"    Successfully saved: {os.path.basename(output_path)}")
         return True
@@ -345,8 +419,8 @@ def run_individual_processing(**all_settings: Dict[str, Any]) -> bool:
                             processed_template,
                             background_crop_settings.get('white_tolerance', 0),
                             background_crop_settings.get('perimeter_tolerance', 10),
-                            background_crop_settings.get('force_absolute_symmetry', False),
-                            background_crop_settings.get('force_axes_symmetry', False),
+                            background_crop_settings.get('crop_symmetric_absolute', False),
+                            background_crop_settings.get('crop_symmetric_axes', False),
                             background_crop_settings.get('check_perimeter', False),
                             background_crop_settings.get('enable_crop', True),
                             perimeter_mode=perimeter_mode
@@ -386,8 +460,8 @@ def run_individual_processing(**all_settings: Dict[str, Any]) -> bool:
                         img,
                         background_crop_settings.get('white_tolerance', 0),
                         background_crop_settings.get('perimeter_tolerance', 10),
-                        background_crop_settings.get('force_absolute_symmetry', False),
-                        background_crop_settings.get('force_axes_symmetry', False),
+                        background_crop_settings.get('crop_symmetric_absolute', False),
+                        background_crop_settings.get('crop_symmetric_axes', False),
                         background_crop_settings.get('check_perimeter', False),
                         background_crop_settings.get('enable_crop', True),
                         perimeter_mode=perimeter_mode

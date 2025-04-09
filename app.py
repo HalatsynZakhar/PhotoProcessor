@@ -636,6 +636,25 @@ with st.sidebar:
                                     help="Если включено, изображение будет обрезано по границам объекта после удаления фона. Если выключено, фон будет удален, но размер холста останется прежним.")
             set_setting('background_crop.enable_crop', enable_crop)
             
+            # Добавляем опции для симметричной обрезки
+            if enable_crop:
+                st.caption("Настройки симметричной обрезки:")
+                
+                crop_symmetric_axes = st.checkbox("Симметричная обрезка по осям X/Y", 
+                                               value=get_setting('background_crop.crop_symmetric_axes', False), 
+                                               key='bgc_sym_axes', 
+                                               help="Если включено, обрезка будет выполнена симметрично по осям X и Y. Отступ слева будет равен отступу справа, а отступ сверху - отступу снизу.")
+                set_setting('background_crop.crop_symmetric_axes', crop_symmetric_axes)
+                
+                crop_symmetric_absolute = st.checkbox("Абсолютно симметричная обрезка", 
+                                                   value=get_setting('background_crop.crop_symmetric_absolute', False), 
+                                                   key='bgc_sym_abs', 
+                                                   help="Если включено, обрезка будет выполнена с одинаковым отступом со всех сторон. Полезно для изображений, где важно сохранить центрированное положение объекта.")
+                set_setting('background_crop.crop_symmetric_absolute', crop_symmetric_absolute)
+                
+                if crop_symmetric_absolute and crop_symmetric_axes:
+                    st.warning("Включены обе опции симметричной обрезки. Будет применена абсолютно симметричная обрезка.", icon="⚠️")
+            
             bgc_per = st.checkbox("Проверять периметр", 
                                 value=get_setting('background_crop.check_perimeter', True), 
                                 key='bgc_perimeter', 
