@@ -1997,3 +1997,231 @@ def process_image_base(image_or_path, prep_settings, white_settings, bgc_setting
     except Exception as e:
         log.error(f"Unexpected error in base processing: {str(e)}", exc_info=True)
         return None, {}
+
+# ==============================================================================
+# === ФУНКЦИИ НОРМАЛИЗАЦИИ АРТИКУЛЕЙ ==========================================
+# ==============================================================================
+
+def normalize_article(article: str) -> str:
+    """
+    Нормализует артикул, удаляя недопустимые символы и приводя к стандартному формату.
+    
+    Args:
+        article: Исходный артикул
+        
+    Returns:
+        Нормализованный артикул
+    """
+    if not article:
+        return ""
+        
+    # Удаляем недопустимые символы (оставляем только буквы, цифры, дефис и подчеркивание)
+    normalized = re.sub(r'[^\w\-]', '_', article)
+    
+    # Приводим к верхнему регистру для единообразия
+    normalized = normalized.upper()
+    
+    # Удаляем множественные подчеркивания
+    normalized = re.sub(r'_+', '_', normalized)
+    
+    # Удаляем подчеркивания в начале и конце
+    normalized = normalized.strip('_')
+    
+    return normalized
+
+
+def normalize_articles_in_folder(folder_path: str) -> Dict[str, str]:
+    """
+    Анализирует имена файлов в папке и создает словарь соответствия
+    исходных имен файлов и нормализованных артикулей.
+    
+    Args:
+        folder_path: Путь к папке с изображениями
+        
+    Returns:
+        Словарь {исходное_имя: нормализованный_артикул}
+    """
+    # Получаем все файлы изображений
+    image_files = get_image_files(folder_path)
+    result = {}
+    
+    # Если нет файлов, возвращаем пустой словарь
+    if not image_files:
+        log.warning(f"No image files found in folder: {folder_path}")
+        return result
+        
+    # Если только один файл, просто нормализуем его имя
+    if len(image_files) == 1:
+        base_name = os.path.splitext(os.path.basename(image_files[0]))[0]
+        normalized = normalize_article(base_name)
+        result[image_files[0]] = normalized
+        log.info(f"Single file normalization: {base_name} -> {normalized}")
+        return result
+    
+    # Пытаемся определить общий артикул
+    common_article = guess_article_from_filenames(folder_path)
+    log.info(f"Guessed common article: {common_article}")
+    
+    # Если общий артикул найден, применяем его к файлам
+    if common_article:
+        normalized_article = normalize_article(common_article)
+        log.info(f"Normalized common article: {common_article} -> {normalized_article}")
+        
+        # Сортируем файлы для последовательной нумерации
+        sorted_files = sorted(image_files)
+        
+        # Проверяем, есть ли файл с именем, совпадающим с артикулом
+        article_file_exists = False
+        for file_path in sorted_files:
+            base_name = os.path.splitext(os.path.basename(file_path))[0]
+            if base_name.upper() == common_article.upper():
+                article_file_exists = True
+                # Этот файл станет основным
+                result[file_path] = normalized_article
+                log.info(f"Found main article file: {os.path.basename(file_path)} -> {normalized_article}")
+                break
+        
+        # Индексируем остальные файлы
+        index = 1
+        for file_path in sorted_files:
+            if file_path in result:  # Пропускаем файл, который уже назначен основным
+                continue
+                
+            # Если нет файла с артикулом и это первый файл, он становится главным
+            if not article_file_exists and index == 1:
+                result[file_path] = normalized_article
+                log.info(f"Using first file as main: {os.path.basename(file_path)} -> {normalized_article}")
+            else:
+                # Остальные файлы получают индекс
+                result[file_path] = f"{normalized_article}_{index}"
+                log.info(f"Indexed file: {os.path.basename(file_path)} -> {result[file_path]}")
+                index += 1
+    else:
+        # Если общий артикул не найден, нормализуем каждое имя отдельно
+        log.info("No common article found, normalizing each file separately")
+        for file_path in image_files:
+            base_name = os.path.splitext(os.path.basename(file_path))[0]
+            normalized = normalize_article(base_name)
+            result[file_path] = normalized
+            log.info(f"Individual normalization: {base_name} -> {normalized}")
+    
+    return result
+
+
+def apply_normalized_articles(folder_path: str, article_mapping: Dict[str, str], rename_files: bool = False) -> bool:
+    """
+    Применяет нормализованные артикули к файлам или настройкам.
+    
+    Args:
+        folder_path: Путь к папке с изображениями
+        article_mapping: Словарь соответствия {исходное_имя: нормализованный_артикул}
+        rename_files: Флаг, указывающий, нужно ли переименовать файлы (True) 
+                      или только вернуть маппинг (False)
+        
+    Returns:
+        bool: True если операция успешна, False в случае ошибки
+    """
+    if not article_mapping:
+        log.warning("Empty article mapping provided")
+        return False
+        
+    try:
+        if rename_files:
+            # Переименовываем файлы согласно маппингу
+            log.info(f"Renaming files in {folder_path} according to normalized articles")
+            renamed_count = 0
+            for src_path, normalized_article in article_mapping.items():
+                # Получаем расширение исходного файла
+                _, ext = os.path.splitext(src_path)
+                
+                # Формируем новое имя файла
+                new_filename = f"{normalized_article}{ext}"
+                dst_path = os.path.join(folder_path, new_filename)
+                
+                # Проверяем, не совпадает ли новый путь с исходным
+                if os.path.normcase(os.path.abspath(src_path)) == os.path.normcase(os.path.abspath(dst_path)):
+                    log.debug(f"Skipping rename for {src_path} as destination is the same")
+                    continue
+                
+                # Проверяем, существует ли уже файл с таким именем
+                if os.path.exists(dst_path):
+                    # Добавляем временную метку, чтобы избежать конфликта
+                    base, ext = os.path.splitext(new_filename)
+                    new_filename = f"{base}_{int(time.time())}{ext}"
+                    dst_path = os.path.join(folder_path, new_filename)
+                    log.warning(f"Destination file already exists, using alternative name: {new_filename}")
+                
+                # Переименовываем файл
+                shutil.move(src_path, dst_path)
+                log.info(f"Renamed: {os.path.basename(src_path)} -> {new_filename}")
+                renamed_count += 1
+                
+            log.info(f"Successfully renamed {renamed_count} files")
+            
+        return True
+            
+    except Exception as e:
+        log.error(f"Error applying normalized articles: {e}", exc_info=True)
+        return False
+
+def guess_article_from_filenames(folder_path: str) -> str:
+    """
+    Анализирует имена файлов в папке и определяет наиболее часто встречающуюся общую часть,
+    которая может являться артикулом.
+    
+    Args:
+        folder_path: Путь к папке с изображениями
+        
+    Returns:
+        str: Предполагаемый артикул или пустая строка, если не удалось определить
+    """
+    try:
+        # Получаем список всех файлов изображений
+        image_files = get_image_files(folder_path)
+        if not image_files:
+            log.warning("No image files found for article guessing")
+            return ""
+            
+        # Извлекаем только имена файлов без расширений и пути
+        filenames = []
+        for path in image_files:
+            filename = os.path.basename(path)
+            name_without_ext = os.path.splitext(filename)[0]
+            filenames.append(name_without_ext)
+            
+        if not filenames:
+            return ""
+            
+        # Если получен только один файл, используем его имя как артикул
+        if len(filenames) == 1:
+            # Удаляем числа в конце имени, если они есть
+            return re.sub(r'_?\d+$', '', filenames[0])
+            
+        # Находим общие префиксы между всеми именами файлов
+        common_parts = []
+        
+        # Сначала извлекаем все подстроки между разделителями
+        for name in filenames:
+            # Разбиваем имя файла по общим разделителям и добавляем части
+            parts = re.split(r'[_\-\s]', name)
+            common_parts.extend(parts)
+        
+        # Фильтруем пустые строки и строки, состоящие только из цифр
+        filtered_parts = [part for part in common_parts if part and not re.match(r'^\d+$', part)]
+        
+        if not filtered_parts:
+            return ""
+        
+        # Считаем частоту каждой части
+        from collections import Counter
+        counter = Counter(filtered_parts)
+        
+        # Находим часть, которая встречается наиболее часто
+        most_common = counter.most_common(1)
+        if most_common:
+            return most_common[0][0]
+            
+        return ""
+    except Exception as e:
+        log.exception(f"Error in guess_article_from_filenames: {e}")
+        return ""

@@ -581,6 +581,79 @@ with st.sidebar:
                                             help="Введите артикул или базовое имя для файлов. Это имя будет использоваться как основа для всех обработанных файлов.",
                                             on_change=setting_changed_callback, args=('individual_mode.article_name',))
                 # Убрали: set_setting('individual_mode.article_name', article_ind)
+                
+                # Добавляем кнопку нормализации артикулей
+                if st.button("🔄 Нормализовать артикулы", help="Проанализировать имена файлов в папке и определить нормализованные артикулы"):
+                    # Проверяем, указана ли папка с файлами
+                    input_path = st.session_state.get('paths.input_folder_path', '')
+                    if not input_path or not os.path.exists(input_path):
+                        st.warning("Укажите существующую папку с изображениями!")
+                    else:
+                        with st.spinner("Анализ файлов..."):
+                            try:
+                                # Получаем маппинг артикулей
+                                article_mapping = processing_workflows.normalize_articles_in_folder(input_path)
+                                
+                                if not article_mapping:
+                                    st.warning("В указанной папке не найдено изображений для нормализации.")
+                                else:
+                                    # Находим основной артикул
+                                    main_article = None
+                                    for normalized in article_mapping.values():
+                                        if '_' not in normalized:
+                                            main_article = normalized
+                                            break
+                                            
+                                    if not main_article and article_mapping:
+                                        # Берем первый артикул и удаляем индекс, если он есть
+                                        first_normalized = list(article_mapping.values())[0]
+                                        main_article = first_normalized.split('_')[0]
+                                    
+                                    if main_article:
+                                        # Применяем артикул к настройкам
+                                        set_setting('individual_mode.article_name', main_article)
+                                        st.success(f"Определен и применен артикул: {main_article}")
+                                        
+                                        # Показываем кнопку для переименования файлов
+                                        rename_files = st.checkbox("Переименовать файлы согласно нормализованным артикулам", 
+                                                                value=False,
+                                                                help="Внимание: это действие переименует файлы непосредственно в исходной папке!")
+                                        
+                                        if rename_files:
+                                            # Список файлов для предпросмотра (ограничиваем до 10)
+                                            preview_list = []
+                                            for i, (file_path, new_name) in enumerate(article_mapping.items()):
+                                                if i < 10:
+                                                    old_name = os.path.basename(file_path)
+                                                    ext = os.path.splitext(old_name)[1]
+                                                    preview_list.append(f"{old_name} → {new_name}{ext}")
+                                                else:
+                                                    break
+                                                    
+                                            if preview_list:
+                                                st.caption("Предпросмотр переименования (до 10 файлов):")
+                                                for preview in preview_list:
+                                                    st.text(preview)
+                                                
+                                                if len(article_mapping) > 10:
+                                                    st.caption(f"...и еще {len(article_mapping) - 10} файлов")
+                                            
+                                            if st.button("Выполнить переименование", help="Внимание: это действие невозможно отменить!"):
+                                                with st.spinner("Переименование файлов..."):
+                                                    success = processing_workflows.apply_normalized_articles(
+                                                        input_path, 
+                                                        article_mapping, 
+                                                        rename_files=True
+                                                    )
+                                                    
+                                                    if success:
+                                                        st.success("Файлы успешно переименованы!")
+                                                    else:
+                                                        st.error("Произошла ошибка при переименовании файлов.")
+                            except Exception as e:
+                                st.error(f"Ошибка при нормализации артикулей: {str(e)}")
+                                log.exception("Error in normalize_articles")
+                
                 if st.session_state.get('individual_mode.article_name', ''): st.caption("Файлы будут вида: [Артикул]_1.jpg, ...")
                 else: st.warning("Введите артикул для переименования.") # Валидация
             
@@ -1679,3 +1752,96 @@ log.info("--- End of app script render cycle ---")
 
 
 # ... остальной код app.py ...
+
+# === Функции для нормализации артикулей === 
+def normalize_articles_ui():
+    """
+    UI для нормализации артикулей в интерфейсе Streamlit
+    """
+    st.subheader("Нормализация артикулей")
+    
+    # Получаем путь к исходной папке
+    source_folder = get_setting('paths.source_folder', get_downloads_folder())
+    
+    # Проверяем существование папки
+    if not os.path.exists(source_folder):
+        st.warning(f"Папка источник не существует: {source_folder}")
+        return
+    
+    # Опция переименования файлов
+    rename_files = st.checkbox("Переименовать файлы", value=False, 
+                             help="Если отмечено, файлы будут переименованы согласно нормализованным артикулям")
+    
+    if st.button("Нормализовать артикули"):
+        with st.spinner("Анализируем файлы..."):
+            try:
+                # Получаем маппинг артикулей
+                article_mapping = processing_workflows.normalize_articles_in_folder(source_folder)
+                
+                if not article_mapping:
+                    st.warning("В указанной папке не найдено изображений для нормализации.")
+                    return
+                
+                # Показываем предпросмотр результатов
+                st.subheader("Результаты нормализации:")
+                
+                # Создаем таблицу результатов
+                results_data = []
+                for file_path, normalized_article in article_mapping.items():
+                    file_name = os.path.basename(file_path)
+                    results_data.append({"Исходное имя": file_name, "Нормализованный артикул": normalized_article})
+                
+                # Ограничиваем количество строк в таблице для производительности
+                max_rows = 30
+                if len(results_data) > max_rows:
+                    st.info(f"Показаны первые {max_rows} из {len(results_data)} файлов")
+                    results_data = results_data[:max_rows]
+                
+                # Отображаем таблицу
+                st.table(results_data)
+                
+                # Находим основной артикул для обновления в настройках
+                main_article = None
+                for normalized in article_mapping.values():
+                    if '_' not in normalized:
+                        main_article = normalized
+                        break
+                        
+                if not main_article and article_mapping:
+                    # Берем первый артикул и удаляем индекс, если он есть
+                    first_normalized = list(article_mapping.values())[0]
+                    main_article = first_normalized.split('_')[0]
+                
+                if main_article:
+                    st.success(f"Определен основной артикул: {main_article}")
+                    
+                    # Даем возможность применить его к настройкам
+                    apply_to_settings = st.checkbox("Применить артикул в настройках", value=True)
+                    
+                    if apply_to_settings:
+                        # Обновляем артикул в настройках
+                        set_setting('individual_mode.article_name', main_article)
+                        st.success(f"Артикул '{main_article}' успешно установлен в настройках")
+                
+                # Если выбрано переименование файлов
+                if rename_files:
+                    rename_confirm = st.checkbox("Подтверждаю переименование файлов", value=False)
+                    
+                    if rename_confirm:
+                        with st.spinner("Переименовываем файлы..."):
+                            success = processing_workflows.apply_normalized_articles(
+                                source_folder, 
+                                article_mapping, 
+                                rename_files=True
+                            )
+                            
+                            if success:
+                                st.success("Файлы успешно переименованы!")
+                            else:
+                                st.error("Произошла ошибка при переименовании файлов.")
+            
+            except Exception as e:
+                st.error(f"Ошибка при нормализации артикулей: {str(e)}")
+                log.exception("Error in normalize_articles_ui")
+
+# === Основной код приложения Streamlit ===
