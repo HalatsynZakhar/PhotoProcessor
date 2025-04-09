@@ -1570,3 +1570,56 @@ def _calculate_collage_dimensions(images: List[Image.Image], settings: Dict[str,
 
     # Возвращаем максимальные размеры ячейки (для построения сетки) и финальные факторы масштабирования
     return final_max_width, final_max_height, scale_factors
+
+def _apply_padding(img, pad_settings):
+    """
+    Применяет отступы к изображению на основе настроек.
+    
+    Args:
+        img: Изображение для обработки
+        pad_settings: Словарь настроек отступов
+    
+    Returns:
+        Обработанное изображение или None в случае ошибки
+    """
+    if not img:
+        return None
+        
+    # Проверяем, включены ли отступы
+    enable_padding = pad_settings.get('mode', 'never') != 'never'
+    if not enable_padding:
+        return img
+        
+    padding_mode = pad_settings.get('mode', 'never')
+    padding_percent = float(pad_settings.get('padding_percent', 0.0))
+    perimeter_check_tolerance = int(pad_settings.get('perimeter_check_tolerance', 10))
+    
+    # Определяем, нужно ли добавлять поля
+    apply_padding = False
+    if padding_mode == 'always':
+        apply_padding = True
+        log.debug(f"    Padding will be applied (mode: always).")
+    else:
+        # Режимы if_white или if_not_white - нужна проверка периметра
+        perimeter_is_white = image_utils.check_perimeter_is_white(img, perimeter_check_tolerance, 1)
+        
+        if padding_mode == 'if_white' and perimeter_is_white:
+            apply_padding = True
+            log.debug(f"    Padding will be applied (mode: if_white, perimeter IS white).")
+        elif padding_mode == 'if_not_white' and not perimeter_is_white:
+            apply_padding = True
+            log.debug(f"    Padding will be applied (mode: if_not_white, perimeter is NOT white).")
+        else:
+            log.debug(f"    Padding skipped: Perimeter condition not met for mode '{padding_mode}'.")
+    
+    # Применяем padding только если нужно
+    if apply_padding:
+        img = image_utils.add_padding(img, padding_percent)
+        if img:
+            log.debug(f"    Padding applied. New size: {img.size}")
+        else:
+            log.error("    Failed to apply padding")
+    else:
+        log.debug(f"    Padding skipped based on conditions.")
+    
+    return img
