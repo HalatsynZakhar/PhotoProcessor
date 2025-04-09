@@ -1522,7 +1522,7 @@ if 'result_message' in st.session_state:
         st.session_state.pop('result_message', None)
 
 # Блок лога - объединяем сохраненные логи и текущие
-with st.expander("📋 Журнал работы приложения", expanded=True):
+with st.expander("📋 Журнал работы приложения", expanded=False):
     # Объединяем сохраненные логи (из прошлого запуска) с текущими
     combined_logs = st.session_state.saved_logs + log_stream.getvalue() 
     st.text_area("Лог:", value=combined_logs, height=300, 
