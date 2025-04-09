@@ -15,6 +15,32 @@ from datetime import datetime
 import image_utils
 import config_manager # Может понадобиться для дефолтных значений в редких случаях
 
+"""
+Унифицированная архитектура обработки изображений PhotoProcessor:
+
+Модуль реализует единый конвейер обработки изображений для всех режимов работы:
+1. Обработка отдельных изображений (run_individual_processing)
+2. Создание коллажей (run_collage_processing)
+3. Объединение с шаблоном (в run_individual_processing)
+
+Базовый конвейер обработки (process_image_base) применяет 5 основных шагов:
+1. Изменение размера (preresize)
+2. Отбеливание (whitening)
+3. Удаление фона и обрезка (background crop)
+4. Добавление отступов (padding)
+5. Яркость и контрастность (brightness/contrast)
+
+После базовой обработки каждый режим выполняет специфические операции:
+- Индивидуальная обработка: объединение с шаблоном, изменение соотношения сторон, 
+  установка максимальных размеров, применение точного холста
+- Коллаж: размещение изображений на общем холсте, масштабирование, промежутки,
+  установка соотношения сторон коллажа, применение точного холста
+
+Все этапы обработки используют общий словарь метаданных для передачи информации
+между шагами (например, о состоянии периметра изображения), что позволяет 
+избежать повторных проверок и повысить производительность.
+"""
+
 try:
     from natsort import natsorted
 except ImportError:
@@ -486,51 +512,33 @@ def run_individual_processing(**all_settings: Dict[str, Any]) -> bool:
                         processed_template = psd.topil()
                         if processed_template.mode == 'CMYK':
                             processed_template = processed_template.convert('RGB')
+                        log.info(f"Loaded PSD template: {os.path.basename(template_path)}")
                     except ImportError:
                         log.error("psd_tools library not installed. Cannot process PSD files.")
                         return False
                 else:
-                    processed_template = Image.open(template_path)
-                    processed_template.load()
+                    try:
+                        processed_template = Image.open(template_path)
+                        processed_template.load()
+                        log.info(f"Loaded image template: {os.path.basename(template_path)}")
+                    except Exception as e:
+                        log.error(f"Failed to load template image: {e}")
+                        return False
                 
                 if process_template:
-                    # Apply same processing steps to template
-                    if preprocessing_settings.get('enable_preresize', False):
-                        processed_template = _apply_preresize(processed_template, 
-                                                         preprocessing_settings.get('preresize_width', 0),
-                                                         preprocessing_settings.get('preresize_height', 0))
+                    # Применяем базовый конвейер обработки к шаблону
+                    processed_template, template_metadata = process_image_base(
+                        processed_template,
+                        preprocessing_settings,
+                        whitening_settings,
+                        background_crop_settings,
+                        padding_settings,
+                        brightness_contrast_settings
+                    )
                     
-                    # Сохраняем метаданные для шаблона
-                    template_metadata = {}
-                    
-                    if whitening_settings.get('enable_whitening', False):
-                        processed_template = image_utils.whiten_image_by_darkest_perimeter(processed_template, whitening_settings.get('whitening_cancel_threshold', 765))
-                        
-                        # Сохраняем информацию о периметре шаблона ПОСЛЕ отбеливания
-                        if padding_settings.get('mode', 'never') in ['if_white', 'if_not_white']:
-                            perimeter_check_tolerance = int(padding_settings.get('perimeter_check_tolerance', 10))
-                            has_white_perimeter = image_utils.check_perimeter_is_white(processed_template, perimeter_check_tolerance, 1)
-                            template_metadata["has_white_perimeter_after_whitening"] = has_white_perimeter
-                            log.debug(f"Saved perimeter state for template after whitening: white_perimeter={has_white_perimeter}")
-                    
-                    if background_crop_settings.get('enable_bg_crop', False):
-                        # Добавляем получение perimeter_mode из настроек
-                        perimeter_mode = background_crop_settings.get('perimeter_mode', 'if_white')
-                        processed_template = _apply_background_crop(
-                            processed_template,
-                            background_crop_settings.get('white_tolerance', 0),
-                            background_crop_settings.get('perimeter_tolerance', 10),
-                            background_crop_settings.get('crop_symmetric_absolute', False),
-                            background_crop_settings.get('crop_symmetric_axes', False),
-                            background_crop_settings.get('check_perimeter', False),
-                            background_crop_settings.get('enable_crop', True),
-                            perimeter_mode=perimeter_mode,
-                            image_metadata=template_metadata
-                        )
-                    if padding_settings.get('mode', 'never') != 'never':
-                        processed_template = _apply_padding(processed_template, padding_settings, template_metadata)
-                    if brightness_contrast_settings.get('enable_bc', False):
-                        processed_template = image_utils.apply_brightness_contrast(processed_template, brightness_contrast_settings.get('brightness_factor', 1.0), brightness_contrast_settings.get('contrast_factor', 1.0))
+                    if processed_template is None:
+                        log.error("Template processing failed")
+                        return False
                 
                 log.info(f"Template pre-processing completed. Size: {processed_template.size}, Mode: {processed_template.mode}")
             except Exception as e:
@@ -543,50 +551,21 @@ def run_individual_processing(**all_settings: Dict[str, Any]) -> bool:
                 filename = os.path.basename(file_path)
                 log.info(f"--- [{i}/{len(files)}] Processing: {filename} ---")
                 
-                # Load image
-                img = Image.open(file_path)
+                # Используем базовый конвейер обработки для всех основных шагов
+                img, image_metadata = process_image_base(
+                    file_path,
+                    preprocessing_settings,
+                    whitening_settings,
+                    background_crop_settings,
+                    padding_settings,
+                    brightness_contrast_settings
+                )
                 
-                # Инициализируем словарь метаданных для каждого файла
-                image_metadata = {}
-                
-                # Apply preprocessing steps
-                if preprocessing_settings.get('enable_preresize', False):
-                    img = _apply_preresize(img, 
-                                         preprocessing_settings.get('preresize_width', 0),
-                                         preprocessing_settings.get('preresize_height', 0))
-                
-                if whitening_settings.get('enable_whitening', False):
-                    img = image_utils.whiten_image_by_darkest_perimeter(img, whitening_settings.get('whitening_cancel_threshold', 765))
-                    
-                    # Сохраняем информацию о периметре ПОСЛЕ отбеливания
-                    if padding_settings.get('mode', 'never') in ['if_white', 'if_not_white']:
-                        perimeter_check_tolerance = int(padding_settings.get('perimeter_check_tolerance', 10))
-                        has_white_perimeter = image_utils.check_perimeter_is_white(img, perimeter_check_tolerance, 1)
-                        image_metadata["has_white_perimeter_after_whitening"] = has_white_perimeter
-                        log.debug(f"Saved perimeter state after whitening: white_perimeter={has_white_perimeter}, " +
-                                f"tolerance={perimeter_check_tolerance}, threshold={whitening_settings.get('whitening_cancel_threshold', 765)}")
-                
-                if background_crop_settings.get('enable_bg_crop', False):
-                    # Добавляем получение perimeter_mode из настроек
-                    perimeter_mode = background_crop_settings.get('perimeter_mode', 'if_white')
-                    img = _apply_background_crop(
-                        img,
-                        background_crop_settings.get('white_tolerance', 0),
-                        background_crop_settings.get('perimeter_tolerance', 10),
-                        background_crop_settings.get('crop_symmetric_absolute', False),
-                        background_crop_settings.get('crop_symmetric_axes', False),
-                        background_crop_settings.get('check_perimeter', False),
-                        background_crop_settings.get('enable_crop', True),
-                        perimeter_mode=perimeter_mode,
-                        image_metadata=image_metadata
-                    )
-                
-                if padding_settings.get('mode', 'never') != 'never':
-                    # Передаем metadata с информацией о периметре
-                    img = _apply_padding(img, padding_settings, image_metadata)
-                
-                if brightness_contrast_settings.get('enable_bc', False):
-                    img = image_utils.apply_brightness_contrast(img, brightness_contrast_settings.get('brightness_factor', 1.0), brightness_contrast_settings.get('contrast_factor', 1.0))
+                if img is None:
+                    log.error(f"Base processing failed for {filename}")
+                    log.info(f"--- Finished processing: {filename} (Failed) ---")
+                    overall_success = False
+                    continue
                 
                 # Apply merge with template if enabled
                 if enable_merge and processed_template is not None:
@@ -677,113 +656,35 @@ def run_individual_processing(**all_settings: Dict[str, Any]) -> bool:
 def _process_image_for_collage(image_path: str, prep_settings, white_settings, bgc_settings, pad_settings, bc_settings) -> Optional[Image.Image]:
     """
     Применяет базовые шаги обработки к одному изображению для коллажа.
-    (Preresize, Whitening, BG Removal, Padding, Brightness/Contrast)
+    Использует общую функцию process_image_base для унификации обработки.
     """
     log.debug(f"-- Starting processing for collage: {os.path.basename(image_path)}")
-    img_current = None
-    # Создаем словарь для хранения метаданных изображения
-    image_metadata = {}
-    try:
-        # 1. Открытие
-        try:
-            with Image.open(image_path) as img_opened: img_opened.load(); img_current = img_opened.convert('RGBA')
-        except Exception as e: log.error(f"    ! Open/convert error: {e}"); return None
-        if not img_current or img_current.size[0]<=0: log.error("    ! Zero size after open."); return None
-        log.debug(f"    Opened RGBA Size: {img_current.size}")
-
-        # 2. Пре-ресайз (если вкл)
-        enable_preresize = prep_settings.get('enable_preresize', False)
-        preresize_width = int(prep_settings.get('preresize_width', 0)) if enable_preresize else 0
-        preresize_height = int(prep_settings.get('preresize_height', 0)) if enable_preresize else 0
-        if enable_preresize: img_current = _apply_preresize(img_current, preresize_width, preresize_height)
-        if not img_current: return None
-
-        # Проверяем периметр перед отбеливанием
-        perimeter_check_tolerance = int(pad_settings.get('perimeter_check_tolerance', 10))
-        has_white_perimeter = image_utils.check_perimeter_is_white(img_current, perimeter_check_tolerance, 1)
-        image_metadata["has_white_perimeter_before_whitening"] = has_white_perimeter
-        log.debug(f"Saved perimeter state before whitening: white_perimeter={has_white_perimeter}")
-
-        # 3. Отбеливание (если вкл)
-        enable_whitening = white_settings.get('enable_whitening', False)
-        whitening_cancel_threshold = int(white_settings.get('whitening_cancel_threshold', 765))  # Default to 765 (0% on slider)
-        log.info(f"Whitening threshold from settings: {whitening_cancel_threshold}")
-        if enable_whitening:
-            img_current = image_utils.whiten_image_by_darkest_perimeter(img_current, whitening_cancel_threshold)
-            if not img_current: return None # Если отбеливание вернуло None
-            
-            # Проверяем периметр после отбеливания
-            has_white_perimeter = image_utils.check_perimeter_is_white(img_current, perimeter_check_tolerance, 1)
-            image_metadata["has_white_perimeter_after_whitening"] = has_white_perimeter
-            log.debug(f"Saved perimeter state after whitening: white_perimeter={has_white_perimeter}")
-
-        # 4. Удаление фона и Обрезка (если вкл)
-        enable_bg_crop = bgc_settings.get('enable_bg_crop', False)
-        if enable_bg_crop:
-            log.info("=== Processing background and crop ===")
-            # Извлекаем все необходимые параметры из bgc_settings
-            white_tolerance = int(bgc_settings.get('white_tolerance', 10))
-            perimeter_tolerance = int(bgc_settings.get('perimeter_tolerance', 10))
-            crop_symmetric_absolute = bool(bgc_settings.get('crop_symmetric_absolute', False))
-            crop_symmetric_axes = bool(bgc_settings.get('crop_symmetric_axes', False))
-            check_perimeter = bool(bgc_settings.get('check_perimeter', True))
-            enable_crop = bool(bgc_settings.get('enable_crop', True))
-            perimeter_mode = bgc_settings.get('perimeter_mode', 'if_white')
-            
-            # Проверяем периметр перед обрезкой
-            has_white_perimeter = image_utils.check_perimeter_is_white(img_current, perimeter_check_tolerance, 1)
-            image_metadata["has_white_perimeter_before_crop"] = has_white_perimeter
-            log.debug(f"Saved perimeter state before crop: white_perimeter={has_white_perimeter}")
-            
-            img_current = _apply_background_crop(
-                img_current,
-                white_tolerance,
-                perimeter_tolerance,
-                crop_symmetric_absolute,
-                crop_symmetric_axes,
-                check_perimeter,
-                enable_crop,
-                perimeter_mode=perimeter_mode,
-                image_metadata=image_metadata
-            )
-            if not img_current: return None
-
-        # 5. Добавление полей (если вкл)
-        enable_padding = pad_settings.get('mode', 'never') != 'never' # Включено, если не равно 'never'
-        
-        # Применяем _apply_padding с передачей image_metadata
-        if enable_padding:
-            log.info(f"Padding settings for {os.path.basename(image_path)} - Mode: {pad_settings.get('mode', 'never')}, " +
-                    f"Percentage: {pad_settings.get('padding_percent', 0)}%, " +
-                    f"Allow expansion: {pad_settings.get('allow_expansion', True)}")
-            log.info(f"Image metadata before padding for {os.path.basename(image_path)}: {image_metadata}")
-            img_current = _apply_padding(img_current, pad_settings, image_metadata)
-            if not img_current: return None
-
-        # === ЯРКОСТЬ И КОНТРАСТ (для отдельных фото перед коллажом) ===
-        if bc_settings.get('enable_bc'):
-            log.debug("  Applying Brightness/Contrast to individual image for collage...")
-            img_current = image_utils.apply_brightness_contrast(
-                img_current, 
-                brightness_factor=bc_settings.get('brightness_factor', 1.0),
-                contrast_factor=bc_settings.get('contrast_factor', 1.0)
-            )
-            if not img_current: 
-                log.warning(f"  Brightness/contrast failed for collage image.")
-                return None # Не можем продолжить, если Я/К вернула None
-        # =============================================================
-        
-        # Проверка RGBA (для коллажа нужен RGBA)
-        if img_current.mode != 'RGBA':
-             try: img_tmp = img_current.convert("RGBA"); image_utils.safe_close(img_current); img_current = img_tmp
-             except Exception as e: log.error(f"    ! Final RGBA conversion failed: {e}"); return None
-
-        log.debug(f"-- Finished processing for collage: {os.path.basename(image_path)}")
-        return img_current
-
-    except Exception as e:
-        log.critical(f"!!! UNEXPECTED error in _process_image_for_collage for {os.path.basename(image_path)}: {e}", exc_info=True)
-        image_utils.safe_close(img_current)
+    
+    # Вызываем базовый конвейер обработки
+    img, metadata = process_image_base(
+        image_path,
+        prep_settings,
+        white_settings,
+        bgc_settings,
+        pad_settings,
+        bc_settings
+    )
+    
+    if img:
+        # Убедимся, что изображение в формате RGBA для коллажа
+        if img.mode != 'RGBA':
+            try:
+                rgba_img = img.convert('RGBA')
+                image_utils.safe_close(img)
+                img = rgba_img
+            except Exception as e:
+                log.error(f"Failed to convert image to RGBA for collage: {e}")
+                return None
+                
+        log.debug(f"-- Successfully processed image for collage: {os.path.basename(image_path)}")
+        return img
+    else:
+        log.error(f"-- Failed to process image for collage: {os.path.basename(image_path)}")
         return None
 
 def _check_padding_perimeter(img, tolerance, margin=1):
@@ -915,19 +816,56 @@ def run_collage_processing(**all_settings: Dict[str, Any]) -> bool:
     processed_images: List[Image.Image] = []
     log.info("--- Processing individual images for collage ---")
     total_files_coll = len(input_files_sorted)
+    
+    # Логируем параметры обработки вначале для лучшей диагностики
+    log.info("--- Processing Parameters for Collage Images ---")
+    log.info(f"1. Preresize: {'Enabled' if prep_settings.get('enable_preresize', False) else 'Disabled'} " +
+            f"(W:{prep_settings.get('preresize_width', 0)}, H:{prep_settings.get('preresize_height', 0)})")
+    log.info(f"2. Whitening: {'Enabled' if white_settings.get('enable_whitening', False) else 'Disabled'} " +
+            f"(Thresh:{white_settings.get('whitening_cancel_threshold', 765)})")
+    
+    # Явно логируем значение white_tolerance и другие важные настройки удаления фона
+    white_tolerance = int(bgc_settings.get('white_tolerance', 0))
+    log.info(f"3. BG Removal/Crop: {'Enabled' if bgc_settings.get('enable_bg_crop', False) else 'Disabled'} " +
+            f"(White Tolerance:{white_tolerance})")
+    log.info(f"   Crop: {'Enabled' if bgc_settings.get('enable_crop', True) else 'Disabled'}, " +
+             f"Symmetry: Abs={bgc_settings.get('crop_symmetric_absolute', False)}, " +
+             f"Axes={bgc_settings.get('crop_symmetric_axes', False)}, " +
+             f"Check Perimeter={bgc_settings.get('check_perimeter', False)}")
+    log.info(f"4. Padding: {'Enabled' if pad_settings.get('mode', 'never') != 'never' else 'Disabled'} " +
+            f"(Mode: {pad_settings.get('mode', 'never')}, Percentage: {pad_settings.get('padding_percent', 0)}%)")
+    log.info(f"5. Brightness/Contrast: {'Enabled' if bc_settings.get('enable_bc', False) else 'Disabled'} " +
+            f"(B:{bc_settings.get('brightness_factor', 1.0)}, C:{bc_settings.get('contrast_factor', 1.0)})")
+    
     for idx, path in enumerate(input_files_sorted):
         log.info(f"-> Processing {idx+1}/{total_files_coll}: {os.path.basename(path)}")
-        # Передаем настройки Я/К в _process_image_for_collage
-        processed = _process_image_for_collage(
-            image_path=path,
-            prep_settings=prep_settings,
-            white_settings=white_settings,
-            bgc_settings=bgc_settings,
-            pad_settings=pad_settings,
-            bc_settings=bc_settings 
+        
+        # Используем базовый конвейер обработки
+        img, metadata = process_image_base(
+            path,
+            prep_settings,
+            white_settings,
+            bgc_settings,
+            pad_settings,
+            bc_settings
         )
-        if processed: processed_images.append(processed)
-        else: log.warning(f"  Skipping {os.path.basename(path)} due to processing errors.")
+        
+        if img:
+            # Убедимся, что изображение в формате RGBA для коллажа
+            if img.mode != 'RGBA':
+                try:
+                    rgba_img = img.convert('RGBA')
+                    image_utils.safe_close(img)
+                    img = rgba_img
+                except Exception as e:
+                    log.error(f"Failed to convert to RGBA: {e}")
+                    image_utils.safe_close(img)
+                    continue
+                    
+            processed_images.append(img)
+            log.info(f"  Successfully processed image {os.path.basename(path)}")
+        else:
+            log.warning(f"  Skipping {os.path.basename(path)} due to processing errors.")
 
     num_processed = len(processed_images)
     if num_processed == 0:
@@ -1537,6 +1475,7 @@ def _apply_background_crop(img, white_tolerance, perimeter_tolerance, symmetric_
     """
     Удаляет белый фон с изображения (метод flood-fill от периметра).
     Работает только с режимом RGBA. Симметричная обрезка опциональна.
+    Использует image_metadata для оптимизации проверок периметра.
     
     Args:
         img: Изображение для обработки
@@ -1550,16 +1489,28 @@ def _apply_background_crop(img, white_tolerance, perimeter_tolerance, symmetric_
         image_metadata: Словарь для сохранения метаданных о периметре
     """
     try:
-        # ВСЕГДА сохраняем информацию о периметре перед удалением фона для использования в _apply_padding
-        if image_metadata is not None:
-            has_white_perimeter = image_utils.check_perimeter_is_white(img, perimeter_tolerance, 1)
-            image_metadata["has_white_perimeter_before_crop"] = has_white_perimeter
-            log.debug(f"Saved perimeter state BEFORE crop/bg-removal: white_perimeter={has_white_perimeter}")
+        # Создаем словарь метаданных, если он не передан
+        if image_metadata is None:
+            image_metadata = {}
+            
+        # Определяем, нужно ли проверять периметр
+        perimeter_is_white = None
+        
+        # Сначала проверяем, есть ли сохраненная информация о периметре
+        if "has_white_perimeter_before_crop" in image_metadata:
+            perimeter_is_white = image_metadata["has_white_perimeter_before_crop"]
+            log.debug(f"Using cached perimeter state before crop: white_perimeter={perimeter_is_white}")
+        elif "has_white_perimeter_after_whitening" in image_metadata:
+            perimeter_is_white = image_metadata["has_white_perimeter_after_whitening"]
+            log.debug(f"Using cached perimeter state after whitening: white_perimeter={perimeter_is_white}")
+        else:
+            # Если нет сохраненной информации, проверяем периметр сейчас и сохраняем
+            perimeter_is_white = image_utils.check_perimeter_is_white(img, perimeter_tolerance, 1)
+            image_metadata["has_white_perimeter_before_crop"] = perimeter_is_white
+            log.debug(f"Checked and saved perimeter state before crop: white_perimeter={perimeter_is_white}")
         
         # Проверяем периметр перед применением (определяем, применять ли обработку)
         if check_perimeter and perimeter_mode != 'always':
-            perimeter_is_white = image_utils.check_perimeter_is_white(img, perimeter_tolerance, 1)
-            
             if perimeter_mode == 'if_white' and not perimeter_is_white:
                 log.debug("Background removal skipped: perimeter is not white (mode: if_white).")
                 return img # Возвращаем оригинал без изменений
@@ -1594,6 +1545,15 @@ def _apply_background_crop(img, white_tolerance, perimeter_tolerance, symmetric_
                 return None
         else:
             log.info("Cropping is disabled, keeping canvas size")
+        
+        # Проверяем и сохраняем состояние периметра ПОСЛЕ обработки для использования в _apply_padding
+        # Это поможет следующим шагам обработки (например, padding) не выполнять повторную проверку
+        try:
+            has_white_perimeter_after = image_utils.check_perimeter_is_white(img_processed, perimeter_tolerance, 1)
+            image_metadata["has_white_perimeter_after_crop"] = has_white_perimeter_after
+            log.debug(f"Saved perimeter state AFTER crop/bg-removal: white_perimeter={has_white_perimeter_after}")
+        except Exception as e:
+            log.warning(f"Failed to check perimeter after crop/bg-removal: {e}")
         
         return img_processed
     except Exception as e:
@@ -1755,81 +1715,285 @@ def _calculate_collage_dimensions(images: List[Image.Image], settings: Dict[str,
     # Возвращаем максимальные размеры ячейки (для построения сетки) и финальные факторы масштабирования
     return final_max_width, final_max_height, scale_factors
 
-def _apply_padding(img, pad_settings, image_metadata=None):
+def _apply_padding(img: Image.Image, pad_settings: dict, image_metadata: dict = None) -> Optional[Image.Image]:
     """
-    Применяет отступы к изображению на основе настроек.
+    Применяет padding к изображению в зависимости от настроек.
+    Использует image_metadata для оптимизации проверок периметра.
+    """
+    enable_padding = pad_settings.get('mode', 'never') != 'never' # Включено, если не равно 'never'
+    
+    # Если padding не включен - просто возвращаем изображение
+    if not enable_padding:
+        return img
+
+    # Если метаданные не переданы - создаем пустой словарь
+    if image_metadata is None:
+        image_metadata = {}
+
+    try:
+        padding_percent = int(pad_settings.get('padding_percent', 0)) # Процент padding'а
+        padding_type = pad_settings.get('mode', 'never')  # Тип padding'а (always, never, или if_white)
+        allow_expansion = bool(pad_settings.get('allow_expansion', True))  # Разрешить увеличение размера
+        perimeter_check_tolerance = int(pad_settings.get('perimeter_check_tolerance', 10))
+        
+        log.debug(f"Padding settings: Mode={padding_type}, Percent={padding_percent}%, Allow expansion={allow_expansion}")
+        
+        # Проверяем необходимость добавления padding на основе метаданных
+        should_apply_padding = False
+        
+        if padding_type == 'always':
+            should_apply_padding = True
+            log.debug("Padding mode is 'always', applying padding")
+        elif padding_type == 'never':
+            should_apply_padding = False
+            log.debug("Padding mode is 'never', skipping padding")
+        elif padding_type == 'if_white':
+            # Используем сохраненную информацию о периметре из метаданных
+            if 'has_white_perimeter_after_whitening' in image_metadata:
+                has_white_perimeter = image_metadata['has_white_perimeter_after_whitening']
+                log.debug(f"Using cached perimeter state: white_perimeter={has_white_perimeter}")
+            elif 'has_white_perimeter_before_crop' in image_metadata:
+                has_white_perimeter = image_metadata['has_white_perimeter_before_crop']
+                log.debug(f"Using cached perimeter state before crop: white_perimeter={has_white_perimeter}")
+            else:
+                # Если нет сохраненной информации - проверяем периметр сейчас
+                log.debug(f"No cached perimeter state found, checking perimeter now")
+                has_white_perimeter = image_utils.check_perimeter_is_white(img, perimeter_check_tolerance, 1)
+                
+            should_apply_padding = has_white_perimeter
+            log.debug(f"Padding mode is 'if_white', white perimeter={has_white_perimeter}, applying padding={should_apply_padding}")
+            
+        # Если размер изображения уже оптимален и не разрешено увеличение, пропускаем
+        if not allow_expansion and should_apply_padding:
+            original_size = img.size
+            padding_pixels = min(original_size) * padding_percent / 100
+            if padding_pixels < 1:
+                log.debug(f"Padding would be less than 1 pixel and expansion not allowed, skipping")
+                should_apply_padding = False
+        
+        # Применяем padding, если нужно
+        if should_apply_padding:
+            log.debug(f"Applying padding with {padding_percent}% of min dimension")
+            old_size = img.size
+            img = image_utils.add_padding(img, padding_percent)
+            if img:
+                log.debug(f"Padding applied. New size: {img.size} (was {old_size})")
+            else:
+                log.error("Failed to apply padding")
+                return None
+        else:
+            log.debug("Skipping padding based on settings and perimeter state")
+            
+        return img
+        
+    except Exception as e:
+        log.error(f"Error in _apply_padding: {e}", exc_info=True)
+        return None
+
+def _process_single_image(file_path: str, prep_settings, white_settings, bgc_settings, pad_settings, bc_settings) -> Optional[Image.Image]:
+    """
+    Обрабатывает одно изображение с использованием базового конвейера обработки.
     
     Args:
-        img: Изображение для обработки
-        pad_settings: Словарь настроек отступов
-        image_metadata: Словарь с дополнительными данными, включая информацию о периметре
+        file_path: Путь к изображению
+        prep_settings: Настройки предварительной обработки
+        white_settings: Настройки отбеливания
+        bgc_settings: Настройки удаления фона и обрезки
+        pad_settings: Настройки отступов
+        bc_settings: Настройки яркости/контрастности
     
     Returns:
         Обработанное изображение или None в случае ошибки
     """
-    if not img:
-        return None
+    try:
+        filename = os.path.basename(file_path)
+        log.debug(f"-- Processing single image: {filename}")
         
-    # Проверяем, включены ли отступы
-    enable_padding = pad_settings.get('mode', 'never') != 'never'
-    if not enable_padding:
+        # Используем базовый конвейер обработки
+        img, metadata = process_image_base(
+            file_path,
+            prep_settings,
+            white_settings,
+            bgc_settings,
+            pad_settings,
+            bc_settings
+        )
+        
+        if img is None:
+            log.error(f"Base processing failed for {filename}")
+            return None
+        
+        # Проверяем и при необходимости конвертируем в RGBA
+        if img.mode != 'RGBA':
+            try:
+                rgba_img = img.convert('RGBA')
+                image_utils.safe_close(img)
+                img = rgba_img
+                log.debug(f"Converted image to RGBA mode")
+            except Exception as e:
+                log.error(f"Failed to convert final image to RGBA: {str(e)}")
+                return None
+        
+        log.debug(f"-- Finished processing image: {filename}")
         return img
-    
-    log.info("=== _apply_padding detailed log ===")
-    log.info(f"Padding settings: {pad_settings}")
-    log.info(f"Image metadata: {image_metadata}")
         
-    padding_mode = pad_settings.get('mode', 'never')
-    padding_percent = float(pad_settings.get('padding_percent', 0.0))
-    perimeter_check_tolerance = int(pad_settings.get('perimeter_check_tolerance', 10))
-    # Добавляем получение параметра allow_expansion из настроек
-    allow_expansion = bool(pad_settings.get('allow_expansion', True))
+    except Exception as e:
+        log.error(f"Unexpected error processing {os.path.basename(file_path)}: {str(e)}", exc_info=True)
+        return None
+
+def process_image_base(image_or_path, prep_settings, white_settings, bgc_settings, pad_settings, bc_settings) -> Optional[Tuple[Image.Image, dict]]:
+    """
+    Базовый конвейер обработки изображения. Применяет 5 основных шагов обработки:
+    1. Изменение размера (preresize)
+    2. Отбеливание (whitening)
+    3. Удаление фона и обрезка (background crop)
+    4. Добавление отступов (padding)
+    5. Яркость и контрастность (brightness/contrast)
     
-    # Определяем, нужно ли добавлять поля
-    apply_padding = False
+    Args:
+        image_or_path: PIL Image или путь к файлу изображения
+        prep_settings: Настройки предварительной обработки
+        white_settings: Настройки отбеливания
+        bgc_settings: Настройки удаления фона и обрезки
+        pad_settings: Настройки отступов
+        bc_settings: Настройки яркости/контрастности
     
-    if padding_mode == 'always':
-        apply_padding = True
-        log.info(f"    Padding will be applied (mode: always).")
-    else:
-        # Проверяем наличие сохраненной информации о периметре (от whitening или crop)
-        has_saved_perimeter_info = False
-        perimeter_is_white = False
-        
-        # Сначала проверяем информацию после отбеливания (приоритет)
-        if image_metadata is not None and "has_white_perimeter_after_whitening" in image_metadata:
-            has_saved_perimeter_info = True
-            perimeter_is_white = image_metadata["has_white_perimeter_after_whitening"]
-            log.info(f"    Using saved perimeter state after whitening: {perimeter_is_white}")
-        # Затем проверяем информацию перед обрезкой (если нет информации от отбеливания)
-        elif image_metadata is not None and "has_white_perimeter_before_crop" in image_metadata:
-            has_saved_perimeter_info = True
-            perimeter_is_white = image_metadata["has_white_perimeter_before_crop"]
-            log.info(f"    Using saved perimeter state before crop: {perimeter_is_white}")
+    Returns:
+        Tuple[Image.Image, dict]: (Обработанное изображение, словарь метаданных) или (None, {}) в случае ошибки
+    """
+    # Создаем словарь для хранения метаданных изображения
+    image_metadata = {}
+    img = None
+    filename = None
+    
+    try:
+        # 1. Загрузка изображения
+        if isinstance(image_or_path, str):
+            # Это путь к файлу
+            filename = os.path.basename(image_or_path)
+            log.debug(f"-- Starting base processing for: {filename}")
+            try:
+                img = Image.open(image_or_path)
+                img.load()  # Заставляем PIL загрузить данные изображения
+            except Exception as e:
+                log.error(f"Failed to load image {image_or_path}: {str(e)}")
+                return None, {}
+        else:
+            # Это уже объект Image
+            img = image_or_path
+            log.debug(f"-- Starting base processing for image object: {repr(img)}")
             
-        # Если нет сохраненной информации, проверяем текущее состояние
-        if not has_saved_perimeter_info:
-            perimeter_is_white = image_utils.check_perimeter_is_white(img, perimeter_check_tolerance, 1)
-            log.info(f"    Current perimeter state (fresh check): {perimeter_is_white}")
+        # Проверка, что изображение валидно
+        if img is None or img.width <= 0 or img.height <= 0:
+            log.error(f"Invalid image or zero dimensions")
+            return None, {}
         
-        if padding_mode == 'if_white' and perimeter_is_white:
-            apply_padding = True
-            log.info(f"    Padding will be applied (mode: if_white, perimeter IS white).")
-        elif padding_mode == 'if_not_white' and not perimeter_is_white:
-            apply_padding = True
-            log.info(f"    Padding will be applied (mode: if_not_white, perimeter is NOT white).")
-        else:
-            log.info(f"    Padding skipped: Perimeter condition not met for mode '{padding_mode}'.")
-    
-    # Применяем padding только если нужно
-    if apply_padding:
-        log.info(f"    Applying padding: {padding_percent}% with allow_expansion={allow_expansion}")
-        img = image_utils.add_padding(img, padding_percent, allow_expansion)
-        if img:
-            log.info(f"    Padding applied. New size: {img.size}")
-        else:
-            log.error("    Failed to apply padding")
-    else:
-        log.info(f"    Padding skipped based on conditions.")
-    
-    return img
+        log.debug(f"Initial image: Size={img.size}, Mode={img.mode}")
+        
+        # 2. Предварительное изменение размера (если включено)
+        if prep_settings.get('enable_preresize', False):
+            img = _apply_preresize(img, 
+                                 prep_settings.get('preresize_width', 0),
+                                 prep_settings.get('preresize_height', 0))
+            if img is None:
+                log.error(f"Pre-resize failed")
+                return None, {}
+                
+            log.debug(f"After preresize: Size={img.size}")
+            
+        # Сохраняем состояние периметра перед отбеливанием (для оптимизации проверок)
+        perimeter_check_tolerance = int(pad_settings.get('perimeter_check_tolerance', 10))
+        has_white_perimeter = image_utils.check_perimeter_is_white(img, perimeter_check_tolerance, 1)
+        image_metadata["has_white_perimeter_before_whitening"] = has_white_perimeter
+        log.debug(f"Saved perimeter state before whitening: white_perimeter={has_white_perimeter}")
+        
+        # 3. Отбеливание (если включено)
+        if white_settings.get('enable_whitening', False):
+            whitening_cancel_threshold = int(white_settings.get('whitening_cancel_threshold', 765))
+            log.info(f"Applying whitening with threshold: {whitening_cancel_threshold}")
+            
+            img = image_utils.whiten_image_by_darkest_perimeter(img, whitening_cancel_threshold)
+            if img is None:
+                log.error(f"Whitening failed")
+                return None, {}
+                
+            log.debug(f"After whitening: Size={img.size}")
+            
+            # Сохраняем состояние периметра после отбеливания
+            has_white_perimeter = image_utils.check_perimeter_is_white(img, perimeter_check_tolerance, 1)
+            image_metadata["has_white_perimeter_after_whitening"] = has_white_perimeter
+            log.debug(f"Saved perimeter state after whitening: white_perimeter={has_white_perimeter}")
+        
+        # 4. Удаление фона и обрезка (если включено)
+        if bgc_settings.get('enable_bg_crop', False):
+            log.info(f"=== Processing background and crop ===")
+            
+            # Извлекаем параметры
+            white_tolerance = int(bgc_settings.get('white_tolerance', 0))
+            perimeter_tolerance = int(bgc_settings.get('perimeter_tolerance', 10))
+            crop_symmetric_absolute = bool(bgc_settings.get('crop_symmetric_absolute', False))
+            crop_symmetric_axes = bool(bgc_settings.get('crop_symmetric_axes', False))
+            check_perimeter = bool(bgc_settings.get('check_perimeter', False))
+            enable_crop = bool(bgc_settings.get('enable_crop', True))
+            perimeter_mode = bgc_settings.get('perimeter_mode', 'if_white')
+            
+            # Явно логируем значение white_tolerance
+            log.info(f"Background removal with white_tolerance={white_tolerance}")
+            
+            img = _apply_background_crop(
+                img,
+                white_tolerance,
+                perimeter_tolerance,
+                crop_symmetric_absolute,
+                crop_symmetric_axes,
+                check_perimeter,
+                enable_crop,
+                perimeter_mode=perimeter_mode,
+                image_metadata=image_metadata
+            )
+            
+            if img is None:
+                log.error(f"Background removal / crop failed")
+                return None, {}
+                
+            log.debug(f"After background/crop: Size={img.size}")
+        
+        # 5. Добавление отступов (если включено)
+        if pad_settings.get('mode', 'never') != 'never':
+            log.info(f"Padding settings - Mode: {pad_settings.get('mode', 'never')}, " +
+                   f"Percentage: {pad_settings.get('padding_percent', 0)}%, " +
+                   f"Allow expansion: {pad_settings.get('allow_expansion', True)}")
+            
+            # Передаем metadata с информацией о периметре
+            img = _apply_padding(img, pad_settings, image_metadata)
+            
+            if img is None:
+                log.error(f"Padding failed")
+                return None, {}
+                
+            log.debug(f"After padding: Size={img.size}")
+        
+        # 6. Яркость и контрастность (если включено)
+        if bc_settings.get('enable_bc', False):
+            brightness_factor = bc_settings.get('brightness_factor', 1.0)
+            contrast_factor = bc_settings.get('contrast_factor', 1.0)
+            
+            log.info(f"Applying brightness/contrast: B={brightness_factor}, C={contrast_factor}")
+            img = image_utils.apply_brightness_contrast(img, brightness_factor, contrast_factor)
+            
+            if img is None:
+                log.error(f"Brightness/contrast adjustment failed")
+                return None, {}
+                
+            log.debug(f"After brightness/contrast: Size={img.size}")
+        
+        # Сохраняем финальную информацию об изображении в метаданных
+        image_metadata["final_size"] = img.size
+        image_metadata["final_mode"] = img.mode
+        
+        log.debug(f"-- Finished base processing. Final image: Size={img.size}, Mode={img.mode}")
+        return img, image_metadata
+        
+    except Exception as e:
+        log.error(f"Unexpected error in base processing: {str(e)}", exc_info=True)
+        return None, {}
