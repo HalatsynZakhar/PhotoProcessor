@@ -1298,6 +1298,9 @@ if start_button_pressed_this_run:
                         st.error("❌ Ошибка при выполнении операции 'Обработка отдельных файлов'!")
                         log.error("Processing failed with errors")
                         pass
+                    else:
+                        st.session_state.settings_changed = True
+                        autosave_active_preset_if_changed()
                     log.info(f"Finished run_individual_processing call (success)")
                     workflow_success = success
                 elif mode_from_state == "Создание коллажей":
@@ -1307,6 +1310,9 @@ if start_button_pressed_this_run:
                         st.error("❌ Ошибка при выполнении операции 'Создание коллажа'!")
                         log.error("Processing failed with errors")
                         pass
+                    else:
+                        st.session_state.settings_changed = True
+                        autosave_active_preset_if_changed()
                     log.info(f"Finished run_collage_processing call (success)")
                     workflow_success = success
                 elif mode_from_state == "Слияние изображений":
