@@ -1381,19 +1381,28 @@ if start_button_pressed_this_run:
         progress_placeholder.empty() # Очищаем спиннер
         
         # --- Вывод сообщения по результату --- 
+        # Создаем placeholder для сообщения об успехе/ошибке и сохраняем в session_state
+        result_message_placeholder = st.empty()
+        st.session_state.result_message_placeholder = result_message_placeholder
+        
         if workflow_success:
             # Используем mode_from_state для сообщения
             if mode_from_state == "Обработка отдельных файлов":
-                st.success("✅ Обработка изображений завершена успешно!")
+                result_message_placeholder.success("✅ Обработка изображений завершена успешно!")
+                st.session_state.result_message = {"type": "success", "text": "✅ Обработка изображений завершена успешно!"}
             elif mode_from_state == "Создание коллажей":
-                st.success("✅ Создание коллажа завершено успешно!")
+                result_message_placeholder.success("✅ Создание коллажа завершено успешно!")
+                st.session_state.result_message = {"type": "success", "text": "✅ Создание коллажа завершено успешно!"}
             elif mode_from_state == "Слияние изображений":
-                st.success("✅ Слияние изображений завершено успешно!")
+                result_message_placeholder.success("✅ Слияние изображений завершено успешно!")
+                st.session_state.result_message = {"type": "success", "text": "✅ Слияние изображений завершено успешно!"}
             else:
                 # Неизвестный режим
-                st.success(f"✅ Операция '{mode_from_state}' выполнена успешно!")
+                result_message_placeholder.success(f"✅ Операция '{mode_from_state}' выполнена успешно!")
+                st.session_state.result_message = {"type": "success", "text": f"✅ Операция '{mode_from_state}' выполнена успешно!"}
         else:
-            st.error("❌ Произошла ошибка во время выполнения операции!", icon="🔥")
+            result_message_placeholder.error("❌ Произошла ошибка во время выполнения операции!", icon="🔥")
+            st.session_state.result_message = {"type": "error", "text": "❌ Произошла ошибка во время выполнения операции!"}
         
         # В конце, перед st.rerun(), добавим:
         # Сохраняем текущие логи в session_state, чтобы они не потерялись при rerun
@@ -1404,6 +1413,16 @@ if start_button_pressed_this_run:
 
 # --- Область для Логов ---
 st.subheader("Логи и предпросмотр:")
+
+# Отображаем сохраненное сообщение о результате выполнения, если оно есть
+if 'result_message' in st.session_state:
+    if st.session_state.result_message["type"] == "success":
+        st.success(st.session_state.result_message["text"])
+    elif st.session_state.result_message["type"] == "error":
+        st.error(st.session_state.result_message["text"], icon="🔥")
+    # Очищаем сообщение после отображения, чтобы оно не появлялось после каждого взаимодействия с UI
+    if not st.session_state.is_processing:
+        st.session_state.pop('result_message', None)
 
 # Блок лога - объединяем сохраненные логи и текущие
 with st.expander("📋 Журнал работы приложения", expanded=True):
