@@ -61,8 +61,10 @@ DEFAULT_SETTINGS = {
         },
         "padding": {
             "mode": "never",
-            "size_px": 100,
-            "color": "#FFFFFF"
+            "padding_percent": 5.0,
+            "allow_expansion": True,
+            "perimeter_check_tolerance": 10,
+            "perimeter_margin": 1
         },
         "border": {
             "width_px": 10,
