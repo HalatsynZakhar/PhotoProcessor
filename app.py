@@ -2,6 +2,7 @@
 
 import logging
 import config_manager # Убедимся, что импортирован
+import functools # Добавляем для более удобного связывания колбэков
 
 # --- БЛОК ПРОВЕРКИ И УСТАНОВКИ ЗАВИСИМОСТЕЙ ---
 import sys
@@ -273,6 +274,16 @@ def get_setting(setting_path: str, default: Any = None) -> Any:
     except Exception as e:
         log.error(f"Error getting setting {setting_path}: {str(e)}")
         return default
+
+# === КОЛБЭК ДЛЯ ИЗМЕНЕНИЯ НАСТРОЕК ===
+def setting_changed_callback(key_path: str):
+    """Колбэк, вызываемый при изменении значения виджета настройки."""
+    if key_path not in st.session_state:
+        log.warning(f"Callback triggered for key '{key_path}' which is not in session_state. Skipping.")
+        return
+    new_value = st.session_state[key_path]
+    set_setting(key_path, new_value)
+# ====================================
 
 def set_setting(key_path: str, value: Any):
     keys = key_path.split('.')
@@ -558,25 +569,28 @@ with st.sidebar:
             st.caption("⚡️ Переименование и удаление")
             enable_rename_ind = st.checkbox("Переименовать файлы (по артикулу)",
                                             value=get_setting('individual_mode.enable_rename', False),
-                                            key='ind_enable_rename',
-                                            help="Автоматически переименовывает обработанные файлы, используя указанный артикул. Первый файл будет назван как артикул, остальные - артикул_1, артикул_2 и т.д.")
-            set_setting('individual_mode.enable_rename', enable_rename_ind)
-            if enable_rename_ind:
+                                            key='individual_mode.enable_rename',
+                                            help="Автоматически переименовывает обработанные файлы, используя указанный артикул. Первый файл будет назван как артикул, остальные - артикул_1, артикул_2 и т.д.",
+                                            on_change=setting_changed_callback, args=('individual_mode.enable_rename',))
+            # Убрали: set_setting('individual_mode.enable_rename', enable_rename_ind)
+            if st.session_state.get('individual_mode.enable_rename', False):
                 article_ind = st.text_input("Артикул для переименования",
                                             value=get_setting('individual_mode.article_name', ''),
-                                            key='ind_article',
+                                            key='individual_mode.article_name',
                                             placeholder="Введите артикул...",
-                                            help="Введите артикул или базовое имя для файлов. Это имя будет использоваться как основа для всех обработанных файлов.")
-                set_setting('individual_mode.article_name', article_ind)
-                if article_ind: st.caption("Файлы будут вида: [Артикул]_1.jpg, ...")
+                                            help="Введите артикул или базовое имя для файлов. Это имя будет использоваться как основа для всех обработанных файлов.",
+                                            on_change=setting_changed_callback, args=('individual_mode.article_name',))
+                # Убрали: set_setting('individual_mode.article_name', article_ind)
+                if st.session_state.get('individual_mode.article_name', ''): st.caption("Файлы будут вида: [Артикул]_1.jpg, ...")
                 else: st.warning("Введите артикул для переименования.") # Валидация
             
             delete_orig_ind = st.checkbox("Удалять оригиналы после обработки?",
                                           value=get_setting('individual_mode.delete_originals', False),
-                                          key='ind_delete_orig',
-                                          help="Если включено, исходные файлы будут удалены после успешной обработки. Это действие необратимо, поэтому используйте его с осторожностью. Рекомендуется включить бэкап перед использованием этой опции.")
-            set_setting('individual_mode.delete_originals', delete_orig_ind)
-            if delete_orig_ind: st.warning("ВНИМАНИЕ: Удаление необратимо!", icon="⚠️")
+                                          key='individual_mode.delete_originals',
+                                          help="Если включено, исходные файлы будут удалены после успешной обработки. Это действие необратимо, поэтому используйте его с осторожностью. Рекомендуется включить бэкап перед использованием этой опции.",
+                                          on_change=setting_changed_callback, args=('individual_mode.delete_originals',))
+            # Убрали: set_setting('individual_mode.delete_originals', delete_orig_ind)
+            if st.session_state.get('individual_mode.delete_originals', False): st.warning("ВНИМАНИЕ: Удаление необратимо!", icon="⚠️")
 
         # --- Input Path ---
         st.caption("Основной путь ввода")
@@ -585,14 +599,19 @@ with st.sidebar:
         input_path_val = st.text_input(
             "Папка с исходными файлами:",
             value=input_path_default_value,
-            key='path_input_sidebar',
-            help="Укажите папку, в которой находятся исходные изображения для обработки. Поддерживаются форматы JPG, PNG, WEBP, TIFF, BMP, GIF. Папка должна существовать и быть доступной для чтения."
+            key='paths.input_folder_path',
+            help="Укажите папку, в которой находятся исходные изображения для обработки. Поддерживаются форматы JPG, PNG, WEBP, TIFF, BMP, GIF. Папка должна существовать и быть доступной для чтения.",
+            on_change=setting_changed_callback, args=('paths.input_folder_path',)
         )
-        if input_path_val != current_input_path:
-            set_setting('paths.input_folder_path', input_path_val)
-        if input_path_val and os.path.isdir(input_path_val): st.caption(f"✅ Папка найдена: {os.path.abspath(input_path_val)}")
-        elif input_path_val: st.caption(f"❌ Папка не найдена: {os.path.abspath(input_path_val)}")
-        else: st.caption("ℹ️ Путь не указан.")
+        # Убрали: if input_path_val != current_input_path:
+        #    set_setting('paths.input_folder_path', input_path_val)
+        input_path_from_state = st.session_state.get('paths.input_folder_path', '')
+        if input_path_from_state and os.path.isdir(input_path_from_state): 
+            st.caption(f"✅ Папка найдена: {os.path.abspath(input_path_from_state)}")
+        elif input_path_from_state: 
+            st.caption(f"❌ Папка не найдена: {os.path.abspath(input_path_from_state)}")
+        else: 
+            st.caption("ℹ️ Путь не указан.")
 
         current_mode_local = st.session_state.selected_processing_mode
         if current_mode_local == "Обработка отдельных файлов":
@@ -603,12 +622,14 @@ with st.sidebar:
             output_path_val = st.text_input(
                 "Папка для результатов:",
                 value=output_path_default_value,
-                key='path_output_ind_sidebar',
-                help="Укажите папку, куда будут сохранены обработанные изображения. Папка будет создана автоматически, если она не существует. Убедитесь, что у вас есть права на запись в эту папку."
+                key='paths.output_folder_path',
+                help="Укажите папку, куда будут сохранены обработанные изображения. Папка будет создана автоматически, если она не существует. Убедитесь, что у вас есть права на запись в эту папку.",
+                on_change=setting_changed_callback, args=('paths.output_folder_path',)
             )
-            if output_path_val != current_output_path:
-                set_setting('paths.output_folder_path', output_path_val)
-            if output_path_val: st.caption(f"Сохранять в: {os.path.abspath(output_path_val)}")
+            # Убрали: if output_path_val != current_output_path:
+            #    set_setting('paths.output_folder_path', output_path_val)
+            output_path_from_state = st.session_state.get('paths.output_folder_path', '')
+            if output_path_from_state: st.caption(f"Сохранять в: {os.path.abspath(output_path_from_state)}")
 
             # --- Backup Path ---
             current_backup_path = get_setting('paths.backup_folder_path')
@@ -616,15 +637,18 @@ with st.sidebar:
             backup_path_val = st.text_input(
                 "Папка для бэкапов:",
                 value=backup_path_default_value,
-                key='path_backup_ind_sidebar',
+                key='paths.backup_folder_path',
                 placeholder="Оставьте пустым чтобы отключить",
-                help="Укажите папку для резервного копирования оригинальных файлов перед обработкой. Оставьте пустым, чтобы отключить создание резервных копий. Рекомендуется использовать бэкап при включенной опции удаления оригиналов."
+                help="Укажите папку для резервного копирования оригинальных файлов перед обработкой. Оставьте пустым, чтобы отключить создание резервных копий. Рекомендуется использовать бэкап при включенной опции удаления оригиналов.",
+                on_change=setting_changed_callback, args=('paths.backup_folder_path',)
             )
-            if backup_path_val != current_backup_path:
-                set_setting('paths.backup_folder_path', backup_path_val)
-            if backup_path_val:
-                is_default_shown = not current_backup_path and backup_path_val == os.path.join(user_downloads_folder, "Backups")
-                st.caption(f"Бэкап в: {os.path.abspath(backup_path_val)}" + (" (по умолчанию)" if is_default_shown else ""))
+            # Убрали: if backup_path_val != current_backup_path:
+            #    set_setting('paths.backup_folder_path', backup_path_val)
+            backup_path_from_state = st.session_state.get('paths.backup_folder_path')
+            if backup_path_from_state:
+                 # Проверяем, был ли путь задан ИЛИ является ли он стандартным предложенным
+                is_default_shown = not current_backup_path and backup_path_from_state == os.path.join(user_downloads_folder, "Backups")
+                st.caption(f"Бэкап в: {os.path.abspath(backup_path_from_state)}" + (" (по умолчанию)" if is_default_shown else ""))
             else:
                 st.caption(f"Бэкап отключен.")
 
@@ -633,11 +657,13 @@ with st.sidebar:
             collage_filename_val = st.text_input(
                 "Имя файла коллажа (без расш.):",
                 value=get_setting('paths.output_filename', 'collage'),
-                key='path_output_coll_sidebar',
-                help="Введите базовое имя файла для коллажа (без расширения). Коллаж будет сохранен в папке с исходными файлами с указанным именем и расширением в соответствии с выбранным форматом (JPG или PNG)."
+                key='paths.output_filename',
+                help="Введите базовое имя файла для коллажа (без расширения). Коллаж будет сохранен в папке с исходными файлами с указанным именем и расширением в соответствии с выбранным форматом (JPG или PNG).",
+                on_change=setting_changed_callback, args=('paths.output_filename',)
             )
-            set_setting('paths.output_filename', collage_filename_val)
-            if collage_filename_val: st.caption(f"Имя файла: {collage_filename_val}.[расширение]")
+            # Убрали: set_setting('paths.output_filename', collage_filename_val)
+            collage_filename_from_state = st.session_state.get('paths.output_filename', '')
+            if collage_filename_from_state: st.caption(f"Имя файла: {collage_filename_from_state}.[расширение]")
 
     # --- Кнопка сброса путей в отдельном expander ---
     with st.expander("Сброс путей", expanded=False):
@@ -659,23 +685,26 @@ with st.sidebar:
     with st.expander("1. Изменение размера", expanded=should_expand_resize):
         enable_preresize = st.checkbox("Включить изменение размера", 
                                      value=get_setting('preprocessing.enable_preresize', False),
-                                     key='enable_preresize',
-                                     help="Включить предварительное изменение размера изображений")
-        set_setting('preprocessing.enable_preresize', enable_preresize)
-        if enable_preresize:
+                                     key='preprocessing.enable_preresize',
+                                     help="Включить предварительное изменение размера изображений",
+                                     on_change=setting_changed_callback, args=('preprocessing.enable_preresize',))
+        # Убрали: set_setting('preprocessing.enable_preresize', enable_preresize)
+        if st.session_state.get('preprocessing.enable_preresize', False):
             col_pre1, col_pre2 = st.columns(2)
             with col_pre1:
                  pr_w = st.number_input("Макс. Ширина (px)", 0, 10000, 
                                        value=get_setting('preprocessing.preresize_width', 2500), 
-                                       step=10, key='pre_w',
-                                       help="Максимальная ширина изображения после ресайза. 0 означает отсутствие ограничения по ширине. Изображение будет пропорционально уменьшено, если его ширина превышает это значение.")
-                 set_setting('preprocessing.preresize_width', pr_w)
+                                       step=10, key='preprocessing.preresize_width',
+                                       help="Максимальная ширина изображения после ресайза. 0 означает отсутствие ограничения по ширине. Изображение будет пропорционально уменьшено, если его ширина превышает это значение.",
+                                       on_change=setting_changed_callback, args=('preprocessing.preresize_width',))
+                 # Убрали: set_setting('preprocessing.preresize_width', pr_w)
             with col_pre2:
                  pr_h = st.number_input("Макс. Высота (px)", 0, 10000, 
                                        value=get_setting('preprocessing.preresize_height', 2500), 
-                                       step=10, key='pre_h',
-                                       help="Максимальная высота изображения после ресайза. 0 означает отсутствие ограничения по высоте. Изображение будет пропорционально уменьшено, если его высота превышает это значение.")
-                 set_setting('preprocessing.preresize_height', pr_h)
+                                       step=10, key='preprocessing.preresize_height',
+                                       help="Максимальная высота изображения после ресайза. 0 означает отсутствие ограничения по высоте. Изображение будет пропорционально уменьшено, если его высота превышает это значение.",
+                                       on_change=setting_changed_callback, args=('preprocessing.preresize_height',))
+                 # Убрали: set_setting('preprocessing.preresize_height', pr_h)
 
     # Проверяем, включено ли отбеливание
     should_expand_whitening = get_setting('whitening.enable_whitening', False)
@@ -683,23 +712,32 @@ with st.sidebar:
     with st.expander("2. Отбеливание", expanded=should_expand_whitening):
         enable_whitening = st.checkbox("Включить отбеливание", 
                                      value=get_setting('whitening.enable_whitening', False),
-                                     key='enable_whitening',
-                                     help="Включить отбеливание изображений")
-        set_setting('whitening.enable_whitening', enable_whitening)
-        if enable_whitening:
-            # === ПРОСТОЙ ПРОЦЕНТНЫЙ СЛАЙДЕР ===
-            # Порог светлости периметра для отбеливания
-            # При пороге 50% отбеливаются изображения с периметром светлее 50% (серый)
-            wc_percent = st.slider("Максимальная темнота периметра", 0, 100, 
-                                  value=30, # По умолчанию 30%
-                                  step=1, 
-                                  key='white_thr', 
-                                  format="%d%%",
-                                  help="Определяет, насколько темным может быть периметр изображения для его отбеливания. 0% - отбеливать только чисто белый периметр, 100% - отбеливать любой периметр. Рекомендуемое значение - 30%.")
+                                     key='whitening.enable_whitening',
+                                     help="Включить отбеливание изображений",
+                                     on_change=setting_changed_callback, args=('whitening.enable_whitening',))
+        # Убрали: set_setting('whitening.enable_whitening', enable_whitening)
+        if st.session_state.get('whitening.enable_whitening', False):
+            # === СЛАЙДЕР С ПРЕОБРАЗОВАНИЕМ ===
+            # Для слайдеров, где нужно преобразование значения, используем временный ключ для UI и специальный колбэк
+            current_adjusted_threshold = get_setting('whitening.whitening_cancel_threshold', 765) # 765 -> 0%
+            default_slider_percent = max(0, min(100, round((765 - current_adjusted_threshold) / 7.65)))
             
-            # Преобразуем проценты в абсолютный порог для функции отбеливания
-            adjusted_threshold = int((100 - wc_percent) * 7.65)  # Инвертируем для логического соответствия
-            set_setting('whitening.whitening_cancel_threshold', adjusted_threshold)
+            def whitening_slider_callback():
+                """Специальный колбэк для слайдера отбеливания с преобразованием значения."""
+                slider_percent = st.session_state.get('whitening_slider_percent_ui', 30)
+                adjusted_threshold = int((100 - slider_percent) * 7.65) # Инвертируем
+                set_setting('whitening.whitening_cancel_threshold', adjusted_threshold)
+            
+            wc_percent = st.slider("Максимальная темнота периметра", 0, 100, 
+                                  value=default_slider_percent,
+                                  step=1, 
+                                  key='whitening_slider_percent_ui', # Временный ключ для UI
+                                  format="%d%%",
+                                  help="Определяет, насколько темным может быть периметр изображения для его отбеливания. 0% - отбеливать только чисто белый периметр, 100% - отбеливать любой периметр. Рекомендуемое значение - 30%.",
+                                  on_change=whitening_slider_callback)
+            # Убрали: прямое вычисление и set_setting здесь
+            # adjusted_threshold = int((100 - wc_percent) * 7.65)
+            # set_setting('whitening.whitening_cancel_threshold', adjusted_threshold)
 
     # Проверяем, включено ли удаление фона
     should_expand_bg_crop = get_setting('background_crop.enable_bg_crop', False)
@@ -1504,6 +1542,11 @@ if start_button_pressed_this_run:
         # Сохраняем текущие логи в session_state, чтобы они не потерялись при rerun
         st.session_state.saved_logs = log_stream.getvalue()
         log.info("--- Сохраняем логи перед rerun() ---")
+        
+        # Автосохранение настроек после завершения обработки (успешной или нет)
+        log.info("--- Автосохранение настроек после обработки ---")
+        autosave_active_preset_if_changed()
+        
         st.session_state.is_processing = False  # Сбрасываем флаг обработки после завершения
         st.rerun()  # Перезагружаем страницу, чтобы обновить состояние кнопки
 
