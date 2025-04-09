@@ -25,6 +25,15 @@ ImageFile.LOAD_TRUNCATED_IMAGES = True
 
 log = logging.getLogger(__name__) # Используем логгер, настроенный в app.py
 
+# --- Проверка наличия psd-tools для работы с файлами PSD ---
+PSD_TOOLS_AVAILABLE = False
+try:
+    import psd_tools
+    PSD_TOOLS_AVAILABLE = True
+    logging.getLogger(__name__).info("psd-tools library is available - PSD support enabled")
+except ImportError:
+    logging.getLogger(__name__).warning("psd-tools library is not available - PSD support disabled")
+
 # ==============================================================================
 # === ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ДЛЯ ОБРАБОТКИ ИЗОБРАЖЕНИЙ (ШАГИ КОНВЕЙЕРА) ===
 # ==============================================================================
@@ -390,20 +399,24 @@ def run_individual_processing(**all_settings: Dict[str, Any]) -> bool:
                 log.info("--- Pre-processing template ---")
                 # Load template
                 if template_path.lower().endswith('.psd'):
+                    if not PSD_TOOLS_AVAILABLE:
+                        log.error("psd_tools library is not installed. Cannot process PSD files.")
+                        log.error("Please run 'pip install psd-tools' to enable PSD support.")
+                        return False
+                    
                     try:
-                        from psd_tools import PSDImage
-                        psd = PSDImage.open(template_path)
+                        psd = psd_tools.PSDImage.open(template_path)
                         # Convert PSD to PIL Image using the correct method
                         processed_template = psd.topil()
                         if processed_template.mode == 'CMYK':
                             processed_template = processed_template.convert('RGB')
-                    except ImportError:
-                        log.error("psd_tools library not installed. Cannot process PSD files.")
+                    except Exception as e:
+                        log.error(f"Error processing PSD file: {e}")
                         return False
                 else:
                     processed_template = Image.open(template_path)
                     processed_template.load()
-                    
+                
                 if process_template:
                     # Apply same processing steps to template
                     if preprocessing_settings.get('enable_preresize', False):
@@ -1279,15 +1292,19 @@ def _process_image_for_merge(img: Image.Image, merge_settings: Dict[str, Any]) -
             try:
                 # Check if file is PSD
                 if template_path.lower().endswith('.psd'):
+                    if not PSD_TOOLS_AVAILABLE:
+                        log.error("psd_tools library is not installed. Cannot process PSD files.")
+                        log.error("Please run 'pip install psd-tools' to enable PSD support.")
+                        return None
+                    
                     try:
-                        from psd_tools import PSDImage
-                        psd = PSDImage.open(template_path)
+                        psd = psd_tools.PSDImage.open(template_path)
                         # Convert PSD to PIL Image
                         template = psd.compose()
                         if template.mode == 'CMYK':
                             template = template.convert('RGB')
-                    except ImportError:
-                        log.error("psd_tools library not installed. Cannot process PSD files.")
+                    except Exception as e:
+                        log.error(f"Error processing PSD file: {e}")
                         return None
                 else:
                     template = Image.open(template_path)
