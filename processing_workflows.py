@@ -339,6 +339,8 @@ def run_individual_processing(**all_settings: Dict[str, Any]) -> bool:
                     if whitening_settings.get('enable_whitening', False):
                         processed_template = image_utils.whiten_image_by_darkest_perimeter(processed_template, whitening_settings.get('whitening_cancel_threshold', 765))
                     if background_crop_settings.get('enable_bg_crop', False):
+                        # Добавляем получение perimeter_mode из настроек
+                        perimeter_mode = background_crop_settings.get('perimeter_mode', 'if_white')
                         processed_template = _apply_background_crop(
                             processed_template,
                             background_crop_settings.get('white_tolerance', 0),
@@ -346,7 +348,8 @@ def run_individual_processing(**all_settings: Dict[str, Any]) -> bool:
                             background_crop_settings.get('force_absolute_symmetry', False),
                             background_crop_settings.get('force_axes_symmetry', False),
                             background_crop_settings.get('check_perimeter', False),
-                            background_crop_settings.get('enable_crop', True)
+                            background_crop_settings.get('enable_crop', True),
+                            perimeter_mode=perimeter_mode
                         )
                     if padding_settings.get('mode', 'never') != 'never':
                         processed_template = _apply_padding(processed_template, padding_settings)
@@ -377,6 +380,8 @@ def run_individual_processing(**all_settings: Dict[str, Any]) -> bool:
                     img = image_utils.whiten_image_by_darkest_perimeter(img, whitening_settings.get('whitening_cancel_threshold', 765))
                 
                 if background_crop_settings.get('enable_bg_crop', False):
+                    # Добавляем получение perimeter_mode из настроек
+                    perimeter_mode = background_crop_settings.get('perimeter_mode', 'if_white')
                     img = _apply_background_crop(
                         img,
                         background_crop_settings.get('white_tolerance', 0),
@@ -384,7 +389,8 @@ def run_individual_processing(**all_settings: Dict[str, Any]) -> bool:
                         background_crop_settings.get('force_absolute_symmetry', False),
                         background_crop_settings.get('force_axes_symmetry', False),
                         background_crop_settings.get('check_perimeter', False),
-                        background_crop_settings.get('enable_crop', True)
+                        background_crop_settings.get('enable_crop', True),
+                        perimeter_mode=perimeter_mode
                     )
                 
                 if padding_settings.get('mode', 'never') != 'never':
@@ -526,6 +532,7 @@ def _process_image_for_collage(image_path: str, prep_settings, white_settings, b
         crop_symmetric_axes = bool(bgc_settings.get('crop_symmetric_axes', False)) if enable_bg_crop else False
         check_perimeter = bool(bgc_settings.get('check_perimeter', True)) if enable_bg_crop else False
         enable_crop = bool(bgc_settings.get('enable_crop', True)) if enable_bg_crop else False
+        perimeter_mode = str(bgc_settings.get('perimeter_mode', 'if_white')) if enable_bg_crop else 'if_white'
 
         if enable_bg_crop:
             img_current = _apply_background_crop(
@@ -535,7 +542,8 @@ def _process_image_for_collage(image_path: str, prep_settings, white_settings, b
                 force_absolute_symmetry=crop_symmetric_absolute,
                 force_axes_symmetry=crop_symmetric_axes,
                 check_perimeter=check_perimeter,
-                enable_crop=enable_crop
+                enable_crop=enable_crop,
+                perimeter_mode=perimeter_mode
             )
 
         # 5. Добавление полей (если вкл)
@@ -1356,7 +1364,8 @@ def get_image_files(folder_path: str) -> List[str]:
 
 def _apply_background_crop(img: Image.Image, white_tolerance: int = 10, perimeter_tolerance: int = 10, 
                          force_absolute_symmetry: bool = False, force_axes_symmetry: bool = False, 
-                         check_perimeter: bool = False, enable_crop: bool = True) -> Optional[Image.Image]:
+                         check_perimeter: bool = False, enable_crop: bool = True,
+                         perimeter_mode: str = 'if_white') -> Optional[Image.Image]:
     """
     Applies background removal and cropping to an image based on provided parameters.
     
@@ -1368,48 +1377,70 @@ def _apply_background_crop(img: Image.Image, white_tolerance: int = 10, perimete
         force_axes_symmetry: Whether to force axes symmetry
         check_perimeter: Whether to check perimeter before processing
         enable_crop: Whether to enable cropping (new setting)
+        perimeter_mode: Mode for perimeter check ('if_white' or 'if_not_white')
         
     Returns:
         Processed image or None if processing fails
     """
     try:
         log.info("=== Processing background and crop ===")
+        log.info(f"Perimeter mode: {perimeter_mode}")
         
         # Convert to RGBA if needed
         if img.mode != 'RGBA':
             img = img.convert('RGBA')
         
-        # Check perimeter if enabled
-        should_remove_bg = True
+        # Check perimeter - результат определяет оба процесса (удаление фона и обрезку)
+        should_proceed = True  # По умолчанию выполняем оба действия, если периметр не проверяется
         if check_perimeter:
             log.debug(f"Checking if image perimeter is white (tolerance: {perimeter_tolerance})")
             perimeter_is_white = image_utils.check_perimeter_is_white(img, perimeter_tolerance, 1)
             
-            # Всегда используем 'if_white' режим
-            if not perimeter_is_white:
-                log.info("Background removal skipped: perimeter is NOT white")
-                should_remove_bg = False
+            # Use the selected perimeter mode
+            if perimeter_mode == 'if_white':
+                # Process image if perimeter IS white
+                if not perimeter_is_white:
+                    log.info("Processing skipped: perimeter is NOT white (mode: if_white)")
+                    should_proceed = False
+                else:
+                    log.info("Processing will proceed: perimeter IS white (mode: if_white)")
+            elif perimeter_mode == 'if_not_white':
+                # Process image if perimeter is NOT white
+                if perimeter_is_white:
+                    log.info("Processing skipped: perimeter IS white (mode: if_not_white)")
+                    should_proceed = False
+                else:
+                    log.info("Processing will proceed: perimeter is NOT white (mode: if_not_white)")
             else:
-                log.info("Background will be removed: perimeter IS white")
+                log.warning(f"Unknown perimeter mode: {perimeter_mode}. Defaulting to if_white.")
+                if not perimeter_is_white:
+                    log.info("Processing skipped: perimeter is NOT white (default if_white)")
+                    should_proceed = False
         
-        # Remove background if needed
-        if should_remove_bg:
-            img = image_utils.remove_white_background(img, white_tolerance)
-            if not img:
+        # Если периметр соответствует выбранному режиму - выполняем оба процесса
+        if should_proceed:
+            # Remove background if needed
+            img_processed = img
+            # Удаляем фон независимо от обрезки
+            img_processed = image_utils.remove_white_background(img_processed, white_tolerance)
+            if not img_processed:
                 log.error("Failed to remove background")
                 return None
-        
-        # Apply cropping only if enabled
-        if enable_crop:
-            log.info("Cropping is enabled, applying crop")
-            img = image_utils.crop_image(img, force_axes_symmetry, force_absolute_symmetry)
-            if not img:
-                log.error("Failed to crop image")
-                return None
+            
+            # Apply cropping as separate step
+            if enable_crop:
+                log.info("Cropping is enabled, applying crop")
+                img_processed = image_utils.crop_image(img_processed, force_axes_symmetry, force_absolute_symmetry)
+                if not img_processed:
+                    log.error("Failed to crop image")
+                    return None
+            else:
+                log.info("Cropping is disabled, keeping canvas size")
+                
+            return img_processed
         else:
-            log.info("Cropping is disabled, keeping original canvas size")
-        
-        return img
+            log.info("Background removal and cropping were skipped based on perimeter check")
+            return img
         
     except Exception as e:
         log.error(f"Error in _apply_background_crop: {e}")
