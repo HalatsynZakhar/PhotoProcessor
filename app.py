@@ -1056,6 +1056,41 @@ with st.sidebar:
         # === КОНЕЦ УДАЛЕННОГО ОБЩЕГО ЭКСПАНДЕРА ===
 
     elif current_mode_local_for_settings == "Создание коллажей":
+        with st.expander("Параметры сетки коллажа", expanded=False):
+            # --- Кол-во столбцов ---
+            enable_cols_coll = st.checkbox("Задать кол-во столбцов",
+                                             value=get_setting('collage_mode.enable_forced_cols', False),
+                                             key='coll_enable_cols')
+            set_setting('collage_mode.enable_forced_cols', enable_cols_coll)
+            if enable_cols_coll:
+                 cols_coll = st.number_input("Столбцов", 1, 20, value=get_setting('collage_mode.forced_cols', 3), step=1, key='coll_cols')
+                 set_setting('collage_mode.forced_cols', cols_coll)
+            else: 
+                 st.caption("Кол-во столбцов: Авто")
+            
+            # --- Отступ (без изменений) ---
+            spc_coll = st.slider("Отступ между фото (%)", 0.0, 20.0, value=get_setting('collage_mode.spacing_percent', 2.0), step=0.5, key='coll_spacing', format="%.1f%%")
+            set_setting('collage_mode.spacing_percent', spc_coll)
+
+        with st.expander("Пропорциональное размещение", expanded=False):
+            prop_enabled = st.checkbox("Включить пропорциональное размещение", 
+                                        value=get_setting('collage_mode.proportional_placement', False),
+                                        key='coll_prop_enable',
+                                        help="Масштабировать изображения относительно друг друга перед размещением.")
+            set_setting('collage_mode.proportional_placement', prop_enabled)
+            if prop_enabled:
+                ratios_str = ",".join(map(str, get_setting('collage_mode.placement_ratios', [1.0])))
+                new_ratios_str = st.text_input("Соотношения размеров (через запятую)", 
+                                                value=ratios_str, 
+                                                key='coll_ratios',
+                                                help="Напр.: 1,0.8,0.8 - второе и третье фото будут 80% от размера первого.")
+                try:
+                    new_ratios = [float(x.strip()) for x in new_ratios_str.split(',') if x.strip()]
+                    if new_ratios and all(r > 0 for r in new_ratios): set_setting('collage_mode.placement_ratios', new_ratios)
+                    else: st.caption("❌ Введите положительные числа")
+                except ValueError:
+                    st.caption("❌ Неверный формат чисел")
+
         with st.expander("Размер и формат коллажа", expanded=False):
             # --- Соотношение сторон --- 
             enable_ratio_coll = st.checkbox("Принудительное соотношение сторон коллажа", 
@@ -1155,46 +1190,6 @@ with st.sidebar:
                          else: st.caption("❌ R,G,B 0-255")
                      except ValueError: st.caption("❌ R,G,B 0-255")
                  else: st.caption("-")
-
-        with st.expander("Параметры сетки коллажа", expanded=False):
-            # --- Кол-во столбцов ---
-            enable_cols_coll = st.checkbox("Задать кол-во столбцов",
-                                             value=get_setting('collage_mode.enable_forced_cols', False),
-                                             key='coll_enable_cols')
-            set_setting('collage_mode.enable_forced_cols', enable_cols_coll)
-            if enable_cols_coll:
-                 cols_coll = st.number_input("Столбцов", 1, 20, value=get_setting('collage_mode.forced_cols', 3), step=1, key='coll_cols')
-                 set_setting('collage_mode.forced_cols', cols_coll)
-            else: 
-                 st.caption("Кол-во столбцов: Авто")
-                 # Сбросим значение, если галка снята?
-                 # if get_setting('collage_mode.forced_cols', 3) != 0:
-                 #     set_setting('collage_mode.forced_cols', 0) 
-            
-            # --- Отступ (без изменений) ---
-            spc_coll = st.slider("Отступ между фото (%)", 0.0, 20.0, value=get_setting('collage_mode.spacing_percent', 2.0), step=0.5, key='coll_spacing', format="%.1f%%")
-            set_setting('collage_mode.spacing_percent', spc_coll)
-
-        # === ВОССТАНОВЛЕННЫЕ НАСТРОЙКИ ПРОПОРЦИОНАЛЬНОСТИ ===
-        with st.expander("Пропорциональное размещение", expanded=False):
-            prop_enabled = st.checkbox("Включить пропорциональное размещение", 
-                                       value=get_setting('collage_mode.proportional_placement', False),
-                                       key='coll_prop_enable',
-                                       help="Масштабировать изображения относительно друг друга перед размещением.")
-            set_setting('collage_mode.proportional_placement', prop_enabled)
-            if prop_enabled:
-                ratios_str = ",".join(map(str, get_setting('collage_mode.placement_ratios', [1.0])))
-                new_ratios_str = st.text_input("Соотношения размеров (через запятую)", 
-                                               value=ratios_str, 
-                                               key='coll_ratios',
-                                               help="Напр.: 1,0.8,0.8 - второе и третье фото будут 80% от размера первого.")
-                try:
-                    new_ratios = [float(x.strip()) for x in new_ratios_str.split(',') if x.strip()]
-                    if new_ratios and all(r > 0 for r in new_ratios): set_setting('collage_mode.placement_ratios', new_ratios)
-                    else: st.caption("❌ Введите положительные числа")
-                except ValueError:
-                    st.caption("❌ Неверный формат чисел")
-        # ====================================================
 
 # === Конец блока with st.sidebar ===
 
