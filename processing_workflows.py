@@ -686,57 +686,49 @@ def _process_image_for_collage(image_path: str, prep_settings, white_settings, b
         enable_whitening = white_settings.get('enable_whitening', False)
         whitening_cancel_threshold = int(white_settings.get('whitening_cancel_threshold', 765))  # Default to 765 (0% on slider)
         log.info(f"Whitening threshold from settings: {whitening_cancel_threshold}")
-        
-        # Проверяем и корректируем значение порога
-        if whitening_cancel_threshold > 255 * 3:
-            whitening_cancel_threshold = 765  # Значение по умолчанию в новой шкале
-            log.info(f"Threshold too high, reset to default: {whitening_cancel_threshold}")
-        elif whitening_cancel_threshold < 60:
-            whitening_cancel_threshold = whitening_cancel_threshold * 3
-            log.info(f"Converting old scale threshold to new scale: {whitening_cancel_threshold}")
-        # Иначе оставляем как есть (вероятно уже конвертированное значение)
-        if enable_whitening: img_current = image_utils.whiten_image_by_darkest_perimeter(img_current, whitening_cancel_threshold)
-        if not img_current: return None
+        if enable_whitening:
+            img_current = image_utils.whiten_image_by_darkest_perimeter(img_current, whitening_cancel_threshold)
+            if not img_current: return None # Если отбеливание вернуло None
 
-        # 4. Удаление фона/обрезка (если вкл)
+        # 4. Удаление фона и Обрезка (если вкл)
         enable_bg_crop = bgc_settings.get('enable_bg_crop', False)
-        white_tolerance = int(bgc_settings.get('white_tolerance', 0)) if enable_bg_crop else None
-        perimeter_tolerance = int(bgc_settings.get('perimeter_tolerance', 10)) if enable_bg_crop else None
-        crop_symmetric_absolute = bool(bgc_settings.get('crop_symmetric_absolute', False)) if enable_bg_crop else False
-        crop_symmetric_axes = bool(bgc_settings.get('crop_symmetric_axes', False)) if enable_bg_crop else False
-        check_perimeter = bool(bgc_settings.get('check_perimeter', True)) if enable_bg_crop else False
-        enable_crop = bool(bgc_settings.get('enable_crop', True)) if enable_bg_crop else False
-        perimeter_mode = str(bgc_settings.get('perimeter_mode', 'if_white')) if enable_bg_crop else 'if_white'
-
         if enable_bg_crop:
+            log.info("=== Processing background and crop ===")
+            # Извлекаем все необходимые параметры из bgc_settings
+            white_tolerance = int(bgc_settings.get('white_tolerance', 10))
+            perimeter_tolerance = int(bgc_settings.get('perimeter_tolerance', 10))
+            crop_symmetric_absolute = bool(bgc_settings.get('crop_symmetric_absolute', False))
+            crop_symmetric_axes = bool(bgc_settings.get('crop_symmetric_axes', False))
+            check_perimeter = bool(bgc_settings.get('check_perimeter', True))
+            enable_crop = bool(bgc_settings.get('enable_crop', True))
+            perimeter_mode = bgc_settings.get('perimeter_mode', 'if_white')
+            
             img_current = _apply_background_crop(
                 img_current,
-                white_tolerance=white_tolerance,
-                perimeter_tolerance=perimeter_tolerance,
-                force_absolute_symmetry=crop_symmetric_absolute,
-                force_axes_symmetry=crop_symmetric_axes,
-                check_perimeter=check_perimeter,
-                enable_crop=enable_crop,
+                white_tolerance,
+                perimeter_tolerance,
+                crop_symmetric_absolute,
+                crop_symmetric_axes,
+                check_perimeter,
+                enable_crop,
                 perimeter_mode=perimeter_mode
             )
+            if not img_current: return None
 
         # 5. Добавление полей (если вкл)
         enable_padding = pad_settings.get('mode', 'never') != 'never' # Включено, если не равно 'never'
         padding_mode = pad_settings.get('mode', 'never')
         padding_percent = float(pad_settings.get('padding_percent', 0.0)) if enable_padding else 0.0
         perimeter_check_tolerance = int(pad_settings.get('perimeter_check_tolerance', 10)) if enable_padding else 0
-        # perimeter_margin removed, always using 1 px margin
+        allow_expansion = pad_settings.get('allow_expansion', True) # ИЗВЛЕКАЕМ НАСТРОЙКУ ЗДЕСЬ
         
         # Определяем, нужно ли добавлять поля
         apply_padding = False
         if enable_padding:
             if padding_mode == 'always':
-                # Всегда добавляем поля
                 apply_padding = True
                 log.debug(f"    Padding will be applied (mode: always).")
             else:
-                # Режимы if_white или if_not_white - нужна проверка периметра
-                # Используем специальный допуск для проверки периметра
                 perimeter_is_white = image_utils.check_perimeter_is_white(
                     img_current, perimeter_check_tolerance, 1)
                 
@@ -751,6 +743,7 @@ def _process_image_for_collage(image_path: str, prep_settings, white_settings, b
         
         # Применяем padding только если нужно
         if apply_padding:
+            # ПЕРЕДАЕМ allow_expansion В ФУНКЦИЮ
             img_current = image_utils.add_padding(img_current, padding_percent, allow_expansion)
             if not img_current: return None
             log.debug(f"    Padding applied. New size: {img_current.size}")
