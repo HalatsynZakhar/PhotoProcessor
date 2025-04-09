@@ -718,7 +718,8 @@ with st.sidebar:
             options=list(padding_mode_options.keys()),
             format_func=lambda x: padding_mode_options[x],
             index=list(padding_mode_options.keys()).index(get_setting('padding.mode', 'never')),
-            key='padding_mode'
+            key='padding_mode',
+            help="Выберите режим добавления отступов: 'Никогда' - отступы не добавляются; 'Всегда' - отступы добавляются всегда; 'Если белый' - отступы добавляются, если периметр изображения белый; 'Если не белый' - отступы добавляются, если периметр не белый"
         )
         set_setting('padding.mode', selected_padding_mode_key)
 
@@ -812,7 +813,8 @@ with st.sidebar:
                     accept_multiple_files=False,
                     type=['jpg', 'jpeg', 'png', 'psd'],
                     key='template_uploader',
-                    label_visibility="collapsed" # Скрываем стандартную метку
+                    label_visibility="collapsed", # Скрываем стандартную метку
+                    help="Загрузите изображение для использования в качестве шаблона. Поддерживаются форматы JPG, PNG и PSD"
                 )
                 
                 if uploaded_file:
@@ -847,7 +849,8 @@ with st.sidebar:
                     "Режим масштабирования",
                     options=["Без масштабирования", "Вписать изображение в шаблон", "Вписать шаблон в изображение", "Использовать соотношение размеров"],
                     index=0,
-                    key="scaling_mode"
+                    key="scaling_mode",
+                    help="Выберите способ масштабирования: 'Без масштабирования' - исходные размеры; 'Вписать изображение в шаблон' - изображение растягивается/уменьшается до размеров шаблона; 'Вписать шаблон в изображение' - шаблон растягивается/уменьшается до размеров изображения; 'Соотношение размеров' - применяется указанное соотношение"
                 )
                 
                 # Сохраняем выбранный режим
@@ -893,7 +896,7 @@ with st.sidebar:
                 
                 # Порядок слоев
                 st.caption("Порядок слоев")
-                template_on_top = st.checkbox("Шаблон поверх изображения", value=get_setting('merge_settings.template_on_top', True), key="merge_template_on_top")
+                template_on_top = st.checkbox("Шаблон поверх изображения", value=get_setting('merge_settings.template_on_top', True), key="merge_template_on_top", help="Если включено, шаблон будет размещен поверх изображения; если выключено - изображение будет наверху")
                 set_setting('merge_settings.template_on_top', template_on_top)
                 
                 # Позиция изображения
@@ -912,7 +915,8 @@ with st.sidebar:
                         'top-right': 'Верх-право',
                         'bottom-left': 'Низ-лево',
                         'bottom-right': 'Низ-право'
-                    }[x]
+                    }[x],
+                    help="Укажите положение изображения на холсте. Это определяет, где будет размещено изображение относительно шаблона"
                 )
                 set_setting('merge_settings.position', position)
                 
@@ -932,12 +936,13 @@ with st.sidebar:
                         'top-right': 'Верх-право',
                         'bottom-left': 'Низ-лево',
                         'bottom-right': 'Низ-право'
-                    }[x]
+                    }[x],
+                    help="Укажите положение шаблона на холсте. Это определяет, где будет размещен шаблон относительно изображения"
                 )
                 set_setting('merge_settings.template_position', template_position)
                 
                 # Обработка шаблона
-                process_template = st.checkbox("Обрабатывать шаблон", value=get_setting('merge_settings.process_template', False), key="merge_process_template")
+                process_template = st.checkbox("Обрабатывать шаблон", value=get_setting('merge_settings.process_template', False), key="merge_process_template", help="Если включено, к шаблону будут применены те же операции обработки, что и к основному изображению (отбеливание, удаление фона и т.д.)")
                 set_setting('merge_settings.process_template', process_template)
     # ==============================================
 
@@ -1101,16 +1106,17 @@ with st.sidebar:
             # --- Кол-во столбцов ---
             enable_cols_coll = st.checkbox("Задать кол-во столбцов",
                                              value=get_setting('collage_mode.enable_forced_cols', False),
-                                             key='coll_enable_cols')
+                                             key='coll_enable_cols',
+                                             help="Если включено, позволяет задать фиксированное количество столбцов в коллаже. Иначе количество определяется автоматически")
             set_setting('collage_mode.enable_forced_cols', enable_cols_coll)
             if enable_cols_coll:
-                 cols_coll = st.number_input("Столбцов", 1, 20, value=get_setting('collage_mode.forced_cols', 3), step=1, key='coll_cols')
+                 cols_coll = st.number_input("Столбцов", 1, 20, value=get_setting('collage_mode.forced_cols', 3), step=1, key='coll_cols', help="Фиксированное количество столбцов в коллаже. Изображения будут распределены по этим столбцам")
                  set_setting('collage_mode.forced_cols', cols_coll)
             else: 
                  st.caption("Кол-во столбцов: Авто")
             
             # --- Отступ (без изменений) ---
-            spc_coll = st.slider("Отступ между фото (%)", 0.0, 200.0, value=get_setting('collage_mode.spacing_percent', 2.0), step=0.5, key='coll_spacing', format="%.1f%%")
+            spc_coll = st.slider("Отступ между фото (%)", 0.0, 200.0, value=get_setting('collage_mode.spacing_percent', 2.0), step=0.5, key='coll_spacing', format="%.1f%%", help="Размер пространства между фотографиями в коллаже. Указывается в процентах от размера изображений")
             set_setting('collage_mode.spacing_percent', spc_coll)
 
         with st.expander("Пропорциональное размещение", expanded=False):
@@ -1218,12 +1224,12 @@ with st.sidebar:
                                                 help="JPG - меньше размер файла, нет прозрачности. PNG - больше размер файла, сохраняет прозрачность")
                  set_setting('collage_mode.output_format', output_format_coll)
             with q_col_coll:
-                 if output_format_coll == 'jpg': q_coll = st.number_input("Кач-во", 1, 100, value=get_setting('collage_mode.jpeg_quality', 95), key='coll_quality'); set_setting('collage_mode.jpeg_quality', q_coll)
+                 if output_format_coll == 'jpg': q_coll = st.number_input("Кач-во", 1, 100, value=get_setting('collage_mode.jpeg_quality', 95), key='coll_quality', help="Качество сжатия JPG (1-100). Выше значение - лучше качество, но больше размер файла."); set_setting('collage_mode.jpeg_quality', q_coll)
                  else: st.caption("-")
             with bg_col_coll:
                  if output_format_coll == 'jpg':
                      bg_color_str_coll = ",".join(map(str, get_setting('collage_mode.jpg_background_color', [255,255,255])))
-                     new_bg_color_str_coll = st.text_input("Фон (R,G,B)", value=bg_color_str_coll, key='coll_bg')
+                     new_bg_color_str_coll = st.text_input("Фон (R,G,B)", value=bg_color_str_coll, key='coll_bg', help="Цвет фона для JPG в формате R,G,B (значения 0-255). Для белого: 255,255,255, для черного: 0,0,0")
                      try:
                          new_bg_color_coll = list(map(int, new_bg_color_str_coll.split(',')))
                          if len(new_bg_color_coll) == 3 and all(0 <= c <= 255 for c in new_bg_color_coll):
