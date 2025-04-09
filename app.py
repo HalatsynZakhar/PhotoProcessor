@@ -684,6 +684,22 @@ with st.sidebar:
                                    help="Включить добавление отступов вокруг изображения")
         set_setting('padding.enable_padding', enable_padding)
         if enable_padding:
+            # Определяем режим padding
+            padding_mode_options = {
+                'never': 'Никогда',
+                'always': 'Всегда',
+                'if_white': 'Если белый',
+                'if_not_white': 'Если не белый'
+            }
+            selected_padding_mode_key = st.radio(
+                "Режим добавления отступов",
+                options=list(padding_mode_options.keys()),
+                format_func=lambda x: padding_mode_options[x],
+                index=list(padding_mode_options.keys()).index(get_setting('padding.mode', 'never')),
+                key='padding_mode'
+            )
+            set_setting('padding.mode', selected_padding_mode_key)
+
             # === УСЛОВНЫЕ НАСТРОЙКИ ===
             check_perimeter_selected = selected_padding_mode_key in ['if_white', 'if_not_white']
 

@@ -16,6 +16,10 @@ dist/
 build/
 wheels/
 *.egg
+temp/
+test_images/
+templates/
+
 
 # PyCharm files (optional)
 .idea/
