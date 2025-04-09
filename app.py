@@ -1,6 +1,7 @@
 # app.py
 
-
+import logging
+import config_manager # Убедимся, что импортирован
 
 # --- БЛОК ПРОВЕРКИ И УСТАНОВКИ ЗАВИСИМОСТЕЙ ---
 import sys
@@ -151,6 +152,82 @@ log.info("--- App script started, logger configured (Stream + File) ---")
 log.info(f"UI Log Level: {logging.getLevelName(log_level)}")
 log.info(f"File Log Level: DEBUG")
 
+def cleanup_unused_templates():
+    """
+    Проверяет папку 'templates' и удаляет файлы, на которые не ссылается
+    ни один пресет настроек в папке 'settings_presets'.
+    """
+    log.info("--- Starting cleanup of unused templates --- ")
+    presets_dir = config_manager.PRESETS_DIR
+    templates_dir = "templates"
+    
+    if not os.path.isdir(presets_dir):
+        log.warning(f"Presets directory '{presets_dir}' not found. Cannot check for unused templates.")
+        return
+        
+    if not os.path.isdir(templates_dir):
+        log.info(f"Templates directory '{templates_dir}' not found. Nothing to clean.")
+        return
+        
+    # 1. Собрать все пути к шаблонам, используемые в пресетах
+    valid_template_paths = set()
+    try:
+        preset_names = config_manager.get_available_presets()
+        log.info(f"Checking {len(preset_names)} presets for template paths...")
+        for name in preset_names:
+            settings = config_manager.load_settings_preset(name)
+            if settings:
+                template_path_relative = settings.get('merge_settings', {}).get('template_path', '')
+                # Проверяем, что путь не пустой и указывает на папку templates
+                if template_path_relative and template_path_relative.startswith(templates_dir + os.path.sep):
+                    # Нормализуем путь для корректного сравнения
+                    try:
+                        abs_template_path = os.path.abspath(template_path_relative)
+                        normalized_path = os.path.normcase(os.path.normpath(abs_template_path))
+                        valid_template_paths.add(normalized_path)
+                        # log.debug(f"Preset '{name}' uses template: {normalized_path}")
+                    except Exception as e_path:
+                        log.error(f"Error processing template path '{template_path_relative}' from preset '{name}': {e_path}")
+    except Exception as e:
+        log.error(f"Error reading presets during template cleanup: {e}")
+        return # Прерываем, если не можем надежно прочитать пресеты
+
+    log.info(f"Found {len(valid_template_paths)} unique template paths used in presets.")
+    # log.debug(f"Valid template paths: {valid_template_paths}")
+
+    # 2. Получить все файлы в папке templates
+    unused_deleted_count = 0
+    try:
+        files_in_templates_dir = [f for f in os.listdir(templates_dir) if os.path.isfile(os.path.join(templates_dir, f))]
+        log.info(f"Found {len(files_in_templates_dir)} files in '{templates_dir}' directory. Checking usage...")
+
+        # 3. Сравнить и удалить неиспользуемые
+        for filename in files_in_templates_dir:
+            file_abs_path = os.path.abspath(os.path.join(templates_dir, filename))
+            normalized_file_path = os.path.normcase(os.path.normpath(file_abs_path))
+            
+            # log.debug(f"Checking file: {normalized_file_path}")
+            if normalized_file_path not in valid_template_paths:
+                log.warning(f"Template file '{filename}' seems unused by any preset. Attempting deletion...")
+                try:
+                    os.remove(file_abs_path)
+                    log.info(f"Successfully deleted unused template: {filename}")
+                    unused_deleted_count += 1
+                except OSError as e_del:
+                    log.error(f"Failed to delete unused template '{filename}': {e_del}")
+            # else: 
+                # log.debug(f"Template file '{filename}' is used.")
+
+    except Exception as e:
+        log.error(f"Error accessing or processing templates directory '{templates_dir}': {e}")
+
+    log.info(f"--- Template cleanup finished. Deleted {unused_deleted_count} unused files. ---")
+
+# === Конец определения функции ===
+
+
+
+
 # === Основной код приложения Streamlit ===
 
 # --- Загрузка/Инициализация Настроек ---
@@ -211,6 +288,13 @@ if 'initialized' not in st.session_state:
     st.session_state.settings_changed = False
     st.session_state.is_processing = False  # Добавляем флаг состояния обработки
     st.session_state.saved_logs = ""  # Добавляем переменную для сохранения логов
+    
+    # --- Очистка неиспользуемых шаблонов ПРИ ПЕРВОМ ЗАПУСКЕ сессии ---
+    try:
+        cleanup_unused_templates() # Вызов функции
+    except Exception as e_cleanup:
+        log.error(f"Error during template cleanup: {e_cleanup}")
+    # ---------------------------------------------------------------------
     
     # Загружаем настройки из settings.json ОДИН РАЗ для определения активного пресета
     initial_main_settings = config_manager.load_settings(CONFIG_FILE)
@@ -1634,3 +1718,6 @@ elif show_results and st.session_state.selected_processing_mode == "Обрабо
         log.debug("Output path not set or not found for individual files preview.")
 
 log.info("--- End of app script render cycle ---")
+
+
+# ... остальной код app.py ...
