@@ -563,9 +563,14 @@ with st.sidebar:
     # === Остальные Настройки ===
     st.header("⚙️ Настройки обработки")
     st.caption(f"Настройки для режима: **{st.session_state.selected_processing_mode}**")
-    with st.expander("1. Предварительный ресайз", expanded=False):
-        enable_preresize = st.checkbox("Включить", value=get_setting('preprocessing.enable_preresize', False), key='pre_enable',
-                                     help="Уменьшает размер изображения перед дальнейшей обработкой для экономии памяти и ускорения работы. Полезно при обработке больших изображений.")
+    # Проверяем, включено ли изменение размера
+    should_expand_resize = get_setting('preprocessing.enable_preresize', False)
+    
+    with st.expander("1. Изменение размера", expanded=should_expand_resize):
+        enable_preresize = st.checkbox("Включить изменение размера", 
+                                     value=get_setting('preprocessing.enable_preresize', False),
+                                     key='enable_preresize',
+                                     help="Включить предварительное изменение размера изображений")
         set_setting('preprocessing.enable_preresize', enable_preresize)
         if enable_preresize:
             col_pre1, col_pre2 = st.columns(2)
@@ -582,11 +587,14 @@ with st.sidebar:
                                        help="Максимальная высота изображения после ресайза. 0 означает отсутствие ограничения по высоте. Изображение будет пропорционально уменьшено, если его высота превышает это значение.")
                  set_setting('preprocessing.preresize_height', pr_h)
 
-    with st.expander("2. Отбеливание", expanded=False):
-        # === ЧЕКБОКС ВКЛЮЧЕНИЯ ===
-        enable_whitening = st.checkbox("Включить ", value=get_setting('whitening.enable_whitening', False), 
-                                     key='white_enable',
-                                     help="Конвертирует светлый фон по периметру в чисто белый цвет. Полезно для улучшения качества изображений с сероватым или не совсем белым фоном.")
+    # Проверяем, включено ли отбеливание
+    should_expand_whitening = get_setting('whitening.enable_whitening', False)
+    
+    with st.expander("2. Отбеливание", expanded=should_expand_whitening):
+        enable_whitening = st.checkbox("Включить отбеливание", 
+                                     value=get_setting('whitening.enable_whitening', False),
+                                     key='enable_whitening',
+                                     help="Включить отбеливание изображений")
         set_setting('whitening.enable_whitening', enable_whitening)
         if enable_whitening:
             # === ПРОСТОЙ ПРОЦЕНТНЫЙ СЛАЙДЕР ===
@@ -603,10 +611,14 @@ with st.sidebar:
             adjusted_threshold = int((100 - wc_percent) * 7.65)  # Инвертируем для логического соответствия
             set_setting('whitening.whitening_cancel_threshold', adjusted_threshold)
 
-    with st.expander("3. Удаление фона и обрезка", expanded=False):
-        enable_bg_crop = st.checkbox("Включить ", value=get_setting('background_crop.enable_bg_crop', False), 
-                                   key='bgc_enable',
-                                   help="Удаляет белый фон вокруг объекта и обрезает изображение по границам объекта. Полезно для подготовки изображений к публикации или для создания коллажей.")
+    # Проверяем, включено ли удаление фона
+    should_expand_bg_crop = get_setting('background_crop.enable_bg_crop', False)
+    
+    with st.expander("3. Удаление фона", expanded=should_expand_bg_crop):
+        enable_bg_crop = st.checkbox("Включить удаление фона", 
+                                   value=get_setting('background_crop.enable_bg_crop', False),
+                                   key='enable_bg_crop',
+                                   help="Включить удаление белого фона с изображений")
         set_setting('background_crop.enable_bg_crop', enable_bg_crop)
         if enable_bg_crop:
             bgc_tol = st.slider("Допуск белого фона", 0, 255, 
@@ -661,76 +673,56 @@ with st.sidebar:
                                      help="Определяет, насколько цвет пикселя периметра может отличаться от чисто белого (RGB 255,255,255), чтобы считаться белым при проверке периметра. Влияет только на решение об удалении фона.")
                 set_setting('background_crop.perimeter_tolerance', bgc_per_tol)
 
-    with st.expander("4. Добавление полей", expanded=False):
-        # === НОВЫЕ РЕЖИМЫ ===
-        padding_mode_options = {
-            "never": "Никогда не добавлять поля",
-            "always": "Добавлять поля всегда",
-            "if_white": "Добавлять поля, если периметр белый",
-            "if_not_white": "Добавлять поля, если периметр НЕ белый"
-        }
-        padding_mode_keys = list(padding_mode_options.keys())
-        padding_mode_values = list(padding_mode_options.values())
-        
-        current_padding_mode = get_setting('padding.mode', 'never')
-        try:
-            current_padding_mode_index = padding_mode_keys.index(current_padding_mode)
-        except ValueError:
-            current_padding_mode_index = 0 # Fallback to 'never'
-            set_setting('padding.mode', 'never') # Correct invalid setting
+    # Проверяем, включено ли добавление отступов
+    should_expand_padding = get_setting('padding.enable_padding', False)
+    
+    with st.expander("4. Добавление отступов", expanded=should_expand_padding):
+        enable_padding = st.checkbox("Включить добавление отступов", 
+                                   value=get_setting('padding.enable_padding', False),
+                                   key='enable_padding',
+                                   help="Включить добавление отступов вокруг изображения")
+        set_setting('padding.enable_padding', enable_padding)
+        if enable_padding:
+            # === УСЛОВНЫЕ НАСТРОЙКИ ===
+            check_perimeter_selected = selected_padding_mode_key in ['if_white', 'if_not_white']
 
-        selected_padding_mode_value = st.radio(
-            "Когда добавлять поля:",
-            options=padding_mode_values,
-            index=current_padding_mode_index,
-            key='pad_mode_radio',
-            horizontal=False, # Вертикальное расположение для читаемости
-            help="Определяет условия, при которых будут добавлены поля вокруг изображения. Выберите подходящий режим в зависимости от типа обрабатываемых изображений."
-        )
-        selected_padding_mode_key = padding_mode_keys[padding_mode_values.index(selected_padding_mode_value)]
-        
-        # Сохраняем выбранный режим
-        if selected_padding_mode_key != current_padding_mode:
-            set_setting('padding.mode', selected_padding_mode_key)
+            if check_perimeter_selected:
+                st.caption("Настройки проверки периметра:")
+                # Удалено: Толщина проверки периметра всегда равна 1px
+                # Устанавливаем значение 1 для perimeter_margin
+                set_setting('padding.perimeter_margin', 1)
 
-        # === УСЛОВНЫЕ НАСТРОЙКИ ===
-        check_perimeter_selected = selected_padding_mode_key in ['if_white', 'if_not_white']
+                # === НОВЫЙ НЕЗАВИСИМЫЙ ДОПУСК БЕЛОГО ===
+                pad_tol = st.slider("Допуск белого для проверки периметра", 0, 255, 
+                                     value=get_setting('padding.perimeter_check_tolerance', 10), 
+                                     key='pad_tolerance_conditional', 
+                                     help="Определяет, насколько цвет пикселя периметра может отличаться от чисто белого (RGB 255,255,255), чтобы считаться белым при проверке. Влияет только на решение о добавлении полей, но не на их размер.")
+                set_setting('padding.perimeter_check_tolerance', pad_tol)
 
-        if check_perimeter_selected:
-            st.caption("Настройки проверки периметра:")
-            # Удалено: Толщина проверки периметра всегда равна 1px
-            # Устанавливаем значение 1 для perimeter_margin
-            set_setting('padding.perimeter_margin', 1)
+            if selected_padding_mode_key != 'never':
+                st.caption("Общие настройки полей:")
+                pad_p = st.slider("Процент полей", 0.0, 50.0, 
+                                  value=get_setting('padding.padding_percent', 5.0), 
+                                  step=0.5, key='pad_perc_conditional', format="%.1f%%",
+                                  help="Размер добавляемых полей в процентах от большей стороны изображения. Поля будут одинаковыми со всех сторон. Большие значения создают больше пространства вокруг объекта.")
+                set_setting('padding.padding_percent', pad_p)
 
-            # === НОВЫЙ НЕЗАВИСИМЫЙ ДОПУСК БЕЛОГО ===
-            pad_tol = st.slider("Допуск белого для проверки периметра", 0, 255, 
-                                 value=get_setting('padding.perimeter_check_tolerance', 10), 
-                                 key='pad_tolerance_conditional', 
-                                 help="Определяет, насколько цвет пикселя периметра может отличаться от чисто белого (RGB 255,255,255), чтобы считаться белым при проверке. Влияет только на решение о добавлении полей, но не на их размер.")
-            set_setting('padding.perimeter_check_tolerance', pad_tol)
+                pad_exp = st.checkbox("Разрешить полям расширять холст", 
+                                      value=get_setting('padding.allow_expansion', True), 
+                                      key='pad_expand_conditional', 
+                                      help="Когда включено, поля могут увеличивать общий размер изображения. Если выключено, поля будут добавлены только если они не приведут к увеличению исходного размера изображения.")
+                set_setting('padding.allow_expansion', pad_exp)
 
-        if selected_padding_mode_key != 'never':
-            st.caption("Общие настройки полей:")
-            pad_p = st.slider("Процент полей", 0.0, 50.0, 
-                              value=get_setting('padding.padding_percent', 5.0), 
-                              step=0.5, key='pad_perc_conditional', format="%.1f%%",
-                              help="Размер добавляемых полей в процентах от большей стороны изображения. Поля будут одинаковыми со всех сторон. Большие значения создают больше пространства вокруг объекта.")
-            set_setting('padding.padding_percent', pad_p)
-
-            pad_exp = st.checkbox("Разрешить полям расширять холст", 
-                                  value=get_setting('padding.allow_expansion', True), 
-                                  key='pad_expand_conditional', 
-                                  help="Когда включено, поля могут увеличивать общий размер изображения. Если выключено, поля будут добавлены только если они не приведут к увеличению исходного размера изображения.")
-            set_setting('padding.allow_expansion', pad_exp)
-
-    # === НОВЫЙ ЭКСПАНДЕР ===
-    with st.expander("5. Яркость и Контраст", expanded=False):
-        enable_bc = st.checkbox("Включить", 
-                              value=get_setting('brightness_contrast.enable_bc', False), 
-                              key='bc_enable',
-                              help="Активирует регулировку яркости и контраста изображения. Полезно для улучшения видимости деталей и общего качества изображения.")
-        set_setting('brightness_contrast.enable_bc', enable_bc)
-        if enable_bc:
+    # Проверяем, включена ли настройка яркости и контраста
+    should_expand_brightness = get_setting('brightness_contrast.enable_bc', False)
+    
+    with st.expander("5. Яркость и контраст", expanded=should_expand_brightness):
+        enable_brightness_contrast = st.checkbox("Включить настройку яркости и контраста", 
+                                               value=get_setting('brightness_contrast.enable_bc', False),
+                                               key='enable_brightness_contrast',
+                                               help="Включить настройку яркости и контраста изображения")
+        set_setting('brightness_contrast.enable_bc', enable_brightness_contrast)
+        if enable_brightness_contrast:
             brightness_factor = st.slider("Яркость", 0.1, 3.0, 
                                           value=get_setting('brightness_contrast.brightness_factor', 1.0), 
                                           step=0.05, key='bc_brightness', format="%.2f",
@@ -744,12 +736,16 @@ with st.sidebar:
             set_setting('brightness_contrast.contrast_factor', contrast_factor)
     # ========================
 
-    # === НОВЫЙ ЭКСПАНДЕР ДЛЯ СЛИЯНИЯ С ШАБЛОНОМ ===
-    with st.expander("6. Слияние с шаблоном", expanded=False):
-        enable_merge = st.checkbox("Включить слияние с шаблоном",
-                                 value=get_setting('merge_settings.enable_merge', False),
-                                 key='merge_enable',
-                                 help="Активирует слияние изображений с указанным шаблоном.")
+    # Проверяем, включена ли настройка слияния с шаблоном
+    should_expand_merge = get_setting('merge_settings.enable_merge', False)
+    
+    with st.expander("6. Слияние с шаблоном", expanded=should_expand_merge):
+        enable_merge = st.checkbox(
+            "Включить слияние с шаблоном", 
+            value=get_setting('merge_settings.enable_merge', False),
+            key='enable_merge',
+            help="Включить слияние изображения с шаблоном"
+        )
         set_setting('merge_settings.enable_merge', enable_merge)
         
         if enable_merge:
