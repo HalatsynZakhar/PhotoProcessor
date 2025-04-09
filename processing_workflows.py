@@ -1149,13 +1149,13 @@ def _merge_with_template(image, template_path_or_image, settings=None):
         
         log.info(f"  > Canvas size: {canvas_width}x{canvas_height}")
     elif fit_image_to_template:
-        # Масштабируем изображение, чтобы оно помещалось в шаблон
-        # Если изображение меньше шаблона, увеличиваем его
-        if image_width < template_width and image_height < template_height:
-            # Изображение меньше шаблона, увеличиваем его
+        # Масштабируем изображение или шаблон, чтобы они соответствовали друг другу
+        if image_width <= template_width and image_height <= template_height:
+            # Изображение меньше шаблона по обоим измерениям - увеличиваем изображение
             width_ratio = template_width / image_width
             height_ratio = template_height / image_height
-            scale_factor = max(width_ratio, height_ratio)  # Используем max для максимального увеличения
+            # Используем минимальный коэффициент, чтобы изображение касалось шаблона по одной стороне
+            scale_factor = min(width_ratio, height_ratio)
             
             new_width = int(image_width * scale_factor)
             new_height = int(image_height * scale_factor)
@@ -1163,17 +1163,18 @@ def _merge_with_template(image, template_path_or_image, settings=None):
             # Масштабируем изображение
             scaled_image = image.resize((new_width, new_height), Image.Resampling.LANCZOS)
             
-            # Обновляем размеры холста
-            canvas_width = max(template_width, new_width)
-            canvas_height = max(template_height, new_height)
+            # Размеры холста остаются равными размерам шаблона
+            canvas_width = template_width
+            canvas_height = template_height
             
-            log.info(f"  > Fit image to template - Image is smaller, scaling up with factor: {scale_factor:.3f}")
+            log.info(f"  > Fit image to template - Image is smaller, scaling up image with factor: {scale_factor:.3f}")
             log.info(f"  > New image size: {new_width}x{new_height}")
         else:
-            # Изображение больше шаблона, увеличиваем шаблон
+            # Изображение больше шаблона хотя бы по одному измерению - увеличиваем шаблон
             width_ratio = image_width / template_width
             height_ratio = image_height / template_height
-            scale_factor = max(width_ratio, height_ratio)  # Используем max для максимального увеличения
+            # Используем минимальный коэффициент, чтобы шаблон касался изображения по одной стороне
+            scale_factor = min(width_ratio, height_ratio)
             
             new_width = int(template_width * scale_factor)
             new_height = int(template_height * scale_factor)
@@ -1181,11 +1182,11 @@ def _merge_with_template(image, template_path_or_image, settings=None):
             # Масштабируем шаблон
             scaled_template = template.resize((new_width, new_height), Image.Resampling.LANCZOS)
             
-            # Обновляем размеры холста
-            canvas_width = max(image_width, new_width)
-            canvas_height = max(image_height, new_height)
+            # Размеры холста равны размерам изображения
+            canvas_width = image_width
+            canvas_height = image_height
             
-            log.info(f"  > Fit image to template - Template is smaller, scaling up with factor: {scale_factor:.3f}")
+            log.info(f"  > Fit image to template - Image is larger, scaling up template with factor: {scale_factor:.3f}")
             log.info(f"  > New template size: {new_width}x{new_height}")
         
         log.info(f"  > Canvas size: {canvas_width}x{canvas_height}")
