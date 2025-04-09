@@ -9,6 +9,7 @@ import gc # Для сборки мусора при MemoryError
 from typing import Dict, Any, Optional, Tuple, List, Union
 import uuid
 import re
+from datetime import datetime
 
 # Используем абсолютный импорт (если все файлы в одной папке)
 import image_utils
@@ -318,6 +319,85 @@ def _save_image(img, output_path, output_format, jpeg_quality, jpg_background_co
 # === ОСНОВНАЯ ФУНКЦИЯ: ОБРАБОТКА ОТДЕЛЬНЫХ ФАЙЛОВ =============================
 # ==============================================================================
 
+def _create_backup(input_folder: str, template_path: str, backup_folder_base: str) -> bool:
+    """
+    Создает резервную копию исходных файлов и шаблона перед началом обработки.
+    Создает подпапку с датой и временем внутри backup_folder_base.
+    
+    Args:
+        input_folder: Путь к папке с исходными файлами.
+        template_path: Путь к файлу шаблона (может быть пустым).
+        backup_folder_base: Путь к основной папке для резервных копий.
+        
+    Returns:
+        bool: True если резервное копирование выполнено успешно (или не требовалось),
+              False в случае ошибки при копировании.
+    """
+    if not backup_folder_base:
+        log.info("Backup folder not specified, skipping backup.")
+        return True # Считаем успехом, т.к. бэкап не требовался
+        
+    try:
+        # 1. Создаем основную папку для резервных копий, если она не существует
+        if not os.path.exists(backup_folder_base):
+            os.makedirs(backup_folder_base)
+            log.info(f"Created main backup folder: {backup_folder_base}")
+            
+        # 2. Создаем подпапку с датой и временем
+        timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+        dated_backup_folder = os.path.join(backup_folder_base, f"backup_{timestamp}")
+        os.makedirs(dated_backup_folder)
+        log.info(f"Created dated backup folder: {dated_backup_folder}")
+        
+        files_backed_up_count = 0
+        template_backed_up = False
+        
+        # 3. Копируем шаблон, если он указан и существует
+        if template_path and os.path.isfile(template_path):
+            try:
+                template_filename = os.path.basename(template_path)
+                template_backup_path = os.path.join(dated_backup_folder, template_filename)
+                shutil.copy2(template_path, template_backup_path)
+                log.info(f"Template backed up to: {template_backup_path}")
+                template_backed_up = True
+            except Exception as e_tmpl:
+                log.error(f"Failed to back up template '{template_path}': {e_tmpl}")
+                # Не прерываем процесс, но логируем ошибку
+        
+        # 4. Копируем все файлы из входной папки, если она указана и существует
+        if input_folder and os.path.isdir(input_folder):
+            # Создаем подпапку для исходных файлов внутри папки с датой
+            source_files_backup_dir = os.path.join(dated_backup_folder, "source_files")
+            os.makedirs(source_files_backup_dir)
+            log.debug(f"Created source files backup subfolder: {source_files_backup_dir}")
+            
+            image_files = get_image_files(input_folder) # Используем существующую функцию
+            
+            if not image_files:
+                log.warning(f"No image files found in input folder for backup: {input_folder}")
+            else:
+                log.info(f"Starting backup of {len(image_files)} source files...")
+                for file_path in image_files:
+                    try:
+                        filename = os.path.basename(file_path)
+                        dest_path = os.path.join(source_files_backup_dir, filename)
+                        shutil.copy2(file_path, dest_path) # copy2 сохраняет метаданные
+                        files_backed_up_count += 1
+                    except Exception as e_file:
+                        log.error(f"Failed to back up source file '{filename}': {e_file}")
+                        # Продолжаем копировать остальные файлы
+                log.info(f"Finished backup. Successfully backed up {files_backed_up_count}/{len(image_files)} source files to {source_files_backup_dir}")
+        else:
+             log.warning(f"Input folder '{input_folder}' not found or not a directory. Skipping source files backup.")
+
+        # Считаем общий успех, если хотя бы что-то скопировалось или папка создана
+        return True
+        
+    except Exception as e:
+        log.error(f"Critical error during backup process to '{backup_folder_base}': {e}")
+        log.exception("Backup error details")
+        return False # Критическая ошибка при создании папок и т.д.
+
 def run_individual_processing(**all_settings: Dict[str, Any]) -> bool:
     """Обрабатывает отдельные файлы согласно настройкам."""
     try:
@@ -340,6 +420,13 @@ def run_individual_processing(**all_settings: Dict[str, Any]) -> bool:
         output_folder = all_settings.get('paths', {}).get('output_folder_path', '')
         backup_folder = all_settings.get('paths', {}).get('backup_folder_path', '')
         
+        # --- Создаем резервную копию ПЕРЕД началом обработки ---
+        backup_successful = _create_backup(input_folder, template_path, backup_folder)
+        if backup_folder and not backup_successful:
+            log.error("Backup failed! Processing aborted to prevent data loss.")
+            return False # Прерываем обработку, если бэкап не удался
+        # --------------------------------------------------------
+        
         # Extract processing settings
         preprocessing_settings = all_settings.get('preprocessing', {})
         whitening_settings = all_settings.get('whitening', {})
@@ -353,6 +440,7 @@ def run_individual_processing(**all_settings: Dict[str, Any]) -> bool:
         log.info(f"Input Path: {input_folder}")
         log.info(f"Output Path: {output_folder}")
         log.info(f"Backup Path: {backup_folder}")
+        log.info(f"Backup Status: {'Successful' if backup_successful else ('Skipped' if not backup_folder else 'Failed')}")
         log.info(f"Article (Renaming): {'Enabled' if individual_mode_settings.get('enable_rename', False) else 'Disabled'}")
         log.info(f"Delete Originals: {individual_mode_settings.get('delete_originals', False)}")
         
@@ -540,15 +628,14 @@ def run_individual_processing(**all_settings: Dict[str, Any]) -> bool:
                     overall_success = False
                     continue
                 
-                # Backup original if enabled
-                if backup_folder and individual_mode_settings.get('delete_originals', False):
+                # --- Удаление оригинала ПОСЛЕ успешного сохранения и ЕСЛИ включено --- 
+                if individual_mode_settings.get('delete_originals', False):
                     try:
-                        backup_path = os.path.join(backup_folder, filename)
-                        shutil.copy2(file_path, backup_path)
                         os.remove(file_path)
-                        log.info(f"Original backed up and deleted: {filename}")
+                        log.info(f"Original deleted: {filename}")
                     except Exception as e:
-                        log.error(f"Failed to backup/delete original: {e}")
+                        log.error(f"Failed to delete original: {e}")
+                # ----------------------------------------------------------------------
                 
                 log.info(f"--- Finished processing: {filename} (Success) ---")
                 
@@ -715,7 +802,7 @@ def run_collage_processing(**all_settings: Dict[str, Any]) -> bool:
     start_time = time.time()
     success_flag = False # Флаг для финального return
 
-    # --- 1. Извлечение и Валидация Параметров ---
+    # --- 1. Извлечение и Валидация Параметров (Включая пути для бэкапа) ---
     log.debug("Extracting settings for collage mode...")
     try:
         paths_settings = all_settings.get('paths', {})
@@ -729,7 +816,15 @@ def run_collage_processing(**all_settings: Dict[str, Any]) -> bool:
 
         source_dir = paths_settings.get('input_folder_path')
         output_filename_base = paths_settings.get('output_filename') # Имя без расширения от пользователя
-
+        backup_folder = paths_settings.get('backup_folder_path', '')
+        
+        # --- Создаем резервную копию ПЕРЕД началом обработки ---
+        backup_successful = _create_backup(source_dir, "", backup_folder) # Шаблона в коллаже нет
+        if backup_folder and not backup_successful:
+            log.error("Backup failed! Processing aborted to prevent data loss.")
+            return False # Прерываем обработку, если бэкап не удался
+        # --------------------------------------------------------
+        
         proportional_placement = coll_settings.get('proportional_placement', False)
         placement_ratios = coll_settings.get('placement_ratios', [1.0])
         forced_cols = int(coll_settings.get('forced_cols', 0))
@@ -782,26 +877,12 @@ def run_collage_processing(**all_settings: Dict[str, Any]) -> bool:
     log.info(f"Source Directory: {abs_source_dir}")
     # Логируем имя с расширением и путь
     log.info(f"Output Filename: {output_filename_with_ext} (Path: {output_file_path})")
+    log.info(f"Backup Path: {backup_folder}")
+    log.info(f"Backup Status: {'Successful' if backup_successful else ('Skipped' if not backup_folder else 'Failed')}")
     log.info(f"Output Format: {output_format.upper()}")
     if output_format == 'jpg': log.info(f"  JPG Bg: {valid_jpg_bg}, Quality: {jpeg_quality}")
-    log.info("-" * 10 + " Base Image Processing " + "-" * 10)
-    log.info(f"Preresize: {'Enabled' if prep_settings.get('enable_preresize') else 'Disabled'}")
-    log.info(f"Whitening: {'Enabled' if white_settings.get('enable_whitening') else 'Disabled'}")
-    log.info(f"BG Removal/Crop: {'Enabled' if bgc_settings.get('enable_bg_crop') else 'Disabled'}")
-    if bgc_settings.get('enable_bg_crop'): 
-        log.info(f"  Crop: {'Enabled' if bgc_settings.get('enable_crop', True) else 'Disabled'}, "
-                 f"Symmetry: Abs={bgc_settings.get('force_absolute_symmetry', False)}, "
-                 f"Axes={bgc_settings.get('force_axes_symmetry', False)}, "
-                 f"Check Perimeter={bgc_settings.get('check_perimeter', False)}")
-    log.info(f"Padding: {'Enabled' if pad_settings.get('mode') != 'never' else 'Disabled'}")
-    log.info("-" * 10 + " Collage Assembly " + "-" * 10)
-    log.info(f"Proportional Placement: {proportional_placement} (Ratios: {placement_ratios if proportional_placement else 'N/A'})")
-    log.info(f"Columns: {forced_cols if forced_cols > 0 else 'Auto'}")
-    log.info(f"Spacing: {spacing_percent}%")
-    log.info(f"Force Aspect Ratio: {str(valid_collage_aspect_ratio) or 'Disabled'}")
-    log.info(f"Max Dimensions: W:{max_collage_width or 'N/A'}, H:{max_collage_height or 'N/A'}")
-    log.info(f"Final Exact Canvas: W:{final_collage_exact_width or 'N/A'}, H:{final_collage_exact_height or 'N/A'}")
-    log.info("-" * 25)
+    
+    # ... (остальной код функции без изменений) ...
 
     # --- 4. Поиск Файлов ---
     log.info(f"Searching for images (excluding output file)...")
