@@ -958,13 +958,34 @@ def run_collage_processing(**all_settings: Dict[str, Any]) -> bool:
         collage_canvas = Image.new('RGBA', (canvas_width, canvas_height), (0, 0, 0, 0))
         log.debug(f"    Canvas created: {repr(collage_canvas)}") 
         current_idx = 0
+        
+        # First, count number of images in the last row
+        items_in_last_row = num_final_images % grid_cols
+        if items_in_last_row == 0 and num_final_images > 0:
+            items_in_last_row = grid_cols  # Last row is full
+        
+        log.debug(f"    Images in last row: {items_in_last_row} of {grid_cols} columns")
+        
         for r in range(grid_rows):
+            # Calculate row offset for centering the last row
+            row_offset = 0
+            is_last_row = (r == grid_rows - 1)
+            
+            if is_last_row and items_in_last_row < grid_cols:
+                # Calculate centering offset for the last row
+                empty_cells = grid_cols - items_in_last_row
+                row_offset = (empty_cells * (max_w_scaled + spacing_px_h)) // 2
+                log.debug(f"    Centering last row with offset: {row_offset}px ({empty_cells} empty cells)")
+            
             for c in range(grid_cols):
                 if current_idx >= num_final_images: break 
                 img = scaled_images[current_idx]
                 if img and img.width > 0 and img.height > 0:
-                     # Позиция верхнего левого угла ячейки
+                     # Позиция верхнего левого угла ячейки, с учетом смещения для последнего ряда
                      cell_x = spacing_px_h + c * (max_w_scaled + spacing_px_h)
+                     if is_last_row and items_in_last_row < grid_cols:
+                         cell_x += row_offset
+                     
                      cell_y = spacing_px_v + r * (max_h_scaled + spacing_px_v)
                      # Центрируем изображение внутри ячейки
                      paste_x = cell_x + (max_w_scaled - img.width) // 2
@@ -979,7 +1000,7 @@ def run_collage_processing(**all_settings: Dict[str, Any]) -> bool:
                          # Закрываем временное RGBA, если оно было создано при ошибке
                          if 'img_to_paste' in locals() and img_to_paste is not img: image_utils.safe_close(img_to_paste)
                 current_idx += 1
-            if current_idx >= num_final_images: break 
+            if current_idx >= num_final_images: break
         
         log.info("  Images placed on collage canvas.")
         for img in scaled_images: image_utils.safe_close(img) # Закрываем масштабированные исходники
