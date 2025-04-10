@@ -614,42 +614,8 @@ with st.sidebar:
                                         set_setting('individual_mode.article_name', main_article)
                                         st.success(f"Определен и применен артикул: {main_article}")
                                         
-                                        # Показываем кнопку для переименования файлов
-                                        rename_files = st.checkbox("Переименовать файлы согласно нормализованным артикулам", 
-                                                                value=False,
-                                                                help="Внимание: это действие переименует файлы непосредственно в исходной папке!")
+                                        # Удален неработающий элемент UI для переименования файлов
                                         
-                                        if rename_files:
-                                            # Список файлов для предпросмотра (ограничиваем до 10)
-                                            preview_list = []
-                                            for i, (file_path, new_name) in enumerate(article_mapping.items()):
-                                                if i < 10:
-                                                    old_name = os.path.basename(file_path)
-                                                    ext = os.path.splitext(old_name)[1]
-                                                    preview_list.append(f"{old_name} → {new_name}{ext}")
-                                                else:
-                                                    break
-                                                    
-                                            if preview_list:
-                                                st.caption("Предпросмотр переименования (до 10 файлов):")
-                                                for preview in preview_list:
-                                                    st.text(preview)
-                                                
-                                                if len(article_mapping) > 10:
-                                                    st.caption(f"...и еще {len(article_mapping) - 10} файлов")
-                                            
-                                            if st.button("Выполнить переименование", help="Внимание: это действие невозможно отменить!"):
-                                                with st.spinner("Переименование файлов..."):
-                                                    success = processing_workflows.apply_normalized_articles(
-                                                        input_path, 
-                                                        article_mapping, 
-                                                        rename_files=True
-                                                    )
-                                                    
-                                                    if success:
-                                                        st.success("Файлы успешно переименованы!")
-                                                    else:
-                                                        st.error("Произошла ошибка при переименовании файлов.")
                             except Exception as e:
                                 st.error(f"Ошибка при нормализации артикулей: {str(e)}")
                                 log.exception("Error in normalize_articles")
