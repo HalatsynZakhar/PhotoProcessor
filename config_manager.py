@@ -24,6 +24,38 @@ DEFAULT_SETTINGS = {
         "backup_folder_path": "", # Бэкап по умолчанию выключен (пустой путь)
         "output_filename": "collage"
     },
+    "preprocessing": {
+        "enable_preresize": False,
+        "preresize_width": 0,
+        "preresize_height": 0
+    },
+    "whitening": {
+        "enable_whitening": False,
+        "whitening_cancel_threshold": 765
+    },
+    "background_crop": {
+        "enable_bg_crop": False,
+        "white_tolerance": 10,
+        "perimeter_tolerance": 10,
+        "crop_symmetric_absolute": False,
+        "crop_symmetric_axes": False,
+        "check_perimeter": True,
+        "enable_crop": True,
+        "perimeter_mode": "if_white",
+        "extra_crop_percent": 0.0
+    },
+    "padding": {
+        "mode": "never",
+        "padding_percent": 5.0,
+        "allow_expansion": True,
+        "perimeter_check_tolerance": 10,
+        "perimeter_margin": 1
+    },
+    "brightness_contrast": {
+        "enable_bc": False,
+        "brightness_factor": 1.0,
+        "contrast_factor": 1.0
+    },
     "merge_settings": {
         "enable_merge": False,
         "template_path": "",

@@ -721,14 +721,15 @@ with st.sidebar:
     # Проверяем, включено ли изменение размера
     should_expand_resize = get_setting('preprocessing.enable_preresize', False)
     
-    with st.expander("1. Изменение размера", expanded=should_expand_resize):
-        enable_preresize = st.checkbox("Включить изменение размера", 
+    with st.expander("1. Предварительное уменьшение размера (до обработки)", expanded=should_expand_resize):
+        enable_preresize = st.checkbox("Включить предварительное уменьшение размера", 
                                      value=get_setting('preprocessing.enable_preresize', False),
                                      key='preprocessing.enable_preresize',
-                                     help="Включить предварительное изменение размера изображений",
+                                     help="Включить предварительное уменьшение размера изображений перед дальнейшей обработкой",
                                      on_change=setting_changed_callback, args=('preprocessing.enable_preresize',))
         # Убрали: set_setting('preprocessing.enable_preresize', enable_preresize)
         if st.session_state.get('preprocessing.enable_preresize', False):
+            st.warning("⚠️ Уменьшение размера изображения может привести к снижению качества и потере мелких деталей. Используйте только если изображения очень большие или для ускорения обработки.", icon="⚠️")
             col_pre1, col_pre2 = st.columns(2)
             with col_pre1:
                  pr_w = st.number_input("Макс. Ширина (px)", 0, 10000, 
