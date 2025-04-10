@@ -332,16 +332,25 @@ def remove_white_background(img, tolerance):
     return final_image
 
 
-def crop_image(img, symmetric_axes=False, symmetric_absolute=False):
+def crop_image(img, symmetric_axes=False, symmetric_absolute=False, extra_crop_percent=0.0):
     """
     Crops transparent borders from an image (assuming RGBA).
     No longer adds a 1px padding around the non-transparent area.
     Includes options for symmetrical cropping.
+    
+    Args:
+        img: Input image (RGBA)
+        symmetric_axes: Whether to apply symmetrical cropping along each axis independently
+        symmetric_absolute: Whether to apply absolute symmetrical cropping
+        extra_crop_percent: Additional percentage to crop after the main crop (0.0 to 100.0)
+    
+    Returns:
+        Cropped image
     """
     crop_mode = "Standard"
     if symmetric_absolute: crop_mode = "Absolute Symmetric"
     elif symmetric_axes: crop_mode = "Axes Symmetric"
-    log.debug(f"Attempting crop (Mode: {crop_mode}). Expecting RGBA input.")
+    log.debug(f"Attempting crop (Mode: {crop_mode}, Extra crop: {extra_crop_percent}%). Expecting RGBA input.")
 
     img_rgba = None; cropped_img = None
     final_image = img # Return original by default
@@ -443,10 +452,38 @@ def crop_image(img, symmetric_axes=False, symmetric_absolute=False):
             try:
                 cropped_img = img_rgba.crop(final_crop_box)
                 log.info(f"Cropped image size: {cropped_img.size}")
+                
+                # Apply additional crop based on percentage if specified
+                if extra_crop_percent > 0:
+                    crop_img_width, crop_img_height = cropped_img.size
+                    
+                    # Calculate extra pixels to crop from each side
+                    extra_crop_pixels_x = int(round(crop_img_width * (extra_crop_percent / 100.0) / 2))
+                    extra_crop_pixels_y = int(round(crop_img_height * (extra_crop_percent / 100.0) / 2))
+                    
+                    # Ensure we don't crop the entire image
+                    if extra_crop_pixels_x * 2 >= crop_img_width or extra_crop_pixels_y * 2 >= crop_img_height:
+                        log.warning(f"Extra crop of {extra_crop_percent}% would remove entire image. Skipping extra crop.")
+                    else:
+                        # Calculate the new crop box
+                        extra_crop_box = (
+                            extra_crop_pixels_x,
+                            extra_crop_pixels_y,
+                            crop_img_width - extra_crop_pixels_x,
+                            crop_img_height - extra_crop_pixels_y
+                        )
+                        log.debug(f"Applying extra crop of {extra_crop_percent}%, box: {extra_crop_box}")
+                        
+                        # Apply the extra crop
+                        extra_cropped_img = cropped_img.crop(extra_crop_box)
+                        safe_close(cropped_img)
+                        cropped_img = extra_cropped_img
+                        log.info(f"Final size after extra crop: {cropped_img.size}")
+                
                 final_image = cropped_img
                 cropped_img = None # Prevent closing in finally
             except Exception as e:
-                log.error(f"Error during img_rgba.crop({final_crop_box}): {e}. Cropping cancelled.", exc_info=True)
+                log.error(f"Error during cropping operation: {e}. Cropping cancelled.", exc_info=True)
                 final_image = img_rgba # Return RGBA copy before failed crop
                 img_rgba = None
 

@@ -819,6 +819,18 @@ with st.sidebar:
                 
                 if crop_symmetric_absolute and crop_symmetric_axes:
                     st.warning("Включены обе опции симметричной обрезки. Будет применена абсолютно симметричная обрезка.", icon="⚠️")
+                
+                # Добавляем слайдер для дополнительной обрезки
+                extra_crop_percent = st.slider(
+                    "Дополнительная обрезка (%)", 
+                    0.0, 50.0, 
+                    value=get_setting('background_crop.extra_crop_percent', 0.0), 
+                    step=0.5, 
+                    key='bgc_extra_crop_percent', 
+                    format="%.1f%%",
+                    help="Дополнительно обрезать изображение на указанный процент после основной обрезки. Полезно для удаления лишних областей вокруг объекта."
+                )
+                set_setting('background_crop.extra_crop_percent', extra_crop_percent)
             
             bgc_per = st.checkbox("Проверять периметр", 
                                 value=get_setting('background_crop.check_perimeter', True), 

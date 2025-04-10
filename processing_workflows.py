@@ -828,14 +828,14 @@ def run_collage_processing(**all_settings: Dict[str, Any]) -> bool:
     log.info(f"2. Whitening: {'Enabled' if white_settings.get('enable_whitening', False) else 'Disabled'} " +
             f"(Thresh:{white_settings.get('whitening_cancel_threshold', 765)})")
     
-    # Явно логируем значение white_tolerance и другие важные настройки удаления фона
-    white_tolerance = int(bgc_settings.get('white_tolerance', 0))
-    log.info(f"3. BG Removal/Crop: {'Enabled' if bgc_settings.get('enable_bg_crop', False) else 'Disabled'} " +
-            f"(White Tolerance:{white_tolerance})")
-    log.info(f"   Crop: {'Enabled' if bgc_settings.get('enable_crop', True) else 'Disabled'}, " +
-             f"Symmetry: Abs={bgc_settings.get('crop_symmetric_absolute', False)}, " +
-             f"Axes={bgc_settings.get('crop_symmetric_axes', False)}, " +
-             f"Check Perimeter={bgc_settings.get('check_perimeter', False)}")
+    # Добавляем параметр extra_crop_percent в логирование
+    extra_crop_percent = float(background_crop_settings.get('extra_crop_percent', 0.0))
+    log.info(f"3. BG Removal/Crop: {'Enabled' if background_crop_settings.get('enable_bg_crop', False) else 'Disabled'} "
+            f"(Tol:{background_crop_settings.get('white_tolerance', 10)}, Extra Crop:{extra_crop_percent}%)")
+    log.info(f"  Crop: {'Enabled' if background_crop_settings.get('enable_crop', True) else 'Disabled'}, "
+             f"Symmetry: Abs={background_crop_settings.get('force_absolute_symmetry', False)}, "
+             f"Axes={background_crop_settings.get('force_axes_symmetry', False)}, "
+             f"Check Perimeter={background_crop_settings.get('check_perimeter', False)}")
     log.info(f"4. Padding: {'Enabled' if pad_settings.get('mode', 'never') != 'never' else 'Disabled'} " +
             f"(Mode: {pad_settings.get('mode', 'never')}, Percentage: {pad_settings.get('padding_percent', 0)}%)")
     log.info(f"5. Brightness/Contrast: {'Enabled' if bc_settings.get('enable_bc', False) else 'Disabled'} " +
@@ -1475,28 +1475,35 @@ def get_image_files(folder_path: str) -> List[str]:
 
 def _apply_background_crop(img, white_tolerance, perimeter_tolerance, symmetric_absolute=False, 
                          symmetric_axes=False, check_perimeter=True, enable_crop=True,
-                         perimeter_mode='if_white', image_metadata=None):
+                         perimeter_mode='if_white', image_metadata=None, extra_crop_percent=0.0):
     """
-    Удаляет белый фон с изображения (метод flood-fill от периметра).
-    Работает только с режимом RGBA. Симметричная обрезка опциональна.
-    Использует image_metadata для оптимизации проверок периметра.
+    Применяет удаление фона и обрезку изображения.
     
     Args:
-        img: Изображение для обработки
+        img: Исходное изображение
         white_tolerance: Допуск для определения белого цвета
-        perimeter_tolerance: Допуск для проверки периметра  
-        symmetric_absolute: Вместо force_absolute_symmetry
-        symmetric_axes: Вместо force_axes_symmetry
-        check_perimeter: Проверять ли периметр перед обработкой
-        enable_crop: Включить ли обрезку (новая настройка)
+        perimeter_tolerance: Допуск для проверки периметра
+        symmetric_absolute: Полная симметрия обрезки
+        symmetric_axes: Симметрия обрезки по осям
+        check_perimeter: Проверять ли периметр изображения
+        enable_crop: Применять ли обрезку
         perimeter_mode: Режим проверки периметра ('if_white', 'if_not_white', 'always')
-        image_metadata: Словарь для сохранения метаданных о периметре
+        image_metadata: Словарь с метаданными изображения
+        extra_crop_percent: Дополнительный процент обрезки после основной (0.0 - 100.0)
+    
+    Returns:
+        Обработанное изображение или исходное, если периметр не соответствует условию
     """
+    # Инициализируем метаданные, если не переданы
+    if image_metadata is None:
+        image_metadata = {}
+    
+    log.info(f"=== Processing background crop (Extra crop: {extra_crop_percent}%) ===")
+    log.debug(f"Parameters: white_tol={white_tolerance}, perim_tol={perimeter_tolerance}, "
+             f"sym_abs={symmetric_absolute}, sym_axes={symmetric_axes}, check_perim={check_perimeter}, "
+             f"enable_crop={enable_crop}, perim_mode={perimeter_mode}")
+    
     try:
-        # Создаем словарь метаданных, если он не передан
-        if image_metadata is None:
-            image_metadata = {}
-            
         # Определяем, нужно ли проверять периметр
         perimeter_is_white = None
         
@@ -1542,8 +1549,13 @@ def _apply_background_crop(img, white_tolerance, perimeter_tolerance, symmetric_
         
         # Если включена обрезка, применяем ее
         if enable_crop:
-            log.info("Cropping is enabled, applying crop")
-            img_processed = image_utils.crop_image(img_processed, symmetric_axes, symmetric_absolute)
+            log.info(f"Cropping is enabled, applying crop with extra crop percent: {extra_crop_percent}%")
+            img_processed = image_utils.crop_image(
+                img_processed, 
+                symmetric_axes, 
+                symmetric_absolute, 
+                extra_crop_percent
+            )
             if not img_processed:
                 log.error("Failed to crop image")
                 return None
@@ -1940,9 +1952,10 @@ def process_image_base(image_or_path, prep_settings, white_settings, bgc_setting
             check_perimeter = bool(bgc_settings.get('check_perimeter', False))
             enable_crop = bool(bgc_settings.get('enable_crop', True))
             perimeter_mode = bgc_settings.get('perimeter_mode', 'if_white')
+            extra_crop_percent = float(bgc_settings.get('extra_crop_percent', 0.0))
             
-            # Явно логируем значение white_tolerance
-            log.info(f"Background removal with white_tolerance={white_tolerance}")
+            # Явно логируем значение white_tolerance и extra_crop_percent
+            log.info(f"Background removal with white_tolerance={white_tolerance}, extra_crop_percent={extra_crop_percent}%")
             
             img = _apply_background_crop(
                 img,
@@ -1953,7 +1966,8 @@ def process_image_base(image_or_path, prep_settings, white_settings, bgc_setting
                 check_perimeter,
                 enable_crop,
                 perimeter_mode=perimeter_mode,
-                image_metadata=image_metadata
+                image_metadata=image_metadata,
+                extra_crop_percent=extra_crop_percent
             )
             
             if img is None:
