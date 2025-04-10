@@ -829,13 +829,13 @@ def run_collage_processing(**all_settings: Dict[str, Any]) -> bool:
             f"(Thresh:{white_settings.get('whitening_cancel_threshold', 765)})")
     
     # Добавляем параметр extra_crop_percent в логирование
-    extra_crop_percent = float(background_crop_settings.get('extra_crop_percent', 0.0))
-    log.info(f"3. BG Removal/Crop: {'Enabled' if background_crop_settings.get('enable_bg_crop', False) else 'Disabled'} "
-            f"(Tol:{background_crop_settings.get('white_tolerance', 10)}, Extra Crop:{extra_crop_percent}%)")
-    log.info(f"  Crop: {'Enabled' if background_crop_settings.get('enable_crop', True) else 'Disabled'}, "
-             f"Symmetry: Abs={background_crop_settings.get('force_absolute_symmetry', False)}, "
-             f"Axes={background_crop_settings.get('force_axes_symmetry', False)}, "
-             f"Check Perimeter={background_crop_settings.get('check_perimeter', False)}")
+    extra_crop_percent = float(bgc_settings.get('extra_crop_percent', 0.0))
+    log.info(f"3. BG Removal/Crop: {'Enabled' if bgc_settings.get('enable_bg_crop', False) else 'Disabled'} "
+            f"(Tol:{bgc_settings.get('white_tolerance', 10)}, Extra Crop:{extra_crop_percent}%)")
+    log.info(f"  Crop: {'Enabled' if bgc_settings.get('enable_crop', True) else 'Disabled'}, "
+             f"Symmetry: Abs={bgc_settings.get('force_absolute_symmetry', False)}, "
+             f"Axes={bgc_settings.get('force_axes_symmetry', False)}, "
+             f"Check Perimeter={bgc_settings.get('check_perimeter', False)}")
     log.info(f"4. Padding: {'Enabled' if pad_settings.get('mode', 'never') != 'never' else 'Disabled'} " +
             f"(Mode: {pad_settings.get('mode', 'never')}, Percentage: {pad_settings.get('padding_percent', 0)}%)")
     log.info(f"5. Brightness/Contrast: {'Enabled' if bc_settings.get('enable_bc', False) else 'Disabled'} " +
