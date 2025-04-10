@@ -607,7 +607,11 @@ def run_individual_processing(**all_settings: Dict[str, Any]) -> bool:
                 if individual_mode_settings.get('enable_rename', False):
                     article = individual_mode_settings.get('article_name', '')
                     if article:
-                        output_filename = f"{article}_{i}.{output_format}"
+                        # Первый файл (i=1) получает имя просто АРТИКУЛ, остальные - АРТИКУЛ_INDEX
+                        if i == 1:
+                            output_filename = f"{article}.{output_format}"
+                        else:
+                            output_filename = f"{article}_{i-1}.{output_format}"
                 else:
                     # Ensure the output filename has the correct extension
                     base_name = os.path.splitext(output_filename)[0]
@@ -2129,39 +2133,112 @@ def apply_normalized_articles(folder_path: str, article_mapping: Dict[str, str],
         if rename_files:
             # Переименовываем файлы согласно маппингу
             log.info(f"Renaming files in {folder_path} according to normalized articles")
+            
+            # Получаем список файлов с их нормализованными артикулами
+            files_to_rename = []
+            article_name = None
+            
+            # Сортируем файлы натуральной сортировкой если доступно
+            try:
+                from natsort import natsorted
+                files_list = natsorted(list(article_mapping.keys()))
+            except ImportError:
+                files_list = sorted(article_mapping.keys())
+                
+            log.debug(f"Files to rename (sorted): {len(files_list)}")
+            for file_path in files_list:
+                article = article_mapping[file_path]
+                files_to_rename.append((file_path, article))
+                if article_name is None:
+                    article_name = article  # Используем первый артикул как основной
+            
+            if not files_to_rename:
+                log.warning("No files to rename after sorting")
+                return False
+                
+            # 1. Проверяем, есть ли файл с точным совпадением с article_name
+            exact_match_file = None
+            exact_match_path = None
+            base_article = article_name
+            
+            for file_path, article in files_to_rename:
+                if article == base_article:
+                    file_ext = os.path.splitext(file_path)[1]
+                    exact_match_file = os.path.basename(file_path)
+                    exact_match_path = file_path
+                    log.debug(f"Found exact match file: {exact_match_file}")
+                    break
+            
+            # 2. Создаем временные имена для всех файлов
+            temp_files = {}
+            for i, (file_path, _) in enumerate(files_to_rename):
+                file_ext = os.path.splitext(file_path)[1]
+                temp_filename = f"temp_{uuid.uuid4().hex}{file_ext}"
+                temp_path = os.path.join(folder_path, temp_filename)
+                temp_files[file_path] = temp_path
+                
+                try:
+                    os.rename(file_path, temp_path)
+                    log.debug(f"Temporarily renamed: {os.path.basename(file_path)} -> {temp_filename}")
+                except Exception as e:
+                    log.error(f"Failed to create temporary file: {e}")
+                    # Откатываем уже переименованные файлы
+                    for old_path, tmp_path in temp_files.items():
+                        if os.path.exists(tmp_path) and old_path != file_path:
+                            try:
+                                os.rename(tmp_path, old_path)
+                            except:
+                                pass
+                    return False
+            
+            # 3. Переименовываем файлы в финальные имена
             renamed_count = 0
-            for src_path, normalized_article in article_mapping.items():
-                # Получаем расширение исходного файла
-                _, ext = os.path.splitext(src_path)
+            counter = 1
+            
+            # Если был найден файл с точным совпадением, переименовываем его первым
+            if exact_match_path and exact_match_path in temp_files:
+                temp_path = temp_files[exact_match_path]
+                file_ext = os.path.splitext(exact_match_path)[1]
+                new_filename = f"{base_article}{file_ext}"
+                new_path = os.path.join(folder_path, new_filename)
                 
-                # Формируем новое имя файла
-                new_filename = f"{normalized_article}{ext}"
-                dst_path = os.path.join(folder_path, new_filename)
+                try:
+                    os.rename(temp_path, new_path)
+                    log.info(f"Renamed main file: {exact_match_file} -> {new_filename}")
+                    renamed_count += 1
+                    del temp_files[exact_match_path]  # Удаляем обработанный файл из временных
+                except Exception as e:
+                    log.error(f"Failed to rename main file: {e}")
+            
+            # Теперь переименовываем остальные файлы
+            for original_path, temp_path in temp_files.items():
+                file_ext = os.path.splitext(original_path)[1]
                 
-                # Проверяем, не совпадает ли новый путь с исходным
-                if os.path.normcase(os.path.abspath(src_path)) == os.path.normcase(os.path.abspath(dst_path)):
-                    log.debug(f"Skipping rename for {src_path} as destination is the same")
+                # Если нет главного файла, первый становится главным
+                if renamed_count == 0:
+                    new_filename = f"{base_article}{file_ext}"
+                else:
+                    new_filename = f"{base_article}_{counter}{file_ext}"
+                    counter += 1
+                    
+                new_path = os.path.join(folder_path, new_filename)
+                
+                try:
+                    os.rename(temp_path, new_path)
+                    log.info(f"Renamed: {os.path.basename(original_path)} -> {new_filename}")
+                    renamed_count += 1
+                except Exception as e:
+                    log.error(f"Failed to rename file: {e}")
                     continue
-                
-                # Проверяем, существует ли уже файл с таким именем
-                if os.path.exists(dst_path):
-                    # Добавляем временную метку, чтобы избежать конфликта
-                    base, ext = os.path.splitext(new_filename)
-                    new_filename = f"{base}_{int(time.time())}{ext}"
-                    dst_path = os.path.join(folder_path, new_filename)
-                    log.warning(f"Destination file already exists, using alternative name: {new_filename}")
-                
-                # Переименовываем файл
-                shutil.move(src_path, dst_path)
-                log.info(f"Renamed: {os.path.basename(src_path)} -> {new_filename}")
-                renamed_count += 1
-                
-            log.info(f"Successfully renamed {renamed_count} files")
             
-        return True
-            
+            log.info(f"Successfully renamed {renamed_count} of {len(files_to_rename)} files")
+            return renamed_count > 0
+        
+        return True  # Если переименование не требуется, просто возвращаем True
+        
     except Exception as e:
-        log.error(f"Error applying normalized articles: {e}", exc_info=True)
+        log.error(f"Error applying normalized articles: {e}")
+        log.exception("Exception details")
         return False
 
 def guess_article_from_filenames(folder_path: str) -> str:
