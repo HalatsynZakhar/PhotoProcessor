@@ -46,8 +46,8 @@ DEFAULT_SETTINGS = {
     },
     "padding": {
         "mode": "never",
-        "padding_percent": 5.0,
-        "allow_expansion": True,
+        "padding_percent": 0.0,
+        "allow_expansion": False,
         "perimeter_check_tolerance": 10,
         "perimeter_margin": 1
     },
@@ -93,8 +93,8 @@ DEFAULT_SETTINGS = {
         },
         "padding": {
             "mode": "never",
-            "padding_percent": 5.0,
-            "allow_expansion": True,
+            "padding_percent": 0.0,
+            "allow_expansion": False,
             "perimeter_check_tolerance": 10,
             "perimeter_margin": 1
         },

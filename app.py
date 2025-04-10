@@ -537,20 +537,46 @@ with st.sidebar:
                     st.rerun()
 
         if st.session_state.reset_settings_confirmation_pending:
-            st.error("⚠️ ВНИМАНИЕ: Это действие удалит все пользовательские наборы настроек и сбросит первый набор к заводским значениям!")
+            st.error("⚠️ ВНИМАНИЕ: Это действие удалит ВСЕ наборы настроек, включая первый! Первый набор будет пересоздан в режиме по умолчанию!")
             col1, col2 = st.columns(2)
             with col1:
                 if st.button("✅ Да, сбросить всё", key="confirm_reset_all_yes", use_container_width=True):
                     # Удаляем все кастомные пресеты
                     deleted_count = config_manager.delete_all_custom_presets()
+                    
+                    # Удаляем также дефолтный пресет, если он существует
+                    default_preset_path = config_manager._get_preset_filepath(config_manager.DEFAULT_PRESET_NAME)
+                    if os.path.exists(default_preset_path):
+                        try:
+                            os.remove(default_preset_path)
+                            log.info(f"Deleted default preset file as part of factory reset")
+                            deleted_count += 1
+                        except Exception as e:
+                            log.error(f"Error deleting default preset during factory reset: {e}")
+                    
+                    # Создаем новый дефолтный пресет с заводскими настройками
+                    config_manager.create_default_preset()
+                    
                     # Сбрасываем все настройки UI к дефолтным
                     default_settings = config_manager.get_default_settings()
+                    
+                    # Получаем папку загрузок пользователя
+                    user_downloads = get_downloads_folder()
+                    
+                    # Устанавливаем пути по умолчанию, чтобы они были доступны сразу после сброса
+                    default_settings['paths']['input_folder_path'] = user_downloads
+                    default_settings['paths']['output_folder_path'] = os.path.join(user_downloads, "Processed")
+                    default_settings['paths']['backup_folder_path'] = os.path.join(user_downloads, "Backups")
+                    
+                    # Сохраняем обновленные настройки с путями в пресет
+                    config_manager.save_settings_preset(default_settings, config_manager.DEFAULT_PRESET_NAME)
+                    
                     st.session_state.current_settings = default_settings
                     st.session_state.selected_processing_mode = default_settings.get('processing_mode_selector', "Обработка отдельных файлов")
                     st.session_state.active_preset = config_manager.DEFAULT_PRESET_NAME
-                    st.session_state.settings_changed = True
+                    st.session_state.settings_changed = False  # Изменили на False, так как настройки соответствуют сохраненному пресету
                     st.session_state.reset_settings_confirmation_pending = False
-                    st.toast(f"✅ Все наборы сброшены к заводским настройкам (удалено {deleted_count} наборов)", icon="💥")
+                    st.toast(f"✅ Все настройки сброшены к заводским значениям (удалено {deleted_count} профилей)", icon="💥")
                     st.rerun()
             with col2:
                 if st.button("❌ Нет, отмена", key="confirm_reset_all_no", use_container_width=True):
@@ -709,10 +735,15 @@ with st.sidebar:
         if st.button("🔄 Сбросить пути по умолчанию", key="reset_paths_button",
                      help="Установить стандартные пути на основе папки Загрузки вашей системы. Это сбросит все пути к их значениям по умолчанию.",
                      use_container_width=True):
-            set_setting('paths.input_folder_path', '')
-            set_setting('paths.output_folder_path', '')
-            set_setting('paths.backup_folder_path', '')
-            st.toast("Пути сброшены к значениям по умолчанию", icon="🔄")
+            # Получаем папку загрузок пользователя
+            user_downloads = get_downloads_folder()
+            
+            # Устанавливаем пути на основе папки загрузок
+            set_setting('paths.input_folder_path', user_downloads)
+            set_setting('paths.output_folder_path', os.path.join(user_downloads, "Processed"))
+            set_setting('paths.backup_folder_path', os.path.join(user_downloads, "Backups"))
+            
+            st.toast("Пути установлены на основе папки загрузок", icon="🔄")
             st.rerun()
 
     # === Остальные Настройки ===
@@ -1527,13 +1558,12 @@ if start_button_pressed_this_run:
                     log.info("Condition matched: 'Обработка отдельных файлов'")
                     success = processing_workflows.run_individual_processing(**current_run_settings)
                     if not success:
-                        st.error("❌ Ошибка при выполнении операции 'Обработка отдельных файлов'!")
+                        st.error("❌ Произошла ошибка при обработке одного или нескольких файлов.", icon="⚠️")
                         log.error("Processing failed with errors")
-                        pass
                     else:
                         st.session_state.settings_changed = True
                         autosave_active_preset_if_changed()
-                    log.info(f"Finished run_individual_processing call (success)")
+                    log.info(f"Finished run_individual_processing call (result: {success})")
                     workflow_success = success
                 elif mode_from_state == "Создание коллажей":
                     log.info("Condition matched: 'Создание коллажей'")
@@ -1541,11 +1571,10 @@ if start_button_pressed_this_run:
                     if not success:
                         st.error("❌ Ошибка при выполнении операции 'Создание коллажа'!")
                         log.error("Processing failed with errors")
-                        pass
                     else:
                         st.session_state.settings_changed = True
                         autosave_active_preset_if_changed()
-                    log.info(f"Finished run_collage_processing call (success)")
+                    log.info(f"Finished run_collage_processing call (result: {success})")
                     workflow_success = success
                 elif mode_from_state == "Слияние изображений":
                     log.info("Condition matched: 'Слияние изображений'")
@@ -1553,8 +1582,7 @@ if start_button_pressed_this_run:
                     if not success:
                         st.error("❌ Ошибка при выполнении операции 'Слияние изображений'!")
                         log.error("Processing failed with errors")
-                        pass
-                    log.info(f"Finished run_merge_processing call (success)")
+                    log.info(f"Finished run_merge_processing call (result: {success})")
                     workflow_success = success
                 else:
                     log.error(f"!!! Unknown mode_from_state encountered in processing block: '{mode_from_state}'")
