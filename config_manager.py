@@ -147,7 +147,34 @@ DEFAULT_SETTINGS = {
             "webp_quality": 90,
             "webp_lossless": False
         }
-    }
+    },
+    "individual_mode": {
+        "enable_rename": False,
+        "article_name": "",
+        "delete_originals": False,
+        "output_format": "jpg",
+        "jpg_background_color": [255, 255, 255],
+        "jpeg_quality": 95,
+        "enable_force_aspect_ratio": False,
+        "force_aspect_ratio": [1, 1],
+        "enable_max_dimensions": False,
+        "max_output_width": 1500,
+        "max_output_height": 1500,
+        "enable_exact_canvas": False,
+        "final_exact_width": 1500,
+        "final_exact_height": 1500,
+        "special_first_file": False,
+        "first_file_settings": {
+            "enable_force_aspect_ratio": False,
+            "force_aspect_ratio": [1, 1],
+            "enable_max_dimensions": False,
+            "max_output_width": 1500,
+            "max_output_height": 1500,
+            "enable_exact_canvas": True,
+            "final_exact_width": 1500,
+            "final_exact_height": 1500
+        }
+    },
 }
 
 def get_default_settings() -> Dict[str, Any]:

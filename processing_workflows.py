@@ -587,20 +587,40 @@ def run_individual_processing(**all_settings: Dict[str, Any]) -> bool:
                         continue
                 
                 # Apply final adjustments
-                if individual_mode_settings.get('enable_force_aspect_ratio', False):
-                    img = _apply_force_aspect_ratio(img, individual_mode_settings.get('force_aspect_ratio', [1, 1]))
-                
-                if individual_mode_settings.get('enable_max_dimensions', False):
-                    img = _apply_max_dimensions(img, 
-                                             individual_mode_settings.get('max_output_width', 0),
-                                             individual_mode_settings.get('max_output_height', 0))
-                
-                if individual_mode_settings.get('enable_exact_canvas', False):
-                    img = _apply_final_canvas_or_prepare(img,
-                                                       individual_mode_settings.get('final_exact_width', 0),
-                                                       individual_mode_settings.get('final_exact_height', 0),
-                                                       output_format,
-                                                       individual_mode_settings.get('jpg_background_color', [255, 255, 255]))
+                if i == 1 and individual_mode_settings.get('special_first_file', False):
+                    # Используем специальные настройки для первого файла
+                    first_file_settings = individual_mode_settings.get('first_file_settings', {})
+                    
+                    if first_file_settings.get('enable_force_aspect_ratio', False):
+                        img = _apply_force_aspect_ratio(img, first_file_settings.get('force_aspect_ratio', [1, 1]))
+                    
+                    if first_file_settings.get('enable_max_dimensions', False):
+                        img = _apply_max_dimensions(img, 
+                                                 first_file_settings.get('max_output_width', 0),
+                                                 first_file_settings.get('max_output_height', 0))
+                    
+                    if first_file_settings.get('enable_exact_canvas', False):
+                        img = _apply_final_canvas_or_prepare(img,
+                                                           first_file_settings.get('final_exact_width', 0),
+                                                           first_file_settings.get('final_exact_height', 0),
+                                                           output_format,
+                                                           individual_mode_settings.get('jpg_background_color', [255, 255, 255]))
+                else:
+                    # Используем обычные настройки для остальных файлов
+                    if individual_mode_settings.get('enable_force_aspect_ratio', False):
+                        img = _apply_force_aspect_ratio(img, individual_mode_settings.get('force_aspect_ratio', [1, 1]))
+                    
+                    if individual_mode_settings.get('enable_max_dimensions', False):
+                        img = _apply_max_dimensions(img, 
+                                                 individual_mode_settings.get('max_output_width', 0),
+                                                 individual_mode_settings.get('max_output_height', 0))
+                    
+                    if individual_mode_settings.get('enable_exact_canvas', False):
+                        img = _apply_final_canvas_or_prepare(img,
+                                                           individual_mode_settings.get('final_exact_width', 0),
+                                                           individual_mode_settings.get('final_exact_height', 0),
+                                                           output_format,
+                                                           individual_mode_settings.get('jpg_background_color', [255, 255, 255]))
                 
                 # Save processed image
                 output_filename = filename

@@ -609,7 +609,7 @@ with st.sidebar:
                 # Убрали: set_setting('individual_mode.article_name', article_ind)
                 
                 # Добавляем кнопку нормализации артикулей
-                if st.button("🔄 Нормализовать артикулы", help="Проанализировать имена файлов в папке и определить нормализованные артикулы"):
+                if st.button("🔄 Нормализовать артикули", help="Проанализировать имена файлов в папке и определить нормализованные артикулы"):
                     # Проверяем, указана ли папка с файлами
                     input_path = st.session_state.get('paths.input_folder_path', '')
                     if not input_path or not os.path.exists(input_path):
@@ -1234,23 +1234,102 @@ with st.sidebar:
                                            key='ind_enable_exact',
                                            help="Если включено, изображение будет размещено на холсте точного размера. Изображение будет отцентрировано и масштабировано для сохранения пропорций.")
             set_setting('individual_mode.enable_exact_canvas', enable_exact_ind)
+
             if enable_exact_ind:
-                st.caption("Точный холст (ШxВ, px)")
+                st.caption("Размер холста (ШxВ, px)")
                 col_e1, col_e2 = st.columns(2)
-                with col_e1: 
+                with col_e1:
                     exact_w_ind = st.number_input("Ш", 1, 10000, 
-                                                value=get_setting('individual_mode.final_exact_width', 1000), 
-                                                step=50, key='ind_exact_w', 
+                                                value=get_setting('individual_mode.final_exact_width', 1), 
+                                                step=10, key='ind_exact_w', 
                                                 label_visibility="collapsed",
                                                 help="Точная ширина холста в пикселях")
                     set_setting('individual_mode.final_exact_width', exact_w_ind)
-                with col_e2: 
+                with col_e2:
                     exact_h_ind = st.number_input("В", 1, 10000, 
-                                                value=get_setting('individual_mode.final_exact_height', 1000), 
-                                                step=50, key='ind_exact_h', 
+                                                value=get_setting('individual_mode.final_exact_height', 1), 
+                                                step=10, key='ind_exact_h', 
                                                 label_visibility="collapsed",
                                                 help="Точная высота холста в пикселях")
                     set_setting('individual_mode.final_exact_height', exact_h_ind)
+
+            # --- Специальная обработка первого файла ---
+            special_first_file = st.checkbox("Особенно обрабатывать первый файл",
+                                           value=get_setting('individual_mode.special_first_file', False),
+                                           key='special_first_file',
+                                           help="Если включено, первый файл будет обработан с особыми настройками.")
+            set_setting('individual_mode.special_first_file', special_first_file)
+
+            if special_first_file:
+                st.subheader("Настройки для первого файла")
+                
+                # --- Принудительное соотношение сторон ---
+                enable_force_first = st.checkbox("Принудительное соотношение сторон", 
+                                               value=get_setting('individual_mode.first_file_settings.enable_force_aspect_ratio', False),
+                                               key='first_force_aspect',
+                                               help="Если включено, изображение будет приведено к заданному соотношению сторон.")
+                set_setting('individual_mode.first_file_settings.enable_force_aspect_ratio', enable_force_first)
+                
+                if enable_force_first:
+                    st.caption("Соотношение сторон (Ш:В)")
+                    col_f1, col_f2 = st.columns(2)
+                    with col_f1:
+                        force_w_first = st.number_input("Ш", 1, 100, 
+                                                      value=get_setting('individual_mode.first_file_settings.force_aspect_ratio', [1, 1])[0], 
+                                                      step=1, key='first_force_w', 
+                                                      label_visibility="collapsed")
+                    with col_f2:
+                        force_h_first = st.number_input("В", 1, 100, 
+                                                      value=get_setting('individual_mode.first_file_settings.force_aspect_ratio', [1, 1])[1], 
+                                                      step=1, key='first_force_h', 
+                                                      label_visibility="collapsed")
+                    set_setting('individual_mode.first_file_settings.force_aspect_ratio', [force_w_first, force_h_first])
+                
+                # --- Максимальные размеры ---
+                enable_max_first = st.checkbox("Максимальные размеры", 
+                                             value=get_setting('individual_mode.first_file_settings.enable_max_dimensions', False),
+                                             key='first_max_dim',
+                                             help="Если включено, изображение будет уменьшено, если его размеры превышают заданные максимальные значения.")
+                set_setting('individual_mode.first_file_settings.enable_max_dimensions', enable_max_first)
+                
+                if enable_max_first:
+                    st.caption("Макс. размер (ШxВ, px)")
+                    col_m1, col_m2 = st.columns(2)
+                    with col_m1:
+                        max_w_first = st.number_input("Ш", 1, 10000, 
+                                                    value=get_setting('individual_mode.first_file_settings.max_output_width', 1500), 
+                                                    step=50, key='first_max_w', 
+                                                    label_visibility="collapsed")
+                    with col_m2:
+                        max_h_first = st.number_input("В", 1, 10000, 
+                                                    value=get_setting('individual_mode.first_file_settings.max_output_height', 1500), 
+                                                    step=50, key='first_max_h', 
+                                                    label_visibility="collapsed")
+                    set_setting('individual_mode.first_file_settings.max_output_width', max_w_first)
+                    set_setting('individual_mode.first_file_settings.max_output_height', max_h_first)
+                
+                # --- Точный холст ---
+                enable_exact_first = st.checkbox("Точный холст", 
+                                               value=get_setting('individual_mode.first_file_settings.enable_exact_canvas', False),
+                                               key='first_exact_canvas',
+                                               help="Если включено, изображение будет размещено на холсте точного размера.")
+                set_setting('individual_mode.first_file_settings.enable_exact_canvas', enable_exact_first)
+                
+                if enable_exact_first:
+                    st.caption("Размер холста (ШxВ, px)")
+                    col_e1, col_e2 = st.columns(2)
+                    with col_e1:
+                        exact_w_first = st.number_input("Ш", 1, 10000, 
+                                                      value=get_setting('individual_mode.first_file_settings.final_exact_width', 1), 
+                                                      step=10, key='first_exact_w', 
+                                                      label_visibility="collapsed")
+                    with col_e2:
+                        exact_h_first = st.number_input("В", 1, 10000, 
+                                                      value=get_setting('individual_mode.first_file_settings.final_exact_height', 1), 
+                                                      step=10, key='first_exact_h', 
+                                                      label_visibility="collapsed")
+                    set_setting('individual_mode.first_file_settings.final_exact_width', exact_w_first)
+                    set_setting('individual_mode.first_file_settings.final_exact_height', exact_h_first)
 
             # --- Параметры вывода (без изменений) ---
             st.caption("Параметры вывода")
