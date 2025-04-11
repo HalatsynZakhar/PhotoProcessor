@@ -146,7 +146,12 @@ DEFAULT_SETTINGS = {
             "jpg_quality": 95,
             "webp_quality": 90,
             "webp_lossless": False
-        }
+        },
+        "output_format": "jpg",
+        "jpeg_quality": 95,
+        "jpg_background_color": [255, 255, 255],
+        "png_transparent_background": True,
+        "png_background_color": [255, 255, 255]
     },
     "individual_mode": {
         "enable_rename": False,
@@ -155,12 +160,14 @@ DEFAULT_SETTINGS = {
         "output_format": "jpg",
         "jpg_background_color": [255, 255, 255],
         "jpeg_quality": 95,
+        "png_transparent_background": True,
+        "png_background_color": [255, 255, 255],
         "enable_force_aspect_ratio": False,
         "force_aspect_ratio": [1, 1],
         "enable_max_dimensions": False,
         "max_output_width": 1500,
         "max_output_height": 1500,
-        "enable_exact_canvas": False,
+        "enable_exact_canvas": True,
         "final_exact_width": 1500,
         "final_exact_height": 1500,
         "special_first_file": False,

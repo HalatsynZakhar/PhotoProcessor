@@ -209,7 +209,7 @@ def _apply_final_canvas_or_prepare(img, exact_width, exact_height, output_format
                 except Exception as e_conv: log.error(f"    ! Simple RGB conversion failed: {e_conv}"); image_utils.safe_close(converted_img); return img
 
 
-def _save_image(img, output_path, output_format, jpeg_quality, jpg_background_color=None):
+def _save_image(img, output_path, output_format, jpeg_quality, jpg_background_color=None, png_transparent_background=True, png_background_color=None):
     """(Helper) Сохраняет изображение в указанном формате с опциями."""
     if not img: log.error("! Cannot save None image."); return False
     if img.size[0] <= 0 or img.size[1] <= 0: log.error(f"! Cannot save zero-size image {img.size} to {output_path}"); return False
@@ -278,10 +278,14 @@ def _save_image(img, output_path, output_format, jpeg_quality, jpg_background_co
                 log.warning(f"    Mode is {img.mode}, converting to RGBA for PNG save.")
                 img_to_save = img.convert('RGBA')
                 must_close_img_to_save = True
-            # Убедимся, что альфа-канал сохранен
-            if img_to_save.mode == 'RGBA':
-                log.debug("    Preserving transparency for PNG save")
-                save_options["optimize"] = False  # Отключаем оптимизацию для лучшего сохранения прозрачности
+            
+            if not png_transparent_background and png_background_color:
+                # Создаем новый RGBA с указанным цветом фона
+                bg_image = Image.new("RGBA", img_to_save.size, tuple(png_background_color) + (255,))
+                # Вставляем изображение поверх фона
+                bg_image.paste(img_to_save, (0, 0), img_to_save)
+                img_to_save = bg_image
+                must_close_img_to_save = True
         else: log.error(f"! Unsupported output format for saving: {output_format}"); return False
 
         # Проверяем существование директории и создаем при необходимости
@@ -639,7 +643,11 @@ def run_individual_processing(**all_settings: Dict[str, Any]) -> bool:
                 
                 output_path = os.path.join(output_folder, output_filename)
                 log.info(f"Saving image with format: {output_format.upper()}")
-                if not _save_image(img, output_path, output_format, individual_mode_settings.get('jpeg_quality', 95), individual_mode_settings.get('jpg_background_color', [255, 255, 255])):
+                if not _save_image(img, output_path, output_format, 
+                                 individual_mode_settings.get('jpeg_quality', 95), 
+                                 individual_mode_settings.get('jpg_background_color', [255, 255, 255]),
+                                 individual_mode_settings.get('png_transparent_background', True),
+                                 individual_mode_settings.get('png_background_color', [255, 255, 255])):
                     log.error(f"Failed to save image: {output_filename}")
                     log.info(f"--- Finished processing: {filename} (Failed) ---")
                     overall_success = False
@@ -1088,7 +1096,10 @@ def run_collage_processing(**all_settings: Dict[str, Any]) -> bool:
 
         # --- 9. Сохранение Коллажа ---
         log.info("--- Saving final collage ---")
-        save_successful = _save_image(final_collage, output_file_path, output_format, jpeg_quality, valid_jpg_bg)
+        save_successful = _save_image(final_collage, output_file_path, output_format, 
+                                    jpeg_quality, valid_jpg_bg,
+                                    coll_settings.get('png_transparent_background', True),
+                                    coll_settings.get('png_background_color', [255, 255, 255]))
         if save_successful:
             log.info(f"--- Collage processing finished successfully! Saved to {output_file_path} ---")
             success_flag = True # Устанавливаем флаг успеха
