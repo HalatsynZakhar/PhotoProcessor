@@ -736,8 +736,9 @@ def run_collage_processing(**all_settings: Dict[str, Any]) -> bool:
     start_time = time.time()
     success_flag = False # Флаг для финального return
 
-    # --- 1. Извлечение и Валидация Параметров (Включая пути для бэкапа) ---
+    # --- 1. Извлечение и Валидация Параметров ---
     log.debug("Extracting settings for collage mode...")
+    log.info("Backup is disabled for collage mode for better performance.")
     try:
         paths_settings = all_settings.get('paths', {})
         prep_settings = all_settings.get('preprocessing', {})
@@ -752,17 +753,23 @@ def run_collage_processing(**all_settings: Dict[str, Any]) -> bool:
         output_filename_base = paths_settings.get('output_filename') # Имя без расширения от пользователя
         backup_folder = paths_settings.get('backup_folder_path', '')
         
-        # --- Создаем резервную копию ПЕРЕД началом обработки ---
-        backup_successful = _create_backup(source_dir, "", backup_folder) # Шаблона в коллаже нет
-        if backup_folder and not backup_successful:
-            log.error("Backup failed! Processing aborted to prevent data loss.")
-            return False # Прерываем обработку, если бэкап не удался
+        # --- Резервное копирование отключено для режима коллажа ---
+        # Для коллажа не создаем резервные копии, но сохраняем переменную для совместимости с остальным кодом
+        backup_successful = False
         # --------------------------------------------------------
         
         proportional_placement = coll_settings.get('proportional_placement', False)
         placement_ratios = coll_settings.get('placement_ratios', [1.0])
         forced_cols = int(coll_settings.get('forced_cols', 0))
-        spacing_percent = float(coll_settings.get('spacing_percent', 2.0))
+        
+        # Получаем настройки отступов между фото
+        enable_spacing = coll_settings.get('enable_spacing', True)
+        spacing_percent = float(coll_settings.get('spacing_percent', 2.0)) if enable_spacing else 0.0
+        
+        # Получаем настройки внешних полей
+        enable_outer_margins = coll_settings.get('enable_outer_margins', True)
+        outer_margins_percent = float(coll_settings.get('outer_margins_percent', 2.0)) if enable_outer_margins else 0.0
+        
         force_collage_aspect_ratio = coll_settings.get('force_collage_aspect_ratio')
         max_collage_width = int(coll_settings.get('max_collage_width', 0))
         max_collage_height = int(coll_settings.get('max_collage_height', 0))
@@ -811,10 +818,18 @@ def run_collage_processing(**all_settings: Dict[str, Any]) -> bool:
     log.info(f"Source Directory: {abs_source_dir}")
     # Логируем имя с расширением и путь
     log.info(f"Output Filename: {output_filename_with_ext} (Path: {output_file_path})")
-    log.info(f"Backup Path: {backup_folder}")
-    log.info(f"Backup Status: {'Successful' if backup_successful else ('Skipped' if not backup_folder else 'Failed')}")
+    log.info(f"Backup: Disabled for collage mode")
     log.info(f"Output Format: {output_format.upper()}")
     if output_format == 'jpg': log.info(f"  JPG Bg: {valid_jpg_bg}, Quality: {jpeg_quality}")
+    
+    # Логируем активные настройки
+    log.info(f"Spacing between images: {'Enabled' if enable_spacing else 'Disabled'}")
+    if enable_spacing:
+        log.info(f"  Spacing value: {spacing_percent}%")
+    
+    log.info(f"Outer margins: {'Enabled' if enable_outer_margins else 'Disabled'}")
+    if enable_outer_margins:
+        log.info(f"  Outer margins value: {outer_margins_percent}%")
     
     # ... (остальной код функции без изменений) ...
 
@@ -972,14 +987,67 @@ def run_collage_processing(**all_settings: Dict[str, Any]) -> bool:
     max_w_scaled = max((img.width for img in scaled_images if img), default=1)
     max_h_scaled = max((img.height for img in scaled_images if img), default=1)
     
-    # Рассчитываем отступы на основе масштабированных размеров
+    # Рассчитываем отступы между фото на основе масштабированных размеров
     spacing_px_h = int(round(max_w_scaled * (spacing_percent / 100.0)))
     spacing_px_v = int(round(max_h_scaled * (spacing_percent / 100.0)))
     
+    # Рассчитываем внешние поля коллажа
+    outer_margin_px_h = int(round(max_w_scaled * (outer_margins_percent / 100.0)))
+    outer_margin_px_v = int(round(max_h_scaled * (outer_margins_percent / 100.0)))
+    
+    # Добавляем проверку для отрицательных отступов
+    # При отрицательных отступах нужно убедиться, что изображения не будут полностью перекрывать друг друга
+    min_spacing_px_h = -max_w_scaled + 10  # Минимум 10 пикселей должно быть видно
+    min_spacing_px_v = -max_h_scaled + 10  # Минимум 10 пикселей должно быть видно
+    
+    if spacing_px_h < min_spacing_px_h:
+        log.warning(f"Spacing too negative for horizontal direction. Limiting to {min_spacing_px_h} pixels")
+        spacing_px_h = min_spacing_px_h
+    
+    if spacing_px_v < min_spacing_px_v:
+        log.warning(f"Spacing too negative for vertical direction. Limiting to {min_spacing_px_v} pixels")
+        spacing_px_v = min_spacing_px_v
+    
     # Рассчитываем итоговый размер холста
-    canvas_width = (grid_cols * max_w_scaled) + ((grid_cols + 1) * spacing_px_h)
-    canvas_height = (grid_rows * max_h_scaled) + ((grid_rows + 1) * spacing_px_v)
-    log.debug(f"  Grid: {grid_rows}x{grid_cols}, Max Scaled Cell: {max_w_scaled}x{max_h_scaled}, Space H/V: {spacing_px_h}/{spacing_px_v}, Final Canvas: {canvas_width}x{canvas_height}")
+    # При отрицательных отступах формула немного меняется
+    if spacing_px_h >= 0:
+        # Положительные отступы между фото + внешние поля с обеих сторон
+        canvas_width = (grid_cols * max_w_scaled) + ((grid_cols - 1) * spacing_px_h) + (2 * outer_margin_px_h)
+    else:
+        # При отрицательных отступах изображения накладываются друг на друга + внешние поля
+        # Общая ширина = ширина первого элемента + ширина всех остальных с учетом перекрытия + внешние поля
+        if grid_cols > 1:
+            canvas_width = max_w_scaled + (grid_cols - 1) * (max_w_scaled + spacing_px_h) + (2 * outer_margin_px_h)
+        else:
+            canvas_width = max_w_scaled + (2 * outer_margin_px_h)
+    
+    if spacing_px_v >= 0:
+        # Положительные отступы между фото + внешние поля с обеих сторон
+        canvas_height = (grid_rows * max_h_scaled) + ((grid_rows - 1) * spacing_px_v) + (2 * outer_margin_px_v)
+    else:
+        # При отрицательных отступах изображения накладываются друг на друга + внешние поля
+        # Общая высота = высота первого элемента + высота всех остальных с учетом перекрытия + внешние поля
+        if grid_rows > 1:
+            canvas_height = max_h_scaled + (grid_rows - 1) * (max_h_scaled + spacing_px_v) + (2 * outer_margin_px_v)
+        else:
+            canvas_height = max_h_scaled + (2 * outer_margin_px_v)
+    
+    # Добавляем информацию о типе отступов (положительные или отрицательные)
+    if spacing_percent < 0:
+        log.info(f"  Using negative spacing between images: {spacing_percent}% ({spacing_px_h}px horizontal, {spacing_px_v}px vertical)")
+        log.info(f"  Images will overlap each other")
+    else:
+        log.info(f"  Using positive spacing between images: {spacing_percent}% ({spacing_px_h}px horizontal, {spacing_px_v}px vertical)")
+    
+    # Добавляем информацию о внешних полях
+    if outer_margins_percent < 0:
+        log.info(f"  Using negative outer margins: {outer_margins_percent}% ({outer_margin_px_h}px horizontal, {outer_margin_px_v}px vertical)")
+        log.info(f"  Images will be partially cropped at the edges")
+    else:
+        log.info(f"  Using positive outer margins: {outer_margins_percent}% ({outer_margin_px_h}px horizontal, {outer_margin_px_v}px vertical)")
+    
+    log.debug(f"  Grid: {grid_rows}x{grid_cols}, Max Scaled Cell: {max_w_scaled}x{max_h_scaled}")
+    log.debug(f"  Final Canvas: {canvas_width}x{canvas_height}")
 
     collage_canvas = None; final_collage = None
     try:
@@ -1010,11 +1078,26 @@ def run_collage_processing(**all_settings: Dict[str, Any]) -> bool:
                 img = scaled_images[current_idx]
                 if img and img.width > 0 and img.height > 0:
                      # Позиция верхнего левого угла ячейки, с учетом смещения для последнего ряда
-                     cell_x = spacing_px_h + c * (max_w_scaled + spacing_px_h)
-                     if is_last_row and items_in_last_row < grid_cols:
-                         cell_x += row_offset
+                     if spacing_px_h >= 0:
+                         # Стандартный расчет для положительных отступов
+                         cell_x = outer_margin_px_h + c * (max_w_scaled + spacing_px_h)
+                         if is_last_row and items_in_last_row < grid_cols:
+                             cell_x += row_offset
+                     else:
+                         # Для отрицательных отступов - изображения накладываются друг на друга
+                         cell_x = outer_margin_px_h + c * (max_w_scaled + spacing_px_h)
+                         if is_last_row and items_in_last_row < grid_cols:
+                             # Корректируем смещение для последнего ряда с учетом отрицательных отступов
+                             adjusted_row_offset = (empty_cells * (max_w_scaled + spacing_px_h)) // 2
+                             cell_x += adjusted_row_offset
                      
-                     cell_y = spacing_px_v + r * (max_h_scaled + spacing_px_v)
+                     if spacing_px_v >= 0:
+                         # Стандартный расчет для положительных отступов
+                         cell_y = outer_margin_px_v + r * (max_h_scaled + spacing_px_v)
+                     else:
+                         # Для отрицательных отступов - изображения накладываются друг на друга
+                         cell_y = outer_margin_px_v + r * (max_h_scaled + spacing_px_v)
+                     
                      # Центрируем изображение внутри ячейки
                      paste_x = cell_x + (max_w_scaled - img.width) // 2
                      paste_y = cell_y + (max_h_scaled - img.height) // 2
