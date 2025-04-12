@@ -1667,8 +1667,8 @@ if start_button_pressed_this_run:
             paths_ok = False
         if paths_ok and get_setting('individual_mode.delete_originals') and input_path and output_path_ind:
             if os.path.normcase(os.path.abspath(input_path)) == os.path.normcase(os.path.abspath(output_path_ind)):
-                st.warning("Удаление оригиналов не будет выполнено (папка ввода и вывода совпадают).", icon="⚠️")
-                log.warning("Original deletion will be skipped (paths are same).")
+                # Удаляем предупреждение, так как наша логика теперь обрабатывает эту ситуацию безопасно
+                log.info("Input and output folders are the same with delete_originals enabled. Safe processing will be used.")
     elif current_mode == "Создание коллажей":
         output_filename_coll = get_setting('paths.output_filename', '')
         if not output_filename_coll:

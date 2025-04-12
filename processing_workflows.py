@@ -442,6 +442,13 @@ def run_individual_processing(**all_settings: Dict[str, Any]) -> bool:
         output_folder = all_settings.get('paths', {}).get('output_folder_path', '')
         backup_folder = all_settings.get('paths', {}).get('backup_folder_path', '')
         
+        # Проверяем, совпадают ли папки ввода и вывода
+        same_input_output = False
+        if input_folder and output_folder:
+            if os.path.normcase(os.path.abspath(input_folder)) == os.path.normcase(os.path.abspath(output_folder)):
+                same_input_output = True
+                log.warning("Input and output folders are the same. Special processing will be applied.")
+        
         # --- Создаем резервную копию ПЕРЕД началом обработки ---
         backup_successful = _create_backup(input_folder, template_path, backup_folder)
         if backup_folder and not backup_successful:
@@ -465,6 +472,7 @@ def run_individual_processing(**all_settings: Dict[str, Any]) -> bool:
         log.info(f"Backup Status: {'Successful' if backup_successful else ('Skipped' if not backup_folder else 'Failed')}")
         log.info(f"Article (Renaming): {'Enabled' if individual_mode_settings.get('enable_rename', False) else 'Disabled'}")
         log.info(f"Delete Originals: {individual_mode_settings.get('delete_originals', False)}")
+        log.info(f"Same Input/Output: {same_input_output}")
         
         # Output format settings
         output_format = individual_mode_settings.get('output_format', 'jpg').lower()
@@ -501,6 +509,9 @@ def run_individual_processing(**all_settings: Dict[str, Any]) -> bool:
         
         # Track overall success
         overall_success = True
+        
+        # Список для хранения выходных имен файлов, чтобы не удалять их
+        processed_output_files = []
         
         # Pre-process template if merge is enabled
         processed_template = None
@@ -653,14 +664,12 @@ def run_individual_processing(**all_settings: Dict[str, Any]) -> bool:
                     overall_success = False
                     continue
                 
-                # --- Удаление оригинала ПОСЛЕ успешного сохранения и ЕСЛИ включено --- 
-                if individual_mode_settings.get('delete_originals', False):
-                    try:
-                        os.remove(file_path)
-                        log.info(f"Original deleted: {filename}")
-                    except Exception as e:
-                        log.error(f"Failed to delete original: {e}")
-                # ----------------------------------------------------------------------
+                # Сохраняем имя выходного файла для проверки при удалении оригиналов
+                processed_output_files.append(output_filename)
+                log.info(f"Added to preserved files list: {output_filename}")
+                
+                # Откладываем удаление оригиналов до конца обработки всех файлов
+                # Это предотвратит удаление файлов, которые соответствуют выходным именам
                 
                 log.info(f"--- Finished processing: {filename} (Success) ---")
                 
@@ -669,6 +678,24 @@ def run_individual_processing(**all_settings: Dict[str, Any]) -> bool:
                 log.exception("Error details")
                 overall_success = False
                 continue
+                
+        # Теперь, когда все файлы обработаны, мы можем безопасно удалить оригиналы (если нужно)
+        if individual_mode_settings.get('delete_originals', False) and overall_success:
+            log.info("Processing completed. Now cleaning up original files...")
+            
+            for file_path in files:
+                orig_filename = os.path.basename(file_path)
+                
+                # Проверка: не является ли оригинал одним из выходных файлов
+                if same_input_output and orig_filename in processed_output_files:
+                    log.info(f"Skipping deletion of original file that matches output: {orig_filename}")
+                    continue
+                
+                try:
+                    os.remove(file_path)
+                    log.info(f"Original deleted: {orig_filename}")
+                except Exception as e:
+                    log.error(f"Failed to delete original: {e}")
         
         # Clean up
         if processed_template:
