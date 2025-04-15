@@ -42,10 +42,11 @@ import config_manager # Может понадобиться для дефолт�
 """
 
 try:
-    from natsort import natsorted
+    from natsort import natsorted, ns
 except ImportError:
-    logging.warning("Библиотека natsort не найдена. Сортировка будет стандартной.")
-    natsorted = sorted
+    natsorted = None
+    ns = None
+    log.warning("natsort module not found, natural sorting will be disabled")
 
 from PIL import Image, UnidentifiedImageError, ImageFile
 ImageFile.LOAD_TRUNCATED_IMAGES = True
@@ -2270,7 +2271,7 @@ def normalize_articles_in_folder(folder_path: str) -> Dict[str, str]:
         
         # Используем натуральную сортировку для файлов
         from natsort import natsorted
-        sorted_files = natsorted(image_files, alg=natsort.ns.IGNORECASE)
+        sorted_files = natsorted(image_files, alg=ns.IGNORECASE)
         log.debug(f"Files sorted naturally: {[os.path.basename(f) for f in sorted_files]}")
         
         # Проверяем, есть ли файл с именем, совпадающим с артикулом
