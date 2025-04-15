@@ -21,7 +21,7 @@ DEFAULT_SETTINGS = {
     "paths": {
         "input_folder_path": "", 
         "output_folder_path": "", 
-        "backup_folder_path": "", # Бэкап по умолчанию выключен (пустой путь)
+        "backup_folder_path": os.path.join(os.path.expanduser('~'), "Downloads", "Backups"), # Бэкап по умолчанию в папке Downloads/Backups
         "output_filename": "collage"
     },
     "preprocessing": {

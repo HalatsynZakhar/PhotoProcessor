@@ -393,7 +393,8 @@ def _create_backup(input_folder: str, template_path: str, backup_folder_base: st
             os.makedirs(source_files_backup_dir)
             log.debug(f"Created source files backup subfolder: {source_files_backup_dir}")
             
-            image_files = get_image_files(input_folder) # Используем существующую функцию
+            # Получаем список файлов до начала обработки
+            image_files = get_image_files(input_folder)
             
             if not image_files:
                 log.warning(f"No image files found in input folder for backup: {input_folder}")
@@ -405,12 +406,13 @@ def _create_backup(input_folder: str, template_path: str, backup_folder_base: st
                         dest_path = os.path.join(source_files_backup_dir, filename)
                         shutil.copy2(file_path, dest_path) # copy2 сохраняет метаданные
                         files_backed_up_count += 1
+                        log.debug(f"Backed up: {filename}")
                     except Exception as e_file:
                         log.error(f"Failed to back up source file '{filename}': {e_file}")
                         # Продолжаем копировать остальные файлы
                 log.info(f"Finished backup. Successfully backed up {files_backed_up_count}/{len(image_files)} source files to {source_files_backup_dir}")
         else:
-             log.warning(f"Input folder '{input_folder}' not found or not a directory. Skipping source files backup.")
+            log.warning(f"Input folder '{input_folder}' not found or not a directory. Skipping source files backup.")
 
         # Считаем общий успех, если хотя бы что-то скопировалось или папка создана
         return True
@@ -450,10 +452,16 @@ def run_individual_processing(**all_settings: Dict[str, Any]) -> bool:
                 log.warning("Input and output folders are the same. Special processing will be applied.")
         
         # --- Создаем резервную копию ПЕРЕД началом обработки ---
-        backup_successful = _create_backup(input_folder, template_path, backup_folder)
-        if backup_folder and not backup_successful:
-            log.error("Backup failed! Processing aborted to prevent data loss.")
-            return False # Прерываем обработку, если бэкап не удался
+        if backup_folder:
+            log.info(f"Creating backup in: {backup_folder}")
+            backup_successful = _create_backup(input_folder, template_path, backup_folder)
+            if not backup_successful:
+                log.error("Backup failed! Processing aborted to prevent data loss.")
+                return False # Прерываем обработку, если бэкап не удался
+            log.info("Backup completed successfully")
+        else:
+            log.warning("Backup folder not specified, skipping backup")
+            backup_successful = True
         # --------------------------------------------------------
         
         # Extract processing settings
