@@ -1614,7 +1614,15 @@ def _calculate_template_position(template_size, canvas_size, position='center'):
     return (x, y)
 
 def get_image_files(folder_path: str) -> List[str]:
-    """Находит все изображения в указанной папке."""
+    """
+    Находит все изображения в указанной папке и возвращает их в естественном порядке.
+    
+    Args:
+        folder_path: Путь к папке с изображениями
+        
+    Returns:
+        List[str]: Список путей к изображениям в естественном порядке
+    """
     try:
         log.info(f"Searching for images in: {folder_path}")
         if not os.path.exists(folder_path):
@@ -1628,7 +1636,12 @@ def get_image_files(folder_path: str) -> List[str]:
             if file.lower().endswith(image_extensions):
                 files.append(os.path.join(folder_path, file))
 
+        # Сортируем файлы в естественном порядке
+        from natsort import natsorted, ns
+        files = natsorted(files, alg=ns.IGNORECASE)
+        
         log.info(f"Found {len(files)} image files")
+        log.debug(f"Files in natural order: {[os.path.basename(f) for f in files]}")
         return files
 
     except Exception as e:
@@ -2247,8 +2260,10 @@ def normalize_articles_in_folder(folder_path: str) -> Dict[str, str]:
         normalized_article = normalize_article(common_article)
         log.info(f"Normalized common article: {common_article} -> {normalized_article}")
         
-        # Сортируем файлы для последовательной нумерации
-        sorted_files = sorted(image_files)
+        # Используем натуральную сортировку для файлов
+        from natsort import natsorted
+        sorted_files = natsorted(image_files, alg=natsort.ns.IGNORECASE)
+        log.debug(f"Files sorted naturally: {[os.path.basename(f) for f in sorted_files]}")
         
         # Проверяем, есть ли файл с именем, совпадающим с артикулом
         article_file_exists = False
