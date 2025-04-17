@@ -501,9 +501,8 @@ def crop_image(img, symmetric_axes=False, symmetric_absolute=False, extra_crop_p
 
 
 def add_padding(img, percent, allow_expansion=True):
-    """Adds transparent padding around the image (expects RGBA)."""
-    if img is None or percent <= 0:
-        if percent <= 0: log.debug("Padding skipped (percent is zero or negative).")
+    """Adds transparent padding around the image (expects RGBA). Negative values will crop the image."""
+    if img is None:
         return img
 
     if img.mode != 'RGBA':
@@ -519,37 +518,65 @@ def add_padding(img, percent, allow_expansion=True):
         log.warning("add_padding warning: Input image has zero size.")
         return img
 
-    # Calculate padding pixels based on the larger dimension
+    # Calculate padding/cropping pixels based on the larger dimension
     padding_pixels = int(round(max(w, h) * (percent / 100.0)))
-    if padding_pixels <= 0:
-        log.debug("Padding skipped (calculated padding is zero).")
+    
+    if padding_pixels == 0:
+        log.debug("Padding/cropping skipped (calculated value is zero).")
         return img
 
-    new_width = w + 2 * padding_pixels
-    new_height = h + 2 * padding_pixels
+    if padding_pixels > 0:
+        # Adding padding
+        new_width = w + 2 * padding_pixels
+        new_height = h + 2 * padding_pixels
 
-    # Check if expansion is allowed
-    if not allow_expansion and (new_width > w or new_height > h):
-        log.debug("Padding skipped (expansion not allowed and new size would exceed original).")
-        return img
+        # Check if expansion is allowed
+        if not allow_expansion and (new_width > w or new_height > h):
+            log.debug("Padding skipped (expansion not allowed and new size would exceed original).")
+            return img
 
-    log.info(f"Adding padding: {percent}% ({padding_pixels}px). New size: {new_width}x{new_height}")
+        log.info(f"Adding padding: {percent}% ({padding_pixels}px). New size: {new_width}x{new_height}")
 
-    padded_img = None
-    try:
-        # Create a new transparent canvas
-        padded_img = Image.new('RGBA', (new_width, new_height), (0, 0, 0, 0))
-        # Paste the original image onto the canvas, centered
-        paste_pos = (padding_pixels, padding_pixels)
-        padded_img.paste(img, paste_pos, mask=img) # Use img as mask since it's RGBA
-        log.debug("Pasted image onto new padded canvas.")
-        # Close the original image passed to the function
-        safe_close(img)
-        return padded_img # Return the new padded image
-    except Exception as e:
-        log.error(f"Error during paste or other operation in add_padding: {e}", exc_info=True)
-        safe_close(padded_img) # Close the canvas if created but failed
-        return img # Return the original image on error
+        padded_img = None
+        try:
+            # Create a new transparent canvas
+            padded_img = Image.new('RGBA', (new_width, new_height), (0, 0, 0, 0))
+            # Paste the original image onto the canvas, centered
+            paste_pos = (padding_pixels, padding_pixels)
+            padded_img.paste(img, paste_pos, mask=img) # Use img as mask since it's RGBA
+            log.debug("Pasted image onto new padded canvas.")
+            # Close the original image passed to the function
+            safe_close(img)
+            return padded_img # Return the new padded image
+        except Exception as e:
+            log.error(f"Error during paste or other operation in add_padding: {e}", exc_info=True)
+            safe_close(padded_img) # Close the canvas if created but failed
+            return img # Return the original image on error
+    else:
+        # Cropping the image
+        crop_pixels = abs(padding_pixels)
+        new_width = max(1, w - 2 * crop_pixels)
+        new_height = max(1, h - 2 * crop_pixels)
+        
+        if new_width <= 0 or new_height <= 0:
+            log.warning("Cropping would result in zero or negative dimensions. Skipping.")
+            return img
+            
+        log.info(f"Cropping image: {percent}% ({crop_pixels}px). New size: {new_width}x{new_height}")
+        
+        try:
+            # Calculate the crop box
+            left = crop_pixels
+            top = crop_pixels
+            right = w - crop_pixels
+            bottom = h - crop_pixels
+            
+            cropped_img = img.crop((left, top, right, bottom))
+            safe_close(img)
+            return cropped_img
+        except Exception as e:
+            log.error(f"Error during cropping in add_padding: {e}", exc_info=True)
+            return img # Return the original image on error
 
 def check_perimeter_is_white(img, tolerance, margin):
     """
