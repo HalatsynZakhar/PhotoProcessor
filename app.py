@@ -1392,6 +1392,14 @@ with st.sidebar:
                                        key='ind_remove_metadata',
                                        help="Удалить все метаданные из файла и установить единую дату создания/изменения для всех файлов с интервалом в 2 секунды между ними")
             set_setting('individual_mode.remove_metadata', remove_metadata)
+            
+            # Добавляем чекбокс для обратного порядка
+            if remove_metadata:
+                reverse_order = st.checkbox("Обратный порядок дат", 
+                                         value=get_setting('individual_mode.reverse_date_order', False),
+                                         key='ind_reverse_date_order',
+                                         help="Если включено, даты будут установлены в обратном порядке (от новых к старым)")
+                set_setting('individual_mode.reverse_date_order', reverse_order)
         # === КОНЕЦ ЭКСПАНДЕРА 1 ===
         
         # === ЭКСПАНДЕР 2 УДАЛЕН, ПЕРЕМЕЩЕН ВЫШЕ ===

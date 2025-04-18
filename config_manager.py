@@ -174,6 +174,7 @@ DEFAULT_SETTINGS = {
         "final_exact_width": 1500,
         "final_exact_height": 1500,
         "remove_metadata": False,
+        "reverse_date_order": False,
         "special_first_file": False,
         "first_file_settings": {
             "enable_force_aspect_ratio": False,

@@ -9,7 +9,7 @@ import gc # Для сборки мусора при MemoryError
 from typing import Dict, Any, Optional, Tuple, List, Union
 import uuid
 import re
-from datetime import datetime
+from datetime import datetime, timedelta
 import random
 
 # Используем абсолютный импорт (если все файлы в одной папке)
