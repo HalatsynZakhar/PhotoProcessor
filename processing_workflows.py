@@ -210,7 +210,7 @@ def _apply_final_canvas_or_prepare(img, exact_width, exact_height, output_format
                 except Exception as e_conv: log.error(f"    ! Simple RGB conversion failed: {e_conv}"); image_utils.safe_close(converted_img); return img
 
 
-def _save_image(img, output_path, output_format, jpeg_quality, jpg_background_color=None, png_transparent_background=True, png_background_color=None):
+def _save_image(img, output_path, output_format, jpeg_quality, jpg_background_color=None, png_transparent_background=True, png_background_color=None, remove_metadata=False):
     """(Helper) Сохраняет изображение в указанном формате с опциями."""
     if not img: log.error("! Cannot save None image."); return False
     if img.size[0] <= 0 or img.size[1] <= 0: log.error(f"! Cannot save zero-size image {img.size} to {output_path}"); return False
@@ -299,6 +299,14 @@ def _save_image(img, output_path, output_format, jpeg_quality, jpg_background_co
                 log.error(f"Failed to create output directory: {e}")
                 return False
 
+        # Если файл существует и нужно удалить метаданные, сначала удаляем его
+        if remove_metadata and os.path.exists(output_path):
+            try:
+                os.remove(output_path)
+                log.debug(f"Removed existing file for metadata removal: {output_path}")
+            except Exception as e:
+                log.warning(f"Failed to remove existing file for metadata removal: {e}")
+
         # Проверяем, не заблокирован ли файл
         try:
             if os.path.exists(output_path):
@@ -311,9 +319,31 @@ def _save_image(img, output_path, output_format, jpeg_quality, jpg_background_co
             output_path = f"{base}_{int(time.time())}{ext}"
             log.warning(f"Original file is locked. Using alternative name: {os.path.basename(output_path)}")
 
+        # Если нужно удалить метаданные, создаем новое изображение без них
+        if remove_metadata:
+            log.info("Removing metadata from image before saving...")
+            # Создаем новое изображение без метаданных
+            new_img = Image.new(img_to_save.mode, img_to_save.size)
+            new_img.putdata(list(img_to_save.getdata()))
+            if must_close_img_to_save:
+                image_utils.safe_close(img_to_save)
+            img_to_save = new_img
+            must_close_img_to_save = True
+
         # Сохраняем файл
         try:
             img_to_save.save(output_path, format_name, **save_options)
+            
+            # Если нужно удалить метаданные, устанавливаем фиксированную дату
+            if remove_metadata:
+                try:
+                    # Устанавливаем фиксированную дату (1 января 2000 года)
+                    fixed_time = time.mktime(time.strptime("2000-01-01", "%Y-%m-%d"))
+                    os.utime(output_path, (fixed_time, fixed_time))
+                    log.debug("Set fixed creation/modification date for metadata removal")
+                except Exception as e:
+                    log.warning(f"Failed to set fixed date for metadata removal: {e}")
+                    
         except OSError as e:
             # Особая обработка ошибок OSError
             if '[Errno 22]' in str(e) or 'Invalid argument' in str(e):
@@ -667,7 +697,8 @@ def run_individual_processing(**all_settings: Dict[str, Any]) -> bool:
                                  individual_mode_settings.get('jpeg_quality', 95), 
                                  individual_mode_settings.get('jpg_background_color', [255, 255, 255]),
                                  individual_mode_settings.get('png_transparent_background', True),
-                                 individual_mode_settings.get('png_background_color', [255, 255, 255])):
+                                 individual_mode_settings.get('png_background_color', [255, 255, 255]),
+                                 individual_mode_settings.get('remove_metadata', False)):
                     log.error(f"Failed to save image: {output_filename}")
                     log.info(f"--- Finished processing: {filename} (Failed) ---")
                     overall_success = False
@@ -1218,7 +1249,8 @@ def run_collage_processing(**all_settings: Dict[str, Any]) -> bool:
         save_successful = _save_image(final_collage, output_file_path, output_format, 
                                     jpeg_quality, valid_jpg_bg,
                                     coll_settings.get('png_transparent_background', True),
-                                    coll_settings.get('png_background_color', [255, 255, 255]))
+                                    coll_settings.get('png_background_color', [255, 255, 255]),
+                                    coll_settings.get('save_options', {}).get('remove_metadata', False))
         if save_successful:
             log.info(f"--- Collage processing finished successfully! Saved to {output_file_path} ---")
             success_flag = True # Устанавливаем флаг успеха

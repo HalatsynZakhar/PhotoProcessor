@@ -145,13 +145,16 @@ DEFAULT_SETTINGS = {
         "save_options": {
             "jpg_quality": 95,
             "webp_quality": 90,
-            "webp_lossless": False
+            "webp_lossless": False,
+            "remove_metadata": False
         },
         "output_format": "jpg",
         "jpeg_quality": 95,
         "jpg_background_color": [255, 255, 255],
         "png_transparent_background": True,
-        "png_background_color": [255, 255, 255]
+        "png_background_color": [255, 255, 255],
+        "remove_metadata": False,
+        "fixed_modification_date": False
     },
     "individual_mode": {
         "enable_rename": False,
@@ -170,6 +173,7 @@ DEFAULT_SETTINGS = {
         "enable_exact_canvas": True,
         "final_exact_width": 1500,
         "final_exact_height": 1500,
+        "remove_metadata": False,
         "special_first_file": False,
         "first_file_settings": {
             "enable_force_aspect_ratio": False,
