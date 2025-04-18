@@ -1345,12 +1345,6 @@ with st.sidebar:
                                             help="JPG - меньше размер файла, нет прозрачности. PNG - больше размер, сохраняет прозрачность.")
                  set_setting('individual_mode.output_format', output_format_ind)
                  
-                 # Добавляем чекбокс для удаления метаданных
-                 remove_metadata = st.checkbox("Удалить метаданные", 
-                                            value=get_setting('individual_mode.remove_metadata', False),
-                                            key='ind_remove_metadata',
-                                            help="Удалить все метаданные из файла (дата создания, изменения, автор и т.д.)")
-                 set_setting('individual_mode.remove_metadata', remove_metadata)
             with q_col:
                  if output_format_ind == 'jpg': 
                      q_ind = st.number_input("Кач-во", 1, 100, 
@@ -1391,6 +1385,13 @@ with st.sidebar:
                      except ValueError: st.caption("❌ R,G,B 0-255")
                  else:
                      st.caption("-")
+
+            # Добавляем чекбокс для удаления метаданных на всю ширину
+            remove_metadata = st.checkbox("Удалить метаданные", 
+                                       value=get_setting('individual_mode.remove_metadata', False),
+                                       key='ind_remove_metadata',
+                                       help="Удалить все метаданные из файла (дата создания, изменения, автор и т.д.)")
+            set_setting('individual_mode.remove_metadata', remove_metadata)
         # === КОНЕЦ ЭКСПАНДЕРА 1 ===
         
         # === ЭКСПАНДЕР 2 УДАЛЕН, ПЕРЕМЕЩЕН ВЫШЕ ===
