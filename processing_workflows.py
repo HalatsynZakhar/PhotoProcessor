@@ -10,6 +10,7 @@ from typing import Dict, Any, Optional, Tuple, List, Union
 import uuid
 import re
 from datetime import datetime
+import random
 
 # Используем абсолютный импорт (если все файлы в одной папке)
 import image_utils
@@ -334,15 +335,28 @@ def _save_image(img, output_path, output_format, jpeg_quality, jpg_background_co
         try:
             img_to_save.save(output_path, format_name, **save_options)
             
-            # Если нужно удалить метаданные, устанавливаем фиксированную дату
+            # Если нужно удалить метаданные, устанавливаем фиксированную дату с интервалом
             if remove_metadata:
                 try:
-                    # Устанавливаем фиксированную дату (1 января 2000 года)
-                    fixed_time = time.mktime(time.strptime("2000-01-01", "%Y-%m-%d"))
-                    os.utime(output_path, (fixed_time, fixed_time))
-                    log.debug("Set fixed creation/modification date for metadata removal")
+                    # Получаем базовое время (текущее время)
+                    base_time = int(time.time())
+                    # Получаем номер файла из имени (если есть)
+                    try:
+                        file_number = int(re.search(r'\d+', os.path.basename(output_path)).group())
+                    except:
+                        # Если номера нет, используем порядковый номер из имени файла в списке
+                        # Получаем все файлы в директории и находим позицию текущего файла
+                        dir_files = os.listdir(output_dir)
+                        dir_files = [f for f in dir_files if f.lower().endswith(('.jpg', '.jpeg', '.png', '.webp', '.tiff', '.bmp', '.gif', '.psd'))]
+                        from natsort import natsorted, ns
+                        dir_files = natsorted(dir_files, alg=ns.IGNORECASE)
+                        file_number = dir_files.index(os.path.basename(output_path)) + 1
+                    # Устанавливаем время с интервалом в 2 секунды между файлами
+                    file_time = base_time + (file_number * 2)
+                    os.utime(output_path, (file_time, file_time))
+                    log.debug(f"Set creation/modification date for metadata removal: {time.ctime(file_time)}")
                 except Exception as e:
-                    log.warning(f"Failed to set fixed date for metadata removal: {e}")
+                    log.warning(f"Failed to set date for metadata removal: {e}")
                     
         except OSError as e:
             # Особая обработка ошибок OSError

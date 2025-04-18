@@ -1387,10 +1387,10 @@ with st.sidebar:
                      st.caption("-")
 
             # Добавляем чекбокс для удаления метаданных на всю ширину
-            remove_metadata = st.checkbox("Удалить метаданные", 
+            remove_metadata = st.checkbox("Удалить метаданные и установить единую дату", 
                                        value=get_setting('individual_mode.remove_metadata', False),
                                        key='ind_remove_metadata',
-                                       help="Удалить все метаданные из файла (дата создания, изменения, автор и т.д.)")
+                                       help="Удалить все метаданные из файла и установить единую дату создания/изменения для всех файлов с интервалом в 2 секунды между ними")
             set_setting('individual_mode.remove_metadata', remove_metadata)
         # === КОНЕЦ ЭКСПАНДЕРА 1 ===
         
