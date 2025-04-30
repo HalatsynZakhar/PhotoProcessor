@@ -1705,7 +1705,8 @@ def get_image_files(folder_path: str) -> List[str]:
 
 def _apply_background_crop(img, white_tolerance, perimeter_tolerance, symmetric_absolute=False, 
                          symmetric_axes=False, check_perimeter=True, enable_crop=True,
-                         perimeter_mode='if_white', image_metadata=None, extra_crop_percent=0.0):
+                         perimeter_mode='if_white', image_metadata=None, extra_crop_percent=0.0,
+                         removal_mode='full'):
     """
     Применяет удаление фона и обрезку изображения.
     
@@ -1720,6 +1721,7 @@ def _apply_background_crop(img, white_tolerance, perimeter_tolerance, symmetric_
         perimeter_mode: Режим проверки периметра ('if_white', 'if_not_white', 'always')
         image_metadata: Словарь с метаданными изображения
         extra_crop_percent: Дополнительный процент обрезки после основной (0.0 - 100.0)
+        removal_mode: Режим удаления фона ('full' - все белые пиксели, 'edges' - только по краям)
     
     Returns:
         Обработанное изображение или исходное, если периметр не соответствует условию
@@ -1728,7 +1730,7 @@ def _apply_background_crop(img, white_tolerance, perimeter_tolerance, symmetric_
     if image_metadata is None:
         image_metadata = {}
     
-    log.info(f"=== Processing background crop (Extra crop: {extra_crop_percent}%) ===")
+    log.info(f"=== Processing background crop (Mode: {removal_mode}, Extra crop: {extra_crop_percent}%) ===")
     log.debug(f"Parameters: white_tol={white_tolerance}, perim_tol={perimeter_tolerance}, "
              f"sym_abs={symmetric_absolute}, sym_axes={symmetric_axes}, check_perim={check_perimeter}, "
              f"enable_crop={enable_crop}, perim_mode={perimeter_mode}")
@@ -1771,8 +1773,8 @@ def _apply_background_crop(img, white_tolerance, perimeter_tolerance, symmetric_
         else:
             img_rgba = img.copy()
         
-        # Применяем удаление фона - используем правильное имя функции
-        img_processed = image_utils.remove_white_background(img_rgba, white_tolerance)
+        # Применяем удаление фона - используем правильное имя функции и передаем режим
+        img_processed = image_utils.remove_white_background(img_rgba, white_tolerance, mode=removal_mode)
         if not img_processed:
             log.error("Background removal failed.")
             return img
@@ -2183,9 +2185,10 @@ def process_image_base(image_or_path, prep_settings, white_settings, bgc_setting
             enable_crop = bool(bgc_settings.get('enable_crop', True))
             perimeter_mode = bgc_settings.get('perimeter_mode', 'if_white')
             extra_crop_percent = float(bgc_settings.get('extra_crop_percent', 0.0))
+            removal_mode = bgc_settings.get('removal_mode', 'full')
             
             # Явно логируем значение white_tolerance и extra_crop_percent
-            log.info(f"Background removal with white_tolerance={white_tolerance}, extra_crop_percent={extra_crop_percent}%")
+            log.info(f"Background removal with mode={removal_mode}, white_tolerance={white_tolerance}, extra_crop_percent={extra_crop_percent}%")
             
             img = _apply_background_crop(
                 img,
@@ -2197,7 +2200,8 @@ def process_image_base(image_or_path, prep_settings, white_settings, bgc_setting
                 enable_crop,
                 perimeter_mode=perimeter_mode,
                 image_metadata=image_metadata,
-                extra_crop_percent=extra_crop_percent
+                extra_crop_percent=extra_crop_percent,
+                removal_mode=removal_mode
             )
             
             if img is None:

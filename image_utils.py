@@ -220,14 +220,17 @@ def whiten_image_by_darkest_perimeter(img, cancel_threshold_sum):
 
 
 # Используем улучшенную версию из предыдущего шага
-def remove_white_background(img, tolerance):
+def remove_white_background(img, tolerance, mode="full"):
     """
-    Turns white/near-white pixels transparent.
-    Always returns an image in RGBA mode.
+    Turns white/near-white pixels transparent based on selected mode.
+    
     Args:
         img (PIL.Image.Image): Input image.
         tolerance (int): Tolerance for white (0=only 255, 255=all).
                          If None or < 0, the function does nothing but ensures RGBA.
+        mode (str): Removal mode - "full" (removes all white pixels) or 
+                   "edges" (removes only white pixels from the edges inward).
+    
     Returns:
         PIL.Image.Image: Processed image in RGBA mode,
                          or the original image if critical conversion error occurs.
@@ -246,7 +249,25 @@ def remove_white_background(img, tolerance):
                 log.error(f"Failed to convert image to RGBA (removal skipped): {e}", exc_info=True)
                 return img # Return original on error
 
-    log.debug(f"Attempting remove_white_background (tolerance: {tolerance}) on image mode {img.mode}")
+    log.debug(f"Attempting remove_white_background (tolerance: {tolerance}, mode: {mode}) on image mode {img.mode}")
+    
+    # Choose the appropriate background removal method based on mode
+    if mode == "edges":
+        return remove_white_background_edges(img, tolerance)
+    else:  # Default to full background removal
+        return remove_white_background_full(img, tolerance)
+
+def remove_white_background_full(img, tolerance):
+    """
+    Turns all white/near-white pixels transparent throughout the image.
+    
+    Args:
+        img (PIL.Image.Image): Input image.
+        tolerance (int): Tolerance for white (0=only 255, 255=all).
+    
+    Returns:
+        PIL.Image.Image: Processed image in RGBA mode.
+    """
     img_rgba = None
     final_image = img # Default to original if critical error
     original_mode = img.mode
@@ -321,14 +342,137 @@ def remove_white_background(img, tolerance):
             img_rgba = None
 
     except Exception as e:
-        log.error(f"General error in remove_white_background: {e}", exc_info=True)
+        log.error(f"General error in remove_white_background_full: {e}", exc_info=True)
         final_image = img_rgba if img_rgba else img
         img_rgba = None
     finally:
         if img_rgba and img_rgba is not final_image:
             safe_close(img_rgba)
 
-    log.debug(f"remove_white_background returning image mode: {final_image.mode if final_image else 'None'}")
+    log.debug(f"remove_white_background_full returning image mode: {final_image.mode if final_image else 'None'}")
+    return final_image
+
+def remove_white_background_edges(img, tolerance):
+    """
+    Turns white/near-white pixels transparent, but only from the edges inward 
+    until a non-white pixel boundary is reached.
+    
+    Args:
+        img (PIL.Image.Image): Input image.
+        tolerance (int): Tolerance for white (0=only 255, 255=all).
+    
+    Returns:
+        PIL.Image.Image: Processed image in RGBA mode.
+    """
+    img_rgba = None
+    final_image = img  # Default to original if critical error
+    original_mode = img.mode
+
+    try:
+        # --- 1. Ensure RGBA ---
+        if original_mode != 'RGBA':
+            try:
+                img_rgba = img.convert('RGBA')
+                log.debug(f"Converted {original_mode} -> RGBA for edge removal")
+            except Exception as e:
+                log.error(f"Failed to convert image to RGBA for edge removal: {e}", exc_info=True)
+                return img  # Critical error, return as is
+        else:
+            img_rgba = img.copy()
+            log.debug("Created RGBA copy for edge removal (original was RGBA)")
+
+        width, height = img_rgba.size
+        cutoff = 255 - tolerance
+
+        # --- 2. Create a mask to track processed pixels ---
+        # 0 = not processed, 1 = white (to be transparent), 2 = non-white (preserve)
+        from numpy import zeros
+        mask = zeros((height, width), dtype=int)
+        
+        # --- 3. Get pixel data as numpy array for faster processing ---
+        import numpy as np
+        data = np.array(img_rgba)
+        
+        # --- 4. Apply flood fill from the edges ---
+        # Queue of pixels to check (starting with all edge pixels)
+        pixels_to_check = []
+        
+        # Add all edge pixels to the queue
+        for y in range(height):
+            pixels_to_check.append((0, y))  # Left edge
+            pixels_to_check.append((width-1, y))  # Right edge
+            mask[y, 0] = 1  # Mark as white initially
+            mask[y, width-1] = 1  # Mark as white initially
+            
+        for x in range(width):
+            pixels_to_check.append((x, 0))  # Top edge
+            pixels_to_check.append((x, height-1))  # Bottom edge
+            mask[0, x] = 1  # Mark as white initially
+            mask[height-1, x] = 1  # Mark as white initially
+        
+        # Process the queue
+        pixels_changed = 0
+        while pixels_to_check:
+            x, y = pixels_to_check.pop(0)
+            
+            # Skip if already marked as non-white
+            if mask[y, x] == 2:
+                continue
+                
+            # Get the pixel value
+            r, g, b, a = data[y, x]
+            
+            # Check if white (according to tolerance)
+            is_white = a > 0 and r >= cutoff and g >= cutoff and b >= cutoff
+            
+            if is_white:
+                # Mark as white and add neighbors to check
+                mask[y, x] = 1
+                pixels_changed += 1
+                
+                # Add the 4 neighboring pixels to the queue
+                neighbors = []
+                if x > 0 and mask[y, x-1] == 0:
+                    neighbors.append((x-1, y))
+                    mask[y, x-1] = 1  # Mark as tentatively white
+                if x < width-1 and mask[y, x+1] == 0:
+                    neighbors.append((x+1, y))
+                    mask[y, x+1] = 1  # Mark as tentatively white
+                if y > 0 and mask[y-1, x] == 0:
+                    neighbors.append((x, y-1))
+                    mask[y-1, x] = 1  # Mark as tentatively white
+                if y < height-1 and mask[y+1, x] == 0:
+                    neighbors.append((x, y+1))
+                    mask[y+1, x] = 1  # Mark as tentatively white
+                    
+                pixels_to_check.extend(neighbors)
+            else:
+                # Mark as non-white boundary
+                mask[y, x] = 2
+        
+        # --- 5. Apply the mask to the image data ---
+        for y in range(height):
+            for x in range(width):
+                if mask[y, x] == 1:  # White pixel to make transparent
+                    data[y, x, 3] = 0  # Set alpha to 0
+        
+        # --- 6. Create a new image from the modified data ---
+        from PIL import Image
+        result_img = Image.fromarray(data)
+        
+        log.info(f"Edge-only removal: {pixels_changed} pixels made transparent")
+        final_image = result_img
+        img_rgba = None
+
+    except Exception as e:
+        log.error(f"General error in remove_white_background_edges: {e}", exc_info=True)
+        final_image = img_rgba if img_rgba else img
+        img_rgba = None
+    finally:
+        if img_rgba and img_rgba is not final_image:
+            safe_close(img_rgba)
+
+    log.debug(f"remove_white_background_edges returning image mode: {final_image.mode if final_image else 'None'}")
     return final_image
 
 

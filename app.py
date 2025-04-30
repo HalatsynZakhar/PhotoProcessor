@@ -826,6 +826,23 @@ with st.sidebar:
                               help="Определяет, насколько цвет пикселя может отличаться от чисто белого (RGB 255,255,255), чтобы считаться фоном. Меньшие значения более строгие (только близкие к белому пиксели будут удалены), большие - более гибкие (захватит больше светлых оттенков). Рекомендуется не выше 20 для точных результатов.")
             set_setting('background_crop.white_tolerance', bgc_tol)
             
+            # Добавляем выбор режима удаления фона
+            bg_removal_modes = {
+                "full": "Полное удаление фона",
+                "edges": "Удаление фона по краям"
+            }
+            
+            current_mode = get_setting('background_crop.removal_mode', 'full')
+            bg_removal_mode = st.radio(
+                "Режим удаления фона",
+                options=list(bg_removal_modes.keys()),
+                format_func=lambda x: bg_removal_modes[x],
+                index=0 if current_mode == 'full' else 1,
+                key='bg_removal_mode',
+                help="Полное удаление фона - удаляет все белые пиксели. Удаление фона по краям - удаляет только белые пиксели от краев изображения, сохраняя белые элементы внутри темных контуров."
+            )
+            set_setting('background_crop.removal_mode', bg_removal_mode)
+            
             # Добавляем отдельную опцию для обрезки
             enable_crop = st.checkbox("Обрезать изображение", 
                                     value=get_setting('background_crop.enable_crop', True), 
