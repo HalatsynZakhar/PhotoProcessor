@@ -43,7 +43,8 @@ DEFAULT_SETTINGS = {
         "enable_crop": True,
         "perimeter_mode": "if_white",
         "removal_mode": "full",
-        "extra_crop_percent": 0.0
+        "extra_crop_percent": 0.0,
+        "use_mask_instead_of_transparency": False
     },
     "padding": {
         "mode": "never",

@@ -843,6 +843,13 @@ with st.sidebar:
             )
             set_setting('background_crop.removal_mode', bg_removal_mode)
             
+            # Добавляем опцию использования маски вместо прозрачности
+            use_mask = st.checkbox("Не использовать прозрачность (решает проблему ореолов)", 
+                                 value=get_setting('background_crop.use_mask_instead_of_transparency', False),
+                                 key='use_mask_instead_of_transparency',
+                                 help="Если включено, изображения будут обрабатываться без прозрачности и маска прозрачности будет применена только при сохранении PNG. Это решает проблему полупрозрачных краев (ореолов) при масштабировании PNG изображений.")
+            set_setting('background_crop.use_mask_instead_of_transparency', use_mask)
+            
             # Добавляем отдельную опцию для обрезки
             enable_crop = st.checkbox("Обрезать изображение", 
                                     value=get_setting('background_crop.enable_crop', True), 

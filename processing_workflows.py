@@ -275,11 +275,20 @@ def _save_image(img, output_path, output_format, jpeg_quality, jpg_background_co
         elif output_format == 'png':
             format_name = "PNG"
             save_options["compress_level"] = 6
-            # Для PNG важно сохранить прозрачность
-            if img.mode != 'RGBA':
-                log.warning(f"    Mode is {img.mode}, converting to RGBA for PNG save.")
-                img_to_save = img.convert('RGBA')
+            
+            # Для PNG проверяем, есть ли сохраненная маска прозрачности
+            if 'transparency_mask' in img.info and png_transparent_background:
+                log.info(f"    Using special transparency mask mode for PNG (prevents halos)")
+                # Применяем маску к изображению
+                img_to_save = _apply_mask_for_png_save(img)
                 must_close_img_to_save = True
+            else:
+                # Для PNG важно сохранить прозрачность
+                if img.mode != 'RGBA':
+                    log.warning(f"    Mode is {img.mode}, converting to RGBA for PNG save.")
+                    img_to_save = img.convert('RGBA')
+                    must_close_img_to_save = True
+                log.debug(f"    Using standard transparency for PNG")
             
             if not png_transparent_background and png_background_color:
                 # Создаем новый RGBA с указанным цветом фона
@@ -546,7 +555,8 @@ def run_individual_processing(**all_settings: Dict[str, Any]) -> bool:
         log.info(f"  Crop: {'Enabled' if background_crop_settings.get('enable_crop', True) else 'Disabled'}, "
                  f"Symmetry: Abs={background_crop_settings.get('force_absolute_symmetry', False)}, "
                  f"Axes={background_crop_settings.get('force_axes_symmetry', False)}, "
-                 f"Check Perimeter={background_crop_settings.get('check_perimeter', False)}")
+                 f"Check Perimeter={background_crop_settings.get('check_perimeter', False)}, "
+                 f"Mask instead transparency={background_crop_settings.get('use_mask_instead_of_transparency', False)}")
         log.info(f"4. Padding: {'Enabled' if padding_settings.get('mode', 'never') != 'never' else 'Disabled'}")
         log.info(f"5. Brightness/Contrast: {'Enabled' if brightness_contrast_settings.get('enable_bc', False) else 'Disabled'}")
         log.info(f"6. Force Aspect Ratio: {'Enabled' if individual_mode_settings.get('enable_force_aspect_ratio', False) else 'Disabled'} ")
@@ -955,7 +965,8 @@ def run_collage_processing(**all_settings: Dict[str, Any]) -> bool:
     # Добавляем параметр extra_crop_percent в логирование
     extra_crop_percent = float(bgc_settings.get('extra_crop_percent', 0.0))
     log.info(f"3. BG Removal/Crop: {'Enabled' if bgc_settings.get('enable_bg_crop', False) else 'Disabled'} "
-            f"(Tol:{bgc_settings.get('white_tolerance', 10)}, Extra Crop:{extra_crop_percent}%)")
+            f"(Tol:{bgc_settings.get('white_tolerance', 10)}, Extra Crop:{extra_crop_percent}%, "
+            f"Mask instead transparency:{bgc_settings.get('use_mask_instead_of_transparency', False)})")
     log.info(f"  Crop: {'Enabled' if bgc_settings.get('enable_crop', True) else 'Disabled'}, "
              f"Symmetry: Abs={bgc_settings.get('force_absolute_symmetry', False)}, "
              f"Axes={bgc_settings.get('force_axes_symmetry', False)}, "
@@ -1706,7 +1717,7 @@ def get_image_files(folder_path: str) -> List[str]:
 def _apply_background_crop(img, white_tolerance, perimeter_tolerance, symmetric_absolute=False, 
                          symmetric_axes=False, check_perimeter=True, enable_crop=True,
                          perimeter_mode='if_white', image_metadata=None, extra_crop_percent=0.0,
-                         removal_mode='full'):
+                         removal_mode='full', use_mask_instead_of_transparency=False):
     """
     Применяет удаление фона и обрезку изображения.
     
@@ -1722,6 +1733,7 @@ def _apply_background_crop(img, white_tolerance, perimeter_tolerance, symmetric_
         image_metadata: Словарь с метаданными изображения
         extra_crop_percent: Дополнительный процент обрезки после основной (0.0 - 100.0)
         removal_mode: Режим удаления фона ('full' - все белые пиксели, 'edges' - только по краям)
+        use_mask_instead_of_transparency: Использовать маску вместо прозрачности (решает проблему ореолов в PNG)
     
     Returns:
         Обработанное изображение или исходное, если периметр не соответствует условию
@@ -1733,7 +1745,7 @@ def _apply_background_crop(img, white_tolerance, perimeter_tolerance, symmetric_
     log.info(f"=== Processing background crop (Mode: {removal_mode}, Extra crop: {extra_crop_percent}%) ===")
     log.debug(f"Parameters: white_tol={white_tolerance}, perim_tol={perimeter_tolerance}, "
              f"sym_abs={symmetric_absolute}, sym_axes={symmetric_axes}, check_perim={check_perimeter}, "
-             f"enable_crop={enable_crop}, perim_mode={perimeter_mode}")
+             f"enable_crop={enable_crop}, perim_mode={perimeter_mode}, mask_instead_transparency={use_mask_instead_of_transparency}")
     
     try:
         # Определяем, нужно ли проверять периметр
@@ -1802,6 +1814,11 @@ def _apply_background_crop(img, white_tolerance, perimeter_tolerance, symmetric_
             log.debug(f"Saved perimeter state AFTER crop/bg-removal: white_perimeter={has_white_perimeter_after}")
         except Exception as e:
             log.warning(f"Failed to check perimeter after crop/bg-removal: {e}")
+        
+        # Если нужно использовать маску вместо прозрачности
+        if use_mask_instead_of_transparency:
+            img_processed = _create_mask_instead_of_transparency(img_processed)
+            log.debug("Created mask instead of transparency")
         
         return img_processed
     except Exception as e:
@@ -2186,9 +2203,10 @@ def process_image_base(image_or_path, prep_settings, white_settings, bgc_setting
             perimeter_mode = bgc_settings.get('perimeter_mode', 'if_white')
             extra_crop_percent = float(bgc_settings.get('extra_crop_percent', 0.0))
             removal_mode = bgc_settings.get('removal_mode', 'full')
+            use_mask_instead_of_transparency = bool(bgc_settings.get('use_mask_instead_of_transparency', False))
             
             # Явно логируем значение white_tolerance и extra_crop_percent
-            log.info(f"Background removal with mode={removal_mode}, white_tolerance={white_tolerance}, extra_crop_percent={extra_crop_percent}%")
+            log.info(f"Background removal with mode={removal_mode}, white_tolerance={white_tolerance}, extra_crop_percent={extra_crop_percent}%, use_mask={use_mask_instead_of_transparency}")
             
             img = _apply_background_crop(
                 img,
@@ -2201,7 +2219,8 @@ def process_image_base(image_or_path, prep_settings, white_settings, bgc_setting
                 perimeter_mode=perimeter_mode,
                 image_metadata=image_metadata,
                 extra_crop_percent=extra_crop_percent,
-                removal_mode=removal_mode
+                removal_mode=removal_mode,
+                use_mask_instead_of_transparency=use_mask_instead_of_transparency
             )
             
             if img is None:
@@ -2554,3 +2573,60 @@ def guess_article_from_filenames(folder_path: str) -> str:
     except Exception as e:
         log.exception(f"Error in guess_article_from_filenames: {e}")
         return ""
+
+def _create_mask_instead_of_transparency(img):
+    """
+    Вместо прозрачности создает и сохраняет маску, переводя изображение в RGB с белым фоном.
+    Это решает проблему ореолов при масштабировании, так как в процессе обработки изображение 
+    не имеет прозрачности (никаких полупрозрачных пикселей).
+    Прозрачность применяется только в момент сохранения PNG.
+    
+    Args:
+        img: RGBA изображение с прозрачностью
+    
+    Returns:
+        RGB изображение с белым фоном и сохраненной маской в img.info['transparency_mask']
+    """
+    if img.mode != 'RGBA':
+        return img
+        
+    # Создаем маску из альфа-канала (1 = непрозрачно, 0 = прозрачно)
+    alpha = img.split()[3]
+    # Инвертируем: 0 = непрозрачно, 255 = прозрачно (для последующего применения)
+    mask = alpha.point(lambda x: 0 if x > 128 else 255)
+    
+    # Создаем RGB изображение с белым фоном
+    rgb_img = Image.new("RGB", img.size, (255, 255, 255))
+    rgb_img.paste(img, (0, 0), img)
+    
+    # Сохраняем маску в info
+    rgb_img.info['transparency_mask'] = mask
+    
+    return rgb_img
+
+def _apply_mask_for_png_save(img):
+    """
+    Применяет сохраненную маску к изображению, делая его RGBA для сохранения в PNG.
+    Эта функция вызывается только перед сохранением PNG, чтобы избежать проблем с ореолами.
+    
+    Args:
+        img: RGB изображение с маской в img.info['transparency_mask']
+    
+    Returns:
+        RGBA изображение с чистой прозрачностью (без полутонов)
+    """
+    if not 'transparency_mask' in img.info:
+        return img
+        
+    # Получаем маску
+    mask = img.info['transparency_mask']
+    
+    # Создаем RGBA изображение
+    rgba_img = img.convert("RGBA")
+    
+    # Применяем маску (инвертированную) к альфа-каналу
+    r, g, b, a = rgba_img.split()
+    new_a = mask.point(lambda x: 0 if x > 128 else 255)  # Инвертируем: 255 = непрозрачно, 0 = прозрачно
+    rgba_img = Image.merge("RGBA", (r, g, b, new_a))
+    
+    return rgba_img
