@@ -243,11 +243,22 @@ def _save_image(img, output_file_path, output_format, jpeg_quality=95,
             save_options['quality'] = jpeg_quality
             save_options['optimize'] = True
             
+            # Ensure color is a valid tuple or int for Image.new
+            default_bg_color = (255, 255, 255)
+            bg_color = default_bg_color
+            
+            if jpg_background_color is not None:
+                if isinstance(jpg_background_color, (tuple, list)) and len(jpg_background_color) == 3:
+                    bg_color = tuple(map(int, jpg_background_color))
+                elif isinstance(jpg_background_color, int):
+                    bg_color = jpg_background_color
+                else:
+                    log.warning(f"Invalid jpg_background_color format: {jpg_background_color}, using default white")
+            
             # Для JPEG не может быть прозрачности, поэтому преобразуем в RGB
             if img.mode == 'RGBA':
                 # Применяем цвет фона
-                background = Image.new('RGB', img.size, 
-                                    jpg_background_color if jpg_background_color else (255, 255, 255))
+                background = Image.new('RGB', img.size, bg_color)
                 background.paste(img, (0, 0), img)
                 img_to_save = background
             elif img.mode != 'RGB':
@@ -258,6 +269,18 @@ def _save_image(img, output_file_path, output_format, jpeg_quality=95,
         elif output_format.lower() == 'png':
             save_options['format'] = 'PNG'
             save_options['optimize'] = True
+            
+            # Ensure color is a valid tuple or int for Image.new
+            default_bg_color = (255, 255, 255)
+            png_bg_color = default_bg_color
+            
+            if png_background_color is not None:
+                if isinstance(png_background_color, (tuple, list)) and len(png_background_color) == 3:
+                    png_bg_color = tuple(map(int, png_background_color))
+                elif isinstance(png_background_color, int):
+                    png_bg_color = png_background_color
+                else:
+                    log.warning(f"Invalid png_background_color format: {png_background_color}, using default white")
             
             # Специальная обработка для предотвращения ореолов в PNG
             if png_transparent_background:
@@ -283,8 +306,7 @@ def _save_image(img, output_file_path, output_format, jpeg_quality=95,
                 # Для PNG без прозрачности
                 if img.mode == 'RGBA':
                     # Создаем RGB с белым фоном
-                    background = Image.new('RGB', img.size, 
-                                         png_background_color if png_background_color else (255, 255, 255))
+                    background = Image.new('RGB', img.size, png_bg_color)
                     
                     # Создаем бинарную маску для четких границ
                     r, g, b, alpha = img.split()
