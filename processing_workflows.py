@@ -2515,38 +2515,40 @@ def guess_article_from_filenames(folder_path: str) -> str:
             filename = os.path.basename(path)
             name_without_ext = os.path.splitext(filename)[0]
             filenames.append(name_without_ext)
+            log.debug(f"Processing filename: {name_without_ext}")
             
         if not filenames:
             return ""
             
         # Если получен только один файл, используем его имя как артикул
         if len(filenames) == 1:
-            # Удаляем числа в конце имени, если они есть
-            return re.sub(r'_?\d+$', '', filenames[0])
+            # Заменяем все спецсимволы на дефис и убираем висящие дефисы
+            result = re.sub(r'[^\w\-]', '-', filenames[0])
+            return result.strip('-')
             
-        # Находим общие префиксы между всеми именами файлов
-        common_parts = []
+        # Находим общую часть между именами файлов
+        first_name = filenames[0]
+        log.debug(f"Using first name as template: {first_name}")
         
-        # Сначала извлекаем все подстроки между разделителями
-        for name in filenames:
-            # Разбиваем имя файла по общим разделителям и добавляем части
-            parts = re.split(r'[_\-\s]', name)
-            common_parts.extend(parts)
+        # Ищем общую часть, начиная с начала строки
+        common_part = ""
+        for i in range(len(first_name)):
+            current_part = first_name[:i+1]
+            # Проверяем, есть ли эта часть во всех остальных именах
+            if all(current_part in name for name in filenames[1:]):
+                common_part = current_part
+            else:
+                break
+                
+        log.debug(f"Found common part: {common_part}")
         
-        # Фильтруем пустые строки и строки, состоящие только из цифр
-        filtered_parts = [part for part in common_parts if part and not re.match(r'^\d+$', part)]
-        
-        if not filtered_parts:
-            return ""
-        
-        # Считаем частоту каждой части
-        from collections import Counter
-        counter = Counter(filtered_parts)
-        
-        # Находим часть, которая встречается наиболее часто
-        most_common = counter.most_common(1)
-        if most_common:
-            return most_common[0][0]
+        if common_part:
+            # Заменяем все спецсимволы на дефис в результате
+            result = re.sub(r'[^\w\-]', '-', common_part)
+            # Убираем висящие дефисы
+            result = result.strip('-')
+            log.debug(f"Final result: {result}")
+            return result
             
         return ""
     except Exception as e:
