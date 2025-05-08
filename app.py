@@ -1627,6 +1627,14 @@ with st.sidebar:
                                                key='coll_png_transparent',
                                                help="Если включено, фон будет прозрачным")
                      set_setting('collage_mode.png_transparent_background', transparent_bg)
+                     
+                     # Добавляем настройку для использования маски вместо прозрачности
+                     if not transparent_bg:  # Показываем только когда прозрачность выключена
+                         use_mask = st.checkbox("Маска вместо прозрачности", 
+                                               value=get_setting('collage_mode.use_mask_instead_of_transparency', True),
+                                               key='coll_use_mask',
+                                               help="Использовать маску для избежания эффекта ореола при масштабировании")
+                         set_setting('collage_mode.use_mask_instead_of_transparency', use_mask)
             with bg_col_coll:
                  if output_format_coll == 'jpg':
                      bg_color_str_coll = ",".join(map(str, get_setting('collage_mode.jpg_background_color', [255,255,255])))

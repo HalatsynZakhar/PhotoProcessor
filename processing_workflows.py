@@ -211,184 +211,125 @@ def _apply_final_canvas_or_prepare(img, exact_width, exact_height, output_format
                 except Exception as e_conv: log.error(f"    ! Simple RGB conversion failed: {e_conv}"); image_utils.safe_close(converted_img); return img
 
 
-def _save_image(img, output_path, output_format, jpeg_quality, jpg_background_color=None, png_transparent_background=True, png_background_color=None, remove_metadata=False):
-    """(Helper) Сохраняет изображение в указанном формате с опциями."""
-    if not img: log.error("! Cannot save None image."); return False
-    if img.size[0] <= 0 or img.size[1] <= 0: log.error(f"! Cannot save zero-size image {img.size} to {output_path}"); return False
+def _save_image(img, output_file_path, output_format, jpeg_quality=95, 
+                  jpg_background_color=None, png_transparent_background=False,
+                  png_background_color=None, remove_metadata=False):
+    """
+    Сохраняет изображение в заданном формате.
     
-    # Проверяем и очищаем путь к файлу
+    Args:
+        img: Исходное изображение
+        output_file_path: Путь для сохранения
+        output_format: Формат сохранения (jpg, png, ...)
+        jpeg_quality: Качество для JPEG
+        jpg_background_color: Цвет фона для JPG
+        png_transparent_background: Использовать ли прозрачность в PNG
+        png_background_color: Цвет фона для PNG (если не прозрачный)
+        remove_metadata: Удалять ли метаданные
+        
+    Returns:
+        bool: Успешно ли выполнено сохранение
+    """
     try:
-        original_path = output_path
-        # Получаем директорию и имя файла
-        output_dir = os.path.dirname(output_path)
-        filename = os.path.basename(output_path)
+        # Проверяем наличие директории для сохранения
+        os.makedirs(os.path.dirname(os.path.abspath(output_file_path)), exist_ok=True)
         
-        # Проверяем наличие недопустимых символов в имени файла
-        # Заменяем недопустимые символы в именах файлов Windows: \ / : * ? " < > |
-        invalid_chars = r'[\\/:\*\?"<>\|]'
-        safe_filename = re.sub(invalid_chars, '_', filename)
+        save_options = {}
+        img_to_save = None
         
-        # Проверяем на зарезервированные имена устройств в Windows
-        reserved_names = ['CON', 'PRN', 'AUX', 'NUL', 'COM1', 'COM2', 'COM3', 'COM4', 
-                        'COM5', 'COM6', 'COM7', 'COM8', 'COM9', 'LPT1', 'LPT2', 
-                        'LPT3', 'LPT4', 'LPT5', 'LPT6', 'LPT7', 'LPT8', 'LPT9']
+        # Определяем и обрабатываем сохранение в зависимости от формата
+        if output_format.lower() in ['jpg', 'jpeg']:
+            save_options['format'] = 'JPEG'
+            save_options['quality'] = jpeg_quality
+            save_options['optimize'] = True
+            
+            # Для JPEG не может быть прозрачности, поэтому преобразуем в RGB
+            if img.mode == 'RGBA':
+                # Применяем цвет фона
+                background = Image.new('RGB', img.size, 
+                                    jpg_background_color if jpg_background_color else (255, 255, 255))
+                background.paste(img, (0, 0), img)
+                img_to_save = background
+            elif img.mode != 'RGB':
+                img_to_save = img.convert('RGB')
+            else:
+                img_to_save = img.copy()
         
-        filename_without_ext = os.path.splitext(safe_filename)[0].upper()
-        if filename_without_ext in reserved_names:
-            safe_filename = f"_{safe_filename}"
-        
-        # Собираем очищенный путь
-        safe_output_path = os.path.join(output_dir, safe_filename)
-        
-        # Если путь изменился, логируем это
-        if safe_output_path != original_path:
-            log.warning(f"Unsafe filename detected. Changed from '{filename}' to '{safe_filename}'")
-            output_path = safe_output_path
-    except Exception as e:
-        log.error(f"Error sanitizing filename: {e}")
-        # Продолжаем с исходным путем
-    
-    log.info(f"  > Saving image to {output_path} (Format: {output_format.upper()})")
-    log.debug(f"    Image details before save: Mode={img.mode}, Size={img.size}")
-    
-    try:
-        save_options = {"optimize": True}
-        img_to_save = img
-        must_close_img_to_save = False
-        
-        if output_format == 'jpg':
-            format_name = "JPEG"
-            save_options["quality"] = int(jpeg_quality) # Убедимся что int
-            save_options["subsampling"] = 0
-            save_options["progressive"] = True
-            if img.mode != 'RGB':
-                log.warning(f"    Mode is {img.mode}, converting to RGB for JPEG save.")
-                if jpg_background_color and img.mode in ('RGBA', 'LA', 'PA'):
-                    # Create a new RGB image with the specified background color
-                    rgb_image = Image.new("RGB", img.size, tuple(jpg_background_color))
-                    # Paste the image onto the background
-                    rgb_image.paste(img, (0, 0), img)
-                    img_to_save = rgb_image
+        elif output_format.lower() == 'png':
+            save_options['format'] = 'PNG'
+            save_options['optimize'] = True
+            
+            # Специальная обработка для предотвращения ореолов в PNG
+            if png_transparent_background:
+                if img.mode == 'RGBA':
+                    # Делаем строго бинарную прозрачность
+                    r, g, b, alpha = img.split()
+                    # Используем очень высокий порог для предотвращения ореолов
+                    threshold = 245
+                    binary_alpha = alpha.point(lambda x: 255 if x >= threshold else 0)
+                    img_to_save = Image.merge('RGBA', (r, g, b, binary_alpha))
+                elif 'transparency_mask' in img.info:
+                    # Если есть сохраненная маска, применяем ее
+                    mask = img.info['transparency_mask']
+                    rgba_img = img.convert("RGBA")
+                    r, g, b, _ = rgba_img.split()
+                    # Создаем бинарную маску
+                    binary_mask = mask.point(lambda x: 0 if x == 0 else 255)
+                    final_alpha = binary_mask.point(lambda x: 0 if x > 0 else 255)  # Инвертируем
+                    img_to_save = Image.merge("RGBA", (r, g, b, final_alpha))
                 else:
-                    img_to_save = img.convert('RGB')
-                    must_close_img_to_save = True
-        elif output_format == 'png':
-            format_name = "PNG"
-            save_options["compress_level"] = 6
-            
-            # Для PNG проверяем, есть ли сохраненная маска прозрачности
-            if 'transparency_mask' in img.info and png_transparent_background:
-                log.info(f"    Using special transparency mask mode for PNG (prevents halos)")
-                # Применяем маску к изображению
-                img_to_save = _apply_mask_for_png_save(img)
-                must_close_img_to_save = True
-            else:
-                # Для PNG важно сохранить прозрачность
-                if img.mode != 'RGBA':
-                    log.warning(f"    Mode is {img.mode}, converting to RGBA for PNG save.")
                     img_to_save = img.convert('RGBA')
-                    must_close_img_to_save = True
-                log.debug(f"    Using standard transparency for PNG")
-            
-            if not png_transparent_background and png_background_color:
-                # Создаем новый RGBA с указанным цветом фона
-                bg_image = Image.new("RGBA", img_to_save.size, tuple(png_background_color) + (255,))
-                # Вставляем изображение поверх фона
-                bg_image.paste(img_to_save, (0, 0), img_to_save)
-                img_to_save = bg_image
-                must_close_img_to_save = True
-        else: log.error(f"! Unsupported output format for saving: {output_format}"); return False
-
-        # Проверяем существование директории и создаем при необходимости
-        output_dir = os.path.dirname(output_path)
-        if output_dir and not os.path.exists(output_dir):
-            try:
-                os.makedirs(output_dir, exist_ok=True)
-                log.info(f"Created output directory: {output_dir}")
-            except Exception as e:
-                log.error(f"Failed to create output directory: {e}")
-                return False
-
-        # Если файл существует и нужно удалить метаданные, сначала удаляем его
-        if remove_metadata and os.path.exists(output_path):
-            try:
-                os.remove(output_path)
-                log.debug(f"Removed existing file for metadata removal: {output_path}")
-            except Exception as e:
-                log.warning(f"Failed to remove existing file for metadata removal: {e}")
-
-        # Проверяем, не заблокирован ли файл
-        try:
-            if os.path.exists(output_path):
-                # Пробуем открыть файл для записи, чтобы проверить, не заблокирован ли он
-                with open(output_path, 'a'):
-                    pass
-        except PermissionError:
-            # Файл заблокирован, используем временное имя
-            base, ext = os.path.splitext(output_path)
-            output_path = f"{base}_{int(time.time())}{ext}"
-            log.warning(f"Original file is locked. Using alternative name: {os.path.basename(output_path)}")
-
-        # Если нужно удалить метаданные, создаем новое изображение без них
-        if remove_metadata:
-            log.info("Removing metadata from image before saving...")
-            # Создаем новое изображение без метаданных
-            new_img = Image.new(img_to_save.mode, img_to_save.size)
-            new_img.putdata(list(img_to_save.getdata()))
-            if must_close_img_to_save:
-                image_utils.safe_close(img_to_save)
-            img_to_save = new_img
-            must_close_img_to_save = True
-
-        # Сохраняем файл
-        try:
-            img_to_save.save(output_path, format_name, **save_options)
-            
-            # Если нужно удалить метаданные, устанавливаем фиксированную дату с интервалом
-            if remove_metadata:
-                try:
-                    # Получаем базовое время (текущее время)
-                    base_time = int(time.time())
-                    # Получаем номер файла из имени (если есть)
-                    try:
-                        file_number = int(re.search(r'\d+', os.path.basename(output_path)).group())
-                    except:
-                        # Если номера нет, используем порядковый номер из имени файла в списке
-                        # Получаем все файлы в директории и находим позицию текущего файла
-                        dir_files = os.listdir(output_dir)
-                        dir_files = [f for f in dir_files if f.lower().endswith(('.jpg', '.jpeg', '.png', '.webp', '.tiff', '.bmp', '.gif', '.psd'))]
-                        from natsort import natsorted, ns
-                        dir_files = natsorted(dir_files, alg=ns.IGNORECASE)
-                        file_number = dir_files.index(os.path.basename(output_path)) + 1
-                    # Устанавливаем время с интервалом в 2 секунды между файлами
-                    file_time = base_time + (file_number * 2)
-                    os.utime(output_path, (file_time, file_time))
-                    log.debug(f"Set creation/modification date for metadata removal: {time.ctime(file_time)}")
-                except Exception as e:
-                    log.warning(f"Failed to set date for metadata removal: {e}")
-                    
-        except OSError as e:
-            # Особая обработка ошибок OSError
-            if '[Errno 22]' in str(e) or 'Invalid argument' in str(e):
-                # Пробуем с еще более безопасным именем файла
-                base_dir = os.path.dirname(output_path)
-                ext = os.path.splitext(output_path)[1]
-                safe_path = os.path.join(base_dir, f"image_{int(time.time())}{ext}")
-                log.warning(f"OSError when saving. Trying with generic filename: {os.path.basename(safe_path)}")
-                img_to_save.save(safe_path, format_name, **save_options)
-                output_path = safe_path  # Обновляем путь для логов
             else:
-                # Пробрасываем другие ошибки OSError
-                raise
-                
-        if must_close_img_to_save: image_utils.safe_close(img_to_save)
-        log.info(f"    Successfully saved: {os.path.basename(output_path)}")
+                # Для PNG без прозрачности
+                if img.mode == 'RGBA':
+                    # Создаем RGB с белым фоном
+                    background = Image.new('RGB', img.size, 
+                                         png_background_color if png_background_color else (255, 255, 255))
+                    
+                    # Создаем бинарную маску для четких границ
+                    r, g, b, alpha = img.split()
+                    binary_alpha = alpha.point(lambda x: 255 if x >= 245 else 0)
+                    clean_img = Image.merge('RGBA', (r, g, b, binary_alpha))
+                    
+                    # Вставляем с бинарной маской
+                    background.paste(clean_img, (0, 0), clean_img)
+                    img_to_save = background
+                    image_utils.safe_close(clean_img)
+                else:
+                    img_to_save = img.copy()
+                    
+                # Принудительно устанавливаем RGB для режима без прозрачности
+                if img_to_save.mode != 'RGB':
+                    tmp = img_to_save.convert('RGB')
+                    image_utils.safe_close(img_to_save)
+                    img_to_save = tmp
+        
+        else:  # GIF, BMP и т.д.
+            save_options['format'] = output_format.upper()
+            img_to_save = img.copy()
+            
+        # Удаляем метаданные, если нужно
+        if remove_metadata and hasattr(img_to_save, 'info') and img_to_save.info:
+            # Сохраняем только необходимые данные
+            preserved_info = {}
+            if 'transparency_mask' in img_to_save.info and png_transparent_background:
+                preserved_info['transparency_mask'] = img_to_save.info['transparency_mask']
+            img_to_save.info = preserved_info
+            
+        # Сохраняем изображение
+        img_to_save.save(output_file_path, **save_options)
+        
+        # Закрываем созданную копию
+        if img_to_save is not img:
+            image_utils.safe_close(img_to_save)
+            
+        log.info(f"Успешно сохранено изображение в {output_file_path}")
         return True
+        
     except Exception as e:
-        log.error(f"  ! Failed to save image {os.path.basename(output_path)}: {e}", exc_info=True)
-        if os.path.exists(output_path):
-            try: os.remove(output_path); log.warning(f"    Removed partially saved file: {os.path.basename(output_path)}")
-            except Exception as del_err: log.error(f"    ! Failed to remove partially saved file: {del_err}")
+        log.error(f"Ошибка при сохранении {output_file_path}: {e}")
+        if img_to_save is not None and img_to_save is not img:
+            image_utils.safe_close(img_to_save)
         return False
 
 # ==============================================================================
@@ -1040,6 +981,8 @@ def run_collage_processing(**all_settings: Dict[str, Any]) -> bool:
                     log.debug(f"  Scaling image {i+1} ({current_w}x{current_h} -> {nw}x{nh}) using factor {scale_factor:.3f}")
                     # Получаем настройку прозрачности для правильного масштабирования
                     use_transparency = coll_settings.get('png_transparent_background', True)
+                    
+                    # Используем улучшенную функцию масштабирования, которая предотвращает ореолы
                     temp_img = _scale_image(img, (nw, nh), 'fit', use_transparency)
                     scaled_images.append(temp_img)
                     image_utils.safe_close(img) # Закрываем оригинал
@@ -1195,26 +1138,34 @@ def run_collage_processing(**all_settings: Dict[str, Any]) -> bool:
                      # Центрируем изображение внутри ячейки
                      paste_x = cell_x + (max_w_scaled - img.width) // 2
                      paste_y = cell_y + (max_h_scaled - img.height) // 2
-                     try: 
-                        # Проверяем, нужно ли использовать прозрачность
-                        use_transparency = coll_settings.get('png_transparent_background', True)
-                        
-                        # Убедимся, что изображение в правильном режиме
-                        if use_transparency:
-                            # Используем RGBA с маской для вставки с прозрачностью
-                            img_to_paste = img if img.mode == 'RGBA' else img.convert('RGBA')
-                            collage_canvas.paste(img_to_paste, (paste_x, paste_y), mask=img_to_paste)
-                        else:
-                            # При отключенной прозрачности вставляем изображение без маски
-                            # Преобразуем в RGB, если нужно
-                            img_to_paste = img if img.mode == 'RGB' else img.convert('RGB')
-                            collage_canvas.paste(img_to_paste, (paste_x, paste_y))
-                            
-                        if img_to_paste is not img: image_utils.safe_close(img_to_paste) # Закрываем временное изображение
-                     except Exception as e_paste: 
-                        log.error(f"  ! Error pasting image {current_idx+1}: {e_paste}")
-                        # Закрываем временное изображение, если оно было создано при ошибке
-                        if 'img_to_paste' in locals() and img_to_paste is not img: image_utils.safe_close(img_to_paste)
+                     
+                     try:
+                         # Определяем, нужна ли прозрачность
+                         use_transparency = coll_settings.get('png_transparent_background', True)
+                         
+                         # Готовим изображение для вставки с бинарной маской
+                         if img.mode == 'RGBA':
+                             # Создаем бинарную маску для четких краев
+                             red, green, blue, alpha = img.split()
+                             binary_alpha = alpha.point(lambda x: 255 if x > 240 else 0)
+                             
+                             # Применяем оригинальное изображение с бинарной маской
+                             collage_canvas.paste(img, (paste_x, paste_y), binary_alpha)
+                         elif 'transparency_mask' in img.info:
+                             # Используем сохраненную маску
+                             mask = img.info['transparency_mask']
+                             
+                             # Преобразуем в бинарную маску, если нужно
+                             binary_mask = mask.point(lambda x: 0 if x == 0 else 255)
+                             collage_canvas.paste(img, (paste_x, paste_y), binary_mask)
+                         else:
+                             # Обычная вставка без маски
+                             collage_canvas.paste(img, (paste_x, paste_y))
+                             
+                     except Exception as e:
+                         log.error(f"Error pasting image {i+1}: {e}")
+                         # Резервный вариант - простая вставка без маски
+                         collage_canvas.paste(img, (paste_x, paste_y))
                 current_idx += 1
             if current_idx >= num_final_images: break
         
@@ -1979,6 +1930,10 @@ def _scale_image(image, target_size, mode='fit', use_transparency=True):
     source_width, source_height = image.size
     target_width, target_height = target_size
     
+    # Если размеры совпадают, ничего не делаем
+    if source_width == target_width and source_height == target_height:
+        return image.copy()
+        
     # Вычисляем коэффициенты масштабирования
     width_ratio = target_width / source_width
     height_ratio = target_height / source_height
@@ -1993,23 +1948,43 @@ def _scale_image(image, target_size, mode='fit', use_transparency=True):
     new_width = int(source_width * scale_factor)
     new_height = int(source_height * scale_factor)
     
-    # Если режим без прозрачности и изображение имеет альфа-канал,
-    # используем метод маски для избежания ореолов
-    if not use_transparency and image.mode == 'RGBA':
-        # Создаем временную версию изображения без прозрачности, но с сохраненной маской
-        mask_img = _create_mask_instead_of_transparency(image)
-        # Масштабируем изображение без прозрачности
-        scaled_img = mask_img.resize((new_width, new_height), Image.Resampling.LANCZOS)
-        # Масштабируем также маску
-        if 'transparency_mask' in mask_img.info:
-            # Масштабируем маску с ближайшей интерполяцией для сохранения чистых краев
-            scaled_mask = mask_img.info['transparency_mask'].resize((new_width, new_height), Image.Resampling.NEAREST)
-            scaled_img.info['transparency_mask'] = scaled_mask
-        image_utils.safe_close(mask_img)
-        return scaled_img
-    else:
-        # Обычное масштабирование с сохранением прозрачности
-        return image.resize((new_width, new_height), Image.Resampling.LANCZOS)
+    try:
+        # Для режима без прозрачности и масштабирования больше 1.0 используем строгий подход
+        if not use_transparency and scale_factor > 1.0:
+            log.debug(f"Using NEAREST resampling for upscaling (scale={scale_factor:.2f}) to prevent halos")
+            
+            # Предварительная обработка, если в режиме RGBA
+            if image.mode == 'RGBA':
+                # Создаем бинарную прозрачность для четких краев
+                r, g, b, alpha = image.split()
+                binary_alpha = alpha.point(lambda x: 255 if x >= 240 else 0)
+                clean_img = Image.merge('RGBA', (r, g, b, binary_alpha))
+                
+                # Масштабируем с ближайшим соседом для сохранения четких краев
+                scaled_img = clean_img.resize((new_width, new_height), Image.Resampling.NEAREST)
+                image_utils.safe_close(clean_img)
+                return scaled_img
+            
+            # Для остальных режимов просто используем NEAREST
+            return image.resize((new_width, new_height), Image.Resampling.NEAREST)
+        
+        # Для уменьшения используем LANCZOS, для увеличения - подходящий метод в зависимости от прозрачности
+        if scale_factor < 1.0:
+            # Для уменьшения размера используем Lanczos
+            return image.resize((new_width, new_height), Image.Resampling.LANCZOS)
+        else:
+            # Для увеличения выбираем метод в зависимости от прозрачности
+            if use_transparency:
+                # С прозрачностью используем LANCZOS для плавных переходов
+                return image.resize((new_width, new_height), Image.Resampling.LANCZOS)
+            else:
+                # Без прозрачности используем NEAREST для сохранения четких границ
+                return image.resize((new_width, new_height), Image.Resampling.NEAREST)
+    
+    except Exception as e:
+        log.error(f"Error in _scale_image: {e}")
+        # Запасной вариант - просто NEAREST
+        return image.resize((new_width, new_height), Image.Resampling.NEAREST)
 
 def _calculate_collage_dimensions(images: List[Image.Image], settings: Dict[str, Any]) -> Tuple[int, int, List[float]]:
     """
@@ -2851,21 +2826,46 @@ def _create_mask_instead_of_transparency(img):
         RGB изображение с белым фоном и сохраненной маской в img.info['transparency_mask']
     """
     if img.mode != 'RGBA':
-        return img
+        try:
+            rgba_img = img.convert('RGBA')
+        except Exception as e:
+            log.error(f"Failed to convert to RGBA in _create_mask_instead_of_transparency: {e}")
+            return img
+    else:
+        rgba_img = img
         
-    # Создаем маску из альфа-канала (1 = непрозрачно, 0 = прозрачно)
-    alpha = img.split()[3]
-    # Инвертируем: 0 = непрозрачно, 255 = прозрачно (для последующего применения)
-    mask = alpha.point(lambda x: 0 if x > 128 else 255)
-    
-    # Создаем RGB изображение с белым фоном
-    rgb_img = Image.new("RGB", img.size, (255, 255, 255))
-    rgb_img.paste(img, (0, 0), img)
-    
-    # Сохраняем маску в info
-    rgb_img.info['transparency_mask'] = mask
-    
-    return rgb_img
+    try:
+        # Создаем маску из альфа-канала (1 = непрозрачно, 0 = прозрачно)
+        r, g, b, alpha = rgba_img.split()
+        
+        # Создаем более жесткую бинарную маску для предотвращения ореолов
+        # Значения ниже 240 становятся полностью прозрачными (255),
+        # остальные - полностью непрозрачными (0)
+        threshold = 240
+        mask = alpha.point(lambda x: 0 if x >= threshold else 255)
+        
+        # Создаем RGB изображение с белым фоном
+        rgb_img = Image.new("RGB", rgba_img.size, (255, 255, 255))
+        
+        # Создаем RGBA с измененной альфой для четких краев
+        clean_edges_img = Image.merge("RGBA", (r, g, b, alpha.point(lambda x: 255 if x >= threshold else 0)))
+        
+        # Вставляем изображение с четкими краями на белый фон
+        rgb_img.paste(clean_edges_img, (0, 0), clean_edges_img)
+        
+        # Сохраняем маску в info
+        rgb_img.info['transparency_mask'] = mask
+        
+        # Очищаем промежуточный ресурс
+        if rgba_img is not img:
+            image_utils.safe_close(rgba_img)
+        
+        return rgb_img
+    except Exception as e:
+        log.error(f"Error in _create_mask_instead_of_transparency: {e}")
+        if rgba_img is not img:
+            image_utils.safe_close(rgba_img)
+        return img
 
 def _apply_mask_for_png_save(img):
     """
@@ -2878,18 +2878,92 @@ def _apply_mask_for_png_save(img):
     Returns:
         RGBA изображение с чистой прозрачностью (без полутонов)
     """
-    if not 'transparency_mask' in img.info:
+    try:
+        if 'transparency_mask' in img.info:
+            # Получаем маску
+            mask = img.info['transparency_mask']
+            
+            # Проверяем совпадение размеров
+            if mask.size != img.size:
+                mask = mask.resize(img.size, Image.Resampling.NEAREST)
+            
+            # Создаем RGBA изображение
+            rgba_img = img.convert("RGBA")
+            
+            # Применяем маску к альфа-каналу с полностью бинарным подходом
+            r, g, b, _ = rgba_img.split()
+            
+            # Создаем полностью бинарную альфу: либо 0, либо 255, без промежуточных значений
+            # Это устраняет любые полупрозрачные пиксели, которые могут вызвать ореолы
+            binary_mask = mask.point(lambda x: 0 if x == 0 else 255)
+            final_a = binary_mask.point(lambda x: 0 if x > 0 else 255)  # Инвертируем для RGBA
+            
+            # Объединяем каналы обратно
+            return Image.merge("RGBA", (r, g, b, final_a))
+        elif img.mode == 'RGBA':
+            # Если нет сохраненной маски, но есть альфа-канал, создаем бинарную прозрачность
+            r, g, b, alpha = img.split()
+            binary_alpha = alpha.point(lambda x: 255 if x > 240 else 0)
+            return Image.merge("RGBA", (r, g, b, binary_alpha))
+            
         return img
+    except Exception as e:
+        log.error(f"Error applying mask for PNG save: {e}")
+        return img
+
+def _create_mask_instead_of_transparency(img):
+    """
+    Вместо прозрачности создает и сохраняет маску, переводя изображение в RGB с белым фоном.
+    Это решает проблему ореолов при масштабировании, так как в процессе обработки изображение 
+    не имеет прозрачности (никаких полупрозрачных пикселей).
+    Прозрачность применяется только в момент сохранения PNG.
+    
+    Args:
+        img: RGBA изображение с прозрачностью
+    
+    Returns:
+        RGB изображение с белым фоном и сохраненной маской в img.info['transparency_mask']
+    """
+    if img.mode != 'RGBA':
+        try:
+            rgba_img = img.convert('RGBA')
+        except Exception as e:
+            log.error(f"Failed to convert to RGBA in _create_mask_instead_of_transparency: {e}")
+            return img
+    else:
+        rgba_img = img
         
-    # Получаем маску
-    mask = img.info['transparency_mask']
-    
-    # Создаем RGBA изображение
-    rgba_img = img.convert("RGBA")
-    
-    # Применяем маску (инвертированную) к альфа-каналу
-    r, g, b, a = rgba_img.split()
-    new_a = mask.point(lambda x: 0 if x > 128 else 255)  # Инвертируем: 255 = непрозрачно, 0 = прозрачно
-    rgba_img = Image.merge("RGBA", (r, g, b, new_a))
-    
-    return rgba_img
+    try:
+        # Создаем маску из альфа-канала (1 = непрозрачно, 0 = прозрачно)
+        r, g, b, alpha = rgba_img.split()
+        
+        # Создаем более жесткую бинарную маску для предотвращения ореолов
+        # Значения ниже 250 становятся полностью прозрачными (255),
+        # остальные - полностью непрозрачными (0)
+        threshold = 250  # Очень высокий порог для предотвращения ореолов
+        mask = alpha.point(lambda x: 0 if x >= threshold else 255)
+        
+        # Создаем RGB изображение с белым фоном
+        rgb_img = Image.new("RGB", rgba_img.size, (255, 255, 255))
+        
+        # Создаем RGBA с измененной альфой для четких краев (бинарная прозрачность)
+        clean_edges_alpha = alpha.point(lambda x: 255 if x >= threshold else 0)
+        clean_edges_img = Image.merge("RGBA", (r, g, b, clean_edges_alpha))
+        
+        # Вставляем изображение с четкими краями на белый фон
+        rgb_img.paste(clean_edges_img, (0, 0), clean_edges_img)
+        
+        # Сохраняем маску в info
+        rgb_img.info['transparency_mask'] = mask
+        
+        # Очищаем промежуточный ресурс
+        if rgba_img is not img:
+            image_utils.safe_close(rgba_img)
+        image_utils.safe_close(clean_edges_img)
+        
+        return rgb_img
+    except Exception as e:
+        log.error(f"Error in _create_mask_instead_of_transparency: {e}")
+        if rgba_img is not img:
+            image_utils.safe_close(rgba_img)
+        return img
