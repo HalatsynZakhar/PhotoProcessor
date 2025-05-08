@@ -1854,41 +1854,41 @@ def _calculate_collage_dimensions(images: List[Image.Image], settings: Dict[str,
     """
     if not images:
         return 0, 0, []
+    
+    # Проверяем, включено ли пропорциональное размещение
+    proportional_placement = settings.get('proportional_placement', False)
+    
+    if proportional_placement:
+        # Находим максимальные размеры среди всех изображений
+        max_width = max(img.width for img in images)
+        max_height = max(img.height for img in images)
         
-    # Находим максимальные размеры среди всех изображений
-    max_width = max(img.width for img in images)
-    max_height = max(img.height for img in images)
-    
-    # Рассчитываем коэффициенты масштабирования для каждого изображения
-    # (чтобы все вписались в max_width x max_height)
-    scale_factors = []
-    for img in images:
-        if img.width > 0 and img.height > 0:
-            width_ratio = max_width / img.width
-            height_ratio = max_height / img.height
-            # Используем минимальный коэффициент для масштабирования (чтобы вписать)
-            scale_factor = min(width_ratio, height_ratio)
-            scale_factors.append(scale_factor)
+        # Рассчитываем коэффициенты масштабирования для каждого изображения
+        scale_factors = []
+        for img in images:
+            if img.width > 0 and img.height > 0:
+                width_ratio = max_width / img.width
+                height_ratio = max_height / img.height
+                # Используем минимальный коэффициент для масштабирования (чтобы вписать)
+                scale_factor = min(width_ratio, height_ratio)
+                scale_factors.append(scale_factor)
+            else:
+                scale_factors.append(0.0) # Для изображений с нулевым размером
+        
+        # Нормализуем коэффициенты масштабирования, делая наименьший из них равным 1
+        non_zero_scales = [s for s in scale_factors if s > 0]
+        if non_zero_scales:
+            min_scale = min(non_zero_scales)
+            if min_scale > 0:  # Избегаем деления на ноль
+                normalized_scale_factors = [(scale / min_scale) if scale > 0 else 0.0 for scale in scale_factors]
+                scale_factors = normalized_scale_factors
+                log.info(f"  > Base normalized scale factors (min=1): {scale_factors}")
+            else: 
+                log.warning("  Minimum scale factor is zero, skipping base normalization.")
         else:
-            scale_factors.append(0.0) # Для изображений с нулевым размером
-    
-    # Нормализуем коэффициенты масштабирования, делая наименьший из них равным 1
-    # Это устанавливает базовый размер перед применением соотношений
-    non_zero_scales = [s for s in scale_factors if s > 0]
-    if non_zero_scales:
-        min_scale = min(non_zero_scales)
-        if min_scale > 0:  # Избегаем деления на ноль
-            normalized_scale_factors = [(scale / min_scale) if scale > 0 else 0.0 for scale in scale_factors]
-            scale_factors = normalized_scale_factors
-            log.info(f"  > Base normalized scale factors (min=1): {scale_factors}")
-        else: 
-             log.warning("  Minimum scale factor is zero, skipping base normalization.")
-    else:
-        log.warning("  All scale factors are zero, skipping base normalization.")
+            log.warning("  All scale factors are zero, skipping base normalization.")
 
-    # Применяем пользовательские соотношения размеров, если они заданы
-    # Используем прямой доступ к ключам в словаре settings ('collage_mode')
-    if settings.get('proportional_placement', False):
+        # Применяем пользовательские соотношения размеров
         placement_ratios = settings.get('placement_ratios', [1.0] * len(images))
         log.debug(f"  Applying proportional placement with ratios: {placement_ratios}")
         
@@ -1910,10 +1910,11 @@ def _calculate_collage_dimensions(images: List[Image.Image], settings: Dict[str,
         else:
             log.warning("  No valid positive placement ratios found. Skipping ratio application.")
     else:
-         log.debug("  Proportional placement disabled.")
-
+        # Если пропорциональное размещение выключено, используем оригинальные размеры
+        log.debug("  Proportional placement disabled, using original sizes")
+        scale_factors = [1.0] * len(images)
+    
     # Рассчитываем итоговые размеры коллажа на основе масштабированных размеров
-    # (Это определяет размер ячейки сетки)
     scaled_widths = [img.width * scale for img, scale in zip(images, scale_factors)]
     scaled_heights = [img.height * scale for img, scale in zip(images, scale_factors)]
     
@@ -1924,7 +1925,6 @@ def _calculate_collage_dimensions(images: List[Image.Image], settings: Dict[str,
     log.debug(f"  Calculated max scaled dimensions for grid cell: {final_max_width}x{final_max_height}")
 
     # Применяем ограничения максимального размера КОЛЛАЖА, если они заданы
-    # Используем прямой доступ к ключам
     final_scale_adjustment = 1.0
     if settings.get('enable_max_dimensions', False):
         max_width_limit = settings.get('max_collage_width', 0)
