@@ -850,6 +850,21 @@ with st.sidebar:
                                  help="Если включено, изображения будут обрабатываться без прозрачности и маска прозрачности будет применена только при сохранении PNG. Это решает проблему полупрозрачных краев (ореолов) при масштабировании PNG изображений.")
             set_setting('background_crop.use_mask_instead_of_transparency', use_mask)
             
+            # Ползунок для устранения ореолов - доступен всегда
+            halo_level = st.slider(
+                "Уровень устранения ореолов", 
+                min_value=0, 
+                max_value=5, 
+                value=get_setting('background_crop.halo_reduction_level', 0),
+                step=1,
+                key='halo_reduction_level',
+                help="Уровень устранения ореолов по краям объектов с прозрачностью. 0 - отключено, 5 - максимальное устранение (может удалить часть объекта)."
+            )
+            set_setting('background_crop.halo_reduction_level', halo_level)
+            
+            if halo_level > 0:
+                st.info(f"Уровень устранения ореолов: {halo_level}. Более высокие значения могут привести к потере деталей по краям.")
+            
             # Добавляем отдельную опцию для обрезки
             enable_crop = st.checkbox("Обрезать изображение", 
                                     value=get_setting('background_crop.enable_crop', True), 

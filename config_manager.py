@@ -44,7 +44,8 @@ DEFAULT_SETTINGS = {
         "perimeter_mode": "if_white",
         "removal_mode": "full",
         "extra_crop_percent": 0.0,
-        "use_mask_instead_of_transparency": False
+        "use_mask_instead_of_transparency": False,
+        "halo_reduction_level": 0
     },
     "padding": {
         "mode": "never",

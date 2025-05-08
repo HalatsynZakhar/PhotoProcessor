@@ -1717,7 +1717,8 @@ def get_image_files(folder_path: str) -> List[str]:
 def _apply_background_crop(img, white_tolerance, perimeter_tolerance, symmetric_absolute=False, 
                          symmetric_axes=False, check_perimeter=True, enable_crop=True,
                          perimeter_mode='if_white', image_metadata=None, extra_crop_percent=0.0,
-                         removal_mode='full', use_mask_instead_of_transparency=False):
+                         removal_mode='full', use_mask_instead_of_transparency=False,
+                         halo_reduction_level=0):
     """
     Применяет удаление фона и обрезку изображения.
     
@@ -1734,6 +1735,7 @@ def _apply_background_crop(img, white_tolerance, perimeter_tolerance, symmetric_
         extra_crop_percent: Дополнительный процент обрезки после основной (0.0 - 100.0)
         removal_mode: Режим удаления фона ('full' - все белые пиксели, 'edges' - только по краям)
         use_mask_instead_of_transparency: Использовать маску вместо прозрачности (решает проблему ореолов в PNG)
+        halo_reduction_level: Уровень устранения ореолов (0-5), где 0 - отключено
     
     Returns:
         Обработанное изображение или исходное, если периметр не соответствует условию
@@ -1745,7 +1747,9 @@ def _apply_background_crop(img, white_tolerance, perimeter_tolerance, symmetric_
     log.info(f"=== Processing background crop (Mode: {removal_mode}, Extra crop: {extra_crop_percent}%) ===")
     log.debug(f"Parameters: white_tol={white_tolerance}, perim_tol={perimeter_tolerance}, "
              f"sym_abs={symmetric_absolute}, sym_axes={symmetric_axes}, check_perim={check_perimeter}, "
-             f"enable_crop={enable_crop}, perim_mode={perimeter_mode}, mask_instead_transparency={use_mask_instead_of_transparency}")
+             f"enable_crop={enable_crop}, perim_mode={perimeter_mode}, "
+             f"mask_instead_transparency={use_mask_instead_of_transparency}, "
+             f"halo_reduction={halo_reduction_level}")
     
     try:
         # Определяем, нужно ли проверять периметр
@@ -1815,6 +1819,11 @@ def _apply_background_crop(img, white_tolerance, perimeter_tolerance, symmetric_
         except Exception as e:
             log.warning(f"Failed to check perimeter after crop/bg-removal: {e}")
         
+        # Применяем устранение ореолов, если уровень > 0
+        if halo_reduction_level > 0 and img_processed.mode == 'RGBA':
+            log.info(f"Applying halo reduction with level: {halo_reduction_level}")
+            img_processed = _reduce_halos(img_processed, halo_reduction_level)
+        
         # Если нужно использовать маску вместо прозрачности
         if use_mask_instead_of_transparency:
             img_processed = _create_mask_instead_of_transparency(img_processed)
@@ -1824,6 +1833,58 @@ def _apply_background_crop(img, white_tolerance, perimeter_tolerance, symmetric_
     except Exception as e:
         log.error(f"Error in background/crop: {e}")
         return img
+
+def _reduce_halos(img, level=1):
+    """
+    Устраняет ореолы вокруг объектов с прозрачностью, 
+    обрабатывая полупрозрачные пиксели по краям.
+    
+    Args:
+        img: RGBA изображение
+        level: Уровень устранения ореолов (1-5), где 1 - минимальное, 5 - максимальное
+    
+    Returns:
+        RGBA изображение с уменьшенными ореолами
+    """
+    if img.mode != 'RGBA':
+        return img
+        
+    if level <= 0:
+        return img.copy()
+        
+    # Ограничиваем уровень от 1 до 5
+    level = max(1, min(5, level))
+    
+    # Создаем копию для работы
+    result = img.copy()
+    
+    try:
+        # Разделяем каналы
+        r, g, b, a = result.split()
+        
+        # Вычисляем пороговое значение прозрачности в зависимости от уровня
+        # Чем выше уровень, тем строже порог
+        # level 1: ~230, level 5: ~128
+        threshold = 255 - (level * 25)
+        
+        # Создаем новый альфа-канал с удалением полупрозрачных пикселей
+        # Пиксели со значением ниже порога становятся полностью прозрачными
+        new_a = a.point(lambda x: 0 if x < threshold else x)
+        
+        # При высоких уровнях (4-5) также можно применить эрозию к альфа-каналу
+        if level >= 4:
+            from PIL import ImageFilter
+            # Применяем размытие и снова бинаризуем для сглаживания краев
+            new_a = new_a.filter(ImageFilter.MinFilter(3))  # Эрозия для удаления тонких краев
+            
+        # Объединяем каналы обратно
+        result = Image.merge("RGBA", (r, g, b, new_a))
+        
+        log.debug(f"Halo reduction applied with level {level}")
+        return result
+    except Exception as e:
+        log.error(f"Error in halo reduction: {e}")
+        return img  # Возвращаем оригинал при ошибке
 
 def _scale_image(image, target_size, mode='fit'):
     """
@@ -2204,9 +2265,10 @@ def process_image_base(image_or_path, prep_settings, white_settings, bgc_setting
             extra_crop_percent = float(bgc_settings.get('extra_crop_percent', 0.0))
             removal_mode = bgc_settings.get('removal_mode', 'full')
             use_mask_instead_of_transparency = bool(bgc_settings.get('use_mask_instead_of_transparency', False))
+            halo_reduction_level = int(bgc_settings.get('halo_reduction_level', 0))
             
             # Явно логируем значение white_tolerance и extra_crop_percent
-            log.info(f"Background removal with mode={removal_mode}, white_tolerance={white_tolerance}, extra_crop_percent={extra_crop_percent}%, use_mask={use_mask_instead_of_transparency}")
+            log.info(f"Background removal with mode={removal_mode}, white_tolerance={white_tolerance}, extra_crop_percent={extra_crop_percent}%, use_mask={use_mask_instead_of_transparency}, halo_reduction={halo_reduction_level}")
             
             img = _apply_background_crop(
                 img,
@@ -2220,7 +2282,8 @@ def process_image_base(image_or_path, prep_settings, white_settings, bgc_setting
                 image_metadata=image_metadata,
                 extra_crop_percent=extra_crop_percent,
                 removal_mode=removal_mode,
-                use_mask_instead_of_transparency=use_mask_instead_of_transparency
+                use_mask_instead_of_transparency=use_mask_instead_of_transparency,
+                halo_reduction_level=halo_reduction_level
             )
             
             if img is None:
