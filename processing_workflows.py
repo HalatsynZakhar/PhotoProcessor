@@ -2002,8 +2002,10 @@ def _calculate_collage_dimensions(images: List[Image.Image], settings: Dict[str,
     
     log.debug(f"  Calculated max scaled dimensions for grid cell: {final_max_width}x{final_max_height}")
 
-    # Применяем ограничения максимального размера КОЛЛАЖА, если они заданы
-    final_scale_adjustment = 1.0
+    # ВАЖНО: Убираем применение максимальных ограничений коллажа к отдельным изображениям
+    # Размер будет ограничен только на финальном этапе для всего коллажа
+    # Это предотвращает двойное масштабирование и появление ореолов
+    
     if settings.get('enable_max_dimensions', False):
         max_width_limit = settings.get('max_collage_width', 0)
         max_height_limit = settings.get('max_collage_height', 0)
@@ -2012,31 +2014,16 @@ def _calculate_collage_dimensions(images: List[Image.Image], settings: Dict[str,
         forced_cols = settings.get('forced_cols', 0)
         num_final_images = len(images)
         grid_cols = forced_cols if forced_cols > 0 else max(1, int(math.ceil(math.sqrt(num_final_images))))
-        grid_rows = max(1, int(math.ceil(num_final_images / grid_cols))) 
+        grid_rows = max(1, int(math.ceil(num_final_images / grid_cols)))
+        
+        # Логируем информацию о предполагаемом размере, но НЕ применяем масштабирование
         # Упрощенная оценка без учета spacing
         estimated_width = grid_cols * final_max_width
         estimated_height = grid_rows * final_max_height
-        log.debug(f"  Estimated collage size for max dimension check: {estimated_width}x{estimated_height} (Grid: {grid_rows}x{grid_cols})")
+        log.debug(f"  Estimated collage size: {estimated_width}x{estimated_height} (Grid: {grid_rows}x{grid_cols})")
         
-        apply_limit = False
-        limit_scale = 1.0
-        if max_width_limit > 0 and estimated_width > max_width_limit:
-            limit_scale = min(limit_scale, max_width_limit / estimated_width)
-            apply_limit = True
-        if max_height_limit > 0 and estimated_height > max_height_limit:
-             limit_scale = min(limit_scale, max_height_limit / estimated_height)
-             apply_limit = True
-
-        if apply_limit and limit_scale < 1.0:
-            log.info(f"  Applying max dimension limit. Scaling down by {limit_scale:.3f}")
-            final_max_width = int(round(final_max_width * limit_scale))
-            final_max_height = int(round(final_max_height * limit_scale))
-            # Корректируем ИТОГОВЫЕ коэффициенты масштабирования
-            final_scale_adjustment = limit_scale
-            scale_factors = [factor * limit_scale for factor in scale_factors]
-            log.info(f"  > Scale factors after max dimension limit: {scale_factors}")
-        else:
-             log.debug("  Max dimension limit not exceeded or not enabled.")
+        if max_width_limit > 0 or max_height_limit > 0:
+            log.info(f"  Max dimensions ({max_width_limit}x{max_height_limit}) will be applied only to the final collage")
 
     # Возвращаем максимальные размеры ячейки (для построения сетки) и финальные факторы масштабирования
     return final_max_width, final_max_height, scale_factors
