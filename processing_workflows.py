@@ -1038,7 +1038,9 @@ def run_collage_processing(**all_settings: Dict[str, Any]) -> bool:
                 
                 if nw != current_w or nh != current_h:
                     log.debug(f"  Scaling image {i+1} ({current_w}x{current_h} -> {nw}x{nh}) using factor {scale_factor:.3f}")
-                    temp_img = img.resize((nw, nh), Image.Resampling.LANCZOS)
+                    # Получаем настройку прозрачности для правильного масштабирования
+                    use_transparency = coll_settings.get('png_transparent_background', True)
+                    temp_img = _scale_image(img, (nw, nh), 'fit', use_transparency)
                     scaled_images.append(temp_img)
                     image_utils.safe_close(img) # Закрываем оригинал
                 else:
@@ -1194,14 +1196,25 @@ def run_collage_processing(**all_settings: Dict[str, Any]) -> bool:
                      paste_x = cell_x + (max_w_scaled - img.width) // 2
                      paste_y = cell_y + (max_h_scaled - img.height) // 2
                      try: 
-                         # Убедимся, что изображение в RGBA для корректной вставки с маской
-                         img_to_paste = img if img.mode == 'RGBA' else img.convert('RGBA')
-                         collage_canvas.paste(img_to_paste, (paste_x, paste_y), mask=img_to_paste)
-                         if img_to_paste is not img: image_utils.safe_close(img_to_paste) # Закрываем временное RGBA
+                        # Проверяем, нужно ли использовать прозрачность
+                        use_transparency = coll_settings.get('png_transparent_background', True)
+                        
+                        # Убедимся, что изображение в правильном режиме
+                        if use_transparency:
+                            # Используем RGBA с маской для вставки с прозрачностью
+                            img_to_paste = img if img.mode == 'RGBA' else img.convert('RGBA')
+                            collage_canvas.paste(img_to_paste, (paste_x, paste_y), mask=img_to_paste)
+                        else:
+                            # При отключенной прозрачности вставляем изображение без маски
+                            # Преобразуем в RGB, если нужно
+                            img_to_paste = img if img.mode == 'RGB' else img.convert('RGB')
+                            collage_canvas.paste(img_to_paste, (paste_x, paste_y))
+                            
+                        if img_to_paste is not img: image_utils.safe_close(img_to_paste) # Закрываем временное изображение
                      except Exception as e_paste: 
-                         log.error(f"  ! Error pasting image {current_idx+1}: {e_paste}")
-                         # Закрываем временное RGBA, если оно было создано при ошибке
-                         if 'img_to_paste' in locals() and img_to_paste is not img: image_utils.safe_close(img_to_paste)
+                        log.error(f"  ! Error pasting image {current_idx+1}: {e_paste}")
+                        # Закрываем временное изображение, если оно было создано при ошибке
+                        if 'img_to_paste' in locals() and img_to_paste is not img: image_utils.safe_close(img_to_paste)
                 current_idx += 1
             if current_idx >= num_final_images: break
         
@@ -1950,7 +1963,7 @@ def _reduce_halos(img, level=1):
         log.error(f"Error in halo reduction: {e}")
         return img  # Возвращаем оригинал при ошибке
 
-def _scale_image(image, target_size, mode='fit'):
+def _scale_image(image, target_size, mode='fit', use_transparency=True):
     """
     Масштабирует изображение с сохранением пропорций.
     
@@ -1958,6 +1971,7 @@ def _scale_image(image, target_size, mode='fit'):
         image: Исходное изображение
         target_size: Целевой размер (ширина, высота)
         mode: Режим масштабирования ('fit' - вписать в размер, 'fill' - заполнить размер)
+        use_transparency: Использовать ли прозрачность при масштабировании
         
     Returns:
         Image: Масштабированное изображение
@@ -1979,8 +1993,23 @@ def _scale_image(image, target_size, mode='fit'):
     new_width = int(source_width * scale_factor)
     new_height = int(source_height * scale_factor)
     
-    # Масштабируем изображение
-    return image.resize((new_width, new_height), Image.Resampling.LANCZOS)
+    # Если режим без прозрачности и изображение имеет альфа-канал,
+    # используем метод маски для избежания ореолов
+    if not use_transparency and image.mode == 'RGBA':
+        # Создаем временную версию изображения без прозрачности, но с сохраненной маской
+        mask_img = _create_mask_instead_of_transparency(image)
+        # Масштабируем изображение без прозрачности
+        scaled_img = mask_img.resize((new_width, new_height), Image.Resampling.LANCZOS)
+        # Масштабируем также маску
+        if 'transparency_mask' in mask_img.info:
+            # Масштабируем маску с ближайшей интерполяцией для сохранения чистых краев
+            scaled_mask = mask_img.info['transparency_mask'].resize((new_width, new_height), Image.Resampling.NEAREST)
+            scaled_img.info['transparency_mask'] = scaled_mask
+        image_utils.safe_close(mask_img)
+        return scaled_img
+    else:
+        # Обычное масштабирование с сохранением прозрачности
+        return image.resize((new_width, new_height), Image.Resampling.LANCZOS)
 
 def _calculate_collage_dimensions(images: List[Image.Image], settings: Dict[str, Any]) -> Tuple[int, int, List[float]]:
     """
