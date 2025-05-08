@@ -1718,7 +1718,7 @@ def _apply_background_crop(img, white_tolerance, perimeter_tolerance, symmetric_
                          symmetric_axes=False, check_perimeter=True, enable_crop=True,
                          perimeter_mode='if_white', image_metadata=None, extra_crop_percent=0.0,
                          removal_mode='full', use_mask_instead_of_transparency=False,
-                         halo_reduction_level=0):
+                         halo_reduction_level=0, analyze_only=False, boundaries=None):
     """
     Применяет удаление фона и обрезку изображения.
     
@@ -1736,20 +1736,24 @@ def _apply_background_crop(img, white_tolerance, perimeter_tolerance, symmetric_
         removal_mode: Режим удаления фона ('full' - все белые пиксели, 'edges' - только по краям)
         use_mask_instead_of_transparency: Использовать маску вместо прозрачности (решает проблему ореолов в PNG)
         halo_reduction_level: Уровень устранения ореолов (0-5), где 0 - отключено
+        analyze_only: Только анализировать границы, без удаления фона и обрезки
+        boundaries: Предварительно вычисленные границы обрезки (для второго этапа)
     
     Returns:
         Обработанное изображение или исходное, если периметр не соответствует условию
+        Если analyze_only=True, возвращает границы обрезки как словарь
     """
     # Инициализируем метаданные, если не переданы
     if image_metadata is None:
         image_metadata = {}
     
-    log.info(f"=== Processing background crop (Mode: {removal_mode}, Extra crop: {extra_crop_percent}%) ===")
+    log.info(f"=== Processing background crop (Mode: {removal_mode}, Extra crop: {extra_crop_percent}%, Analyze only: {analyze_only}) ===")
     log.debug(f"Parameters: white_tol={white_tolerance}, perim_tol={perimeter_tolerance}, "
              f"sym_abs={symmetric_absolute}, sym_axes={symmetric_axes}, check_perim={check_perimeter}, "
              f"enable_crop={enable_crop}, perim_mode={perimeter_mode}, "
              f"mask_instead_transparency={use_mask_instead_of_transparency}, "
-             f"halo_reduction={halo_reduction_level}")
+             f"halo_reduction={halo_reduction_level}, "
+             f"using_precomputed_boundaries={boundaries is not None}")
     
     try:
         # Определяем, нужно ли проверять периметр
@@ -1772,10 +1776,60 @@ def _apply_background_crop(img, white_tolerance, perimeter_tolerance, symmetric_
         if check_perimeter and perimeter_mode != 'always':
             if perimeter_mode == 'if_white' and not perimeter_is_white:
                 log.debug("Background removal skipped: perimeter is not white (mode: if_white).")
+                if analyze_only:
+                    return None  # Не анализируем границы, если не удовлетворяет условию периметра
                 return img # Возвращаем оригинал без изменений
             elif perimeter_mode == 'if_not_white' and perimeter_is_white:
                 log.debug("Background removal skipped: perimeter is white (mode: if_not_white).")
+                if analyze_only:
+                    return None  # Не анализируем границы, если не удовлетворяет условию периметра
                 return img # Возвращаем оригинал без изменений
+        
+        # Если это только анализ границ
+        if analyze_only:
+            log.info("Analyzing crop boundaries without applying changes")
+            # Создаем копию изображения для анализа
+            img_rgba = None
+            if img.mode != 'RGBA':
+                try:
+                    img_rgba = img.convert('RGBA')
+                except Exception as e:
+                    log.error(f"Failed to convert to RGBA for boundary analysis: {e}")
+                    return None
+            else:
+                img_rgba = img.copy()
+            
+            # Определяем примерные границы после удаления фона
+            # Сначала удаляем фон для анализа
+            img_no_bg = image_utils.remove_white_background(img_rgba, white_tolerance, mode=removal_mode)
+            if not img_no_bg:
+                log.error("Background removal failed during analysis.")
+                image_utils.safe_close(img_rgba)
+                return None
+                
+            if enable_crop:
+                # Находим границы обрезки без применения
+                crop_boundaries = image_utils.find_crop_boundaries(
+                    img_no_bg, 
+                    white_tolerance,
+                    symmetric_absolute, 
+                    symmetric_axes, 
+                    extra_crop_percent
+                )
+                # Закрываем временное изображение
+                image_utils.safe_close(img_rgba)
+                image_utils.safe_close(img_no_bg)
+                return crop_boundaries
+            else:
+                # Если обрезка не включена, возвращаем None
+                image_utils.safe_close(img_rgba)
+                image_utils.safe_close(img_no_bg)
+                return None
+        
+        # Если границы предоставлены, но обрезка не включена, игнорируем границы
+        if boundaries is not None and not enable_crop:
+            log.debug("Boundaries provided but crop is disabled. Ignoring boundaries.")
+            boundaries = None
         
         # Создаем копию и конвертируем в RGBA, если еще не RGBA
         img_rgba = None
@@ -1793,20 +1847,30 @@ def _apply_background_crop(img, white_tolerance, perimeter_tolerance, symmetric_
         img_processed = image_utils.remove_white_background(img_rgba, white_tolerance, mode=removal_mode)
         if not img_processed:
             log.error("Background removal failed.")
+            image_utils.safe_close(img_rgba)
             return img
         
         # Если включена обрезка, применяем ее
         if enable_crop:
-            log.info(f"Cropping is enabled, applying crop with extra crop percent: {extra_crop_percent}%")
-            img_processed = image_utils.crop_image(
-                img_processed, 
-                symmetric_axes, 
-                symmetric_absolute, 
-                extra_crop_percent
-            )
-            if not img_processed:
-                log.error("Failed to crop image")
-                return None
+            if boundaries is not None:
+                # Используем предварительно вычисленные границы
+                log.info(f"Using pre-calculated crop boundaries: {boundaries}")
+                img_processed = image_utils.apply_crop_with_boundaries(img_processed, boundaries)
+                if not img_processed:
+                    log.error("Failed to apply pre-calculated crop boundaries")
+                    return img
+            else:
+                # Вычисляем границы и сразу применяем
+                log.info(f"Applying standard crop with extra crop percent: {extra_crop_percent}%")
+                img_processed = image_utils.crop_image(
+                    img_processed, 
+                    symmetric_axes, 
+                    symmetric_absolute, 
+                    extra_crop_percent
+                )
+                if not img_processed:
+                    log.error("Failed to crop image")
+                    return img
         else:
             log.info("Cropping is disabled, keeping canvas size")
         
@@ -2178,6 +2242,9 @@ def process_image_base(image_or_path, prep_settings, white_settings, bgc_setting
     image_metadata = {}
     img = None
     filename = None
+    original_image = None  # Для хранения оригинала при применении двухэтапной обработки
+    crop_boundaries = None  # Для хранения границ обрезки
+    scale_factor = 1.0
     
     try:
         # 1. Загрузка изображения
@@ -2188,6 +2255,8 @@ def process_image_base(image_or_path, prep_settings, white_settings, bgc_setting
             try:
                 img = Image.open(image_or_path)
                 img.load()  # Заставляем PIL загрузить данные изображения
+                # Сохраняем оригинальное изображение для двухэтапной обработки
+                original_image = img.copy()
             except Exception as e:
                 log.error(f"Failed to load image {image_or_path}: {str(e)}")
                 return None, {}
@@ -2195,6 +2264,8 @@ def process_image_base(image_or_path, prep_settings, white_settings, bgc_setting
             # Это уже объект Image
             img = image_or_path
             log.debug(f"-- Starting base processing for image object: {repr(img)}")
+            # Сохраняем оригинальное изображение
+            original_image = img.copy()
             
         # Проверка, что изображение валидно
         if img is None or img.width <= 0 or img.height <= 0:
@@ -2220,7 +2291,7 @@ def process_image_base(image_or_path, prep_settings, white_settings, bgc_setting
         image_metadata["has_white_perimeter_before_whitening"] = has_white_perimeter
         log.debug(f"Saved perimeter state before whitening: white_perimeter={has_white_perimeter}")
         
-        # 3. Отбеливание (если включено)
+        # 3. Отбеливание фона (если включено)
         if white_settings.get('enable_whitening', False):
             whitening_cancel_threshold = int(white_settings.get('whitening_cancel_threshold', 765))
             log.info(f"Applying whitening with threshold: {whitening_cancel_threshold}")
@@ -2232,14 +2303,19 @@ def process_image_base(image_or_path, prep_settings, white_settings, bgc_setting
                 
             log.debug(f"After whitening: Size={img.size}")
             
+            # Обновляем оригинальное изображение с примененным отбеливанием
+            if original_image is not None:
+                image_utils.safe_close(original_image)
+                original_image = img.copy()
+            
             # Сохраняем состояние периметра после отбеливания
             has_white_perimeter = image_utils.check_perimeter_is_white(img, perimeter_check_tolerance, 1)
             image_metadata["has_white_perimeter_after_whitening"] = has_white_perimeter
             log.debug(f"Saved perimeter state after whitening: white_perimeter={has_white_perimeter}")
         
-        # 4. Удаление фона и обрезка (если включено)
+        # 4. Удаление фона и обрезка (если включено) - ДВУХЭТАПНАЯ ОБРАБОТКА
         if bgc_settings.get('enable_bg_crop', False):
-            log.info(f"=== Processing background and crop ===")
+            log.info(f"=== Processing background and crop (two-phase) ===")
             
             # Извлекаем параметры
             white_tolerance = int(bgc_settings.get('white_tolerance', 0))
@@ -2254,30 +2330,139 @@ def process_image_base(image_or_path, prep_settings, white_settings, bgc_setting
             use_mask_instead_of_transparency = bool(bgc_settings.get('use_mask_instead_of_transparency', False))
             halo_reduction_level = int(bgc_settings.get('halo_reduction_level', 0))
             
-            # Явно логируем значение white_tolerance и extra_crop_percent
-            log.info(f"Background removal with mode={removal_mode}, white_tolerance={white_tolerance}, extra_crop_percent={extra_crop_percent}%, use_mask={use_mask_instead_of_transparency}, halo_reduction={halo_reduction_level}")
+            # Всегда используем двухэтапную обработку если у нас есть оригинальное изображение,
+            # независимо от настроек прозрачности
+            use_two_phase = original_image is not None
             
-            img = _apply_background_crop(
-                img,
-                white_tolerance,
-                perimeter_tolerance,
-                crop_symmetric_absolute,
-                crop_symmetric_axes,
-                check_perimeter,
-                enable_crop,
-                perimeter_mode=perimeter_mode,
-                image_metadata=image_metadata,
-                extra_crop_percent=extra_crop_percent,
-                removal_mode=removal_mode,
-                use_mask_instead_of_transparency=use_mask_instead_of_transparency,
-                halo_reduction_level=halo_reduction_level
-            )
+            # Предустановленные пользователем параметры масштабирования, если есть
+            user_scale_factor = float(bgc_settings.get('scale_factor', 1.0))
+            if user_scale_factor > 1.0:
+                scale_factor = user_scale_factor
+                log.info(f"Using user-defined scale factor: {scale_factor}")
+            
+            if use_two_phase and enable_crop:
+                log.info(f"Using two-phase background/crop processing to prevent halos")
+                
+                # ФАЗА 1: Анализ границ на изображении после отбеливания
+                log.info(f"Phase 1: Analyzing crop boundaries")
+                crop_boundaries = _apply_background_crop(
+                    img,  # Используем обработанное изображение для анализа границ
+                    white_tolerance,
+                    perimeter_tolerance,
+                    crop_symmetric_absolute,
+                    crop_symmetric_axes,
+                    check_perimeter,
+                    enable_crop,
+                    perimeter_mode=perimeter_mode,
+                    image_metadata=image_metadata,
+                    extra_crop_percent=extra_crop_percent,
+                    removal_mode=removal_mode,
+                    analyze_only=True  # Только анализируем, не применяем
+                )
+                
+                if not crop_boundaries:
+                    log.error(f"Phase 1: Failed to get crop boundaries")
+                    image_utils.safe_close(original_image)
+                    return None, {}
+                
+                log.debug(f"Phase 1: Got crop boundaries: {crop_boundaries}")
+                
+                # Определяем оптимальный масштаб для предотвращения ореолов
+                if scale_factor == 1.0:  # Автоматический режим
+                    min_size = 200  # Минимальный размер для обрабатываемой части изображения
+                    crop_width = crop_boundaries['right'] - crop_boundaries['left']
+                    crop_height = crop_boundaries['bottom'] - crop_boundaries['top']
+                    
+                    if crop_width < min_size or crop_height < min_size:
+                        width_scale = min_size / max(1, crop_width)
+                        height_scale = min_size / max(1, crop_height)
+                        scale_factor = max(width_scale, height_scale, 1.0)
+                        log.info(f"Calculated optimal scale factor: {scale_factor:.2f} for crop size {crop_width}x{crop_height}")
+                
+                # Применяем масштабирование к оригинальному изображению
+                if scale_factor > 1.0:
+                    new_width = int(round(original_image.width * scale_factor))
+                    new_height = int(round(original_image.height * scale_factor))
+                    log.info(f"Scaling original image: {original_image.width}x{original_image.height} -> {new_width}x{new_height}")
+                    
+                    scaled_img = original_image.resize((new_width, new_height), Image.Resampling.LANCZOS)
+                    
+                    # Масштабируем границы обрезки
+                    scaled_boundaries = {
+                        'left': int(crop_boundaries['left'] * scale_factor),
+                        'top': int(crop_boundaries['top'] * scale_factor),
+                        'right': int(crop_boundaries['right'] * scale_factor),
+                        'bottom': int(crop_boundaries['bottom'] * scale_factor)
+                    }
+                    
+                    # ФАЗА 2: Применение удаления фона и обрезки к масштабированному изображению
+                    log.info(f"Phase 2: Applying processing to scaled image with pre-calculated boundaries")
+                    img = _apply_background_crop(
+                        scaled_img,
+                        white_tolerance,
+                        perimeter_tolerance,
+                        crop_symmetric_absolute,
+                        crop_symmetric_axes,
+                        check_perimeter,
+                        enable_crop,
+                        perimeter_mode=perimeter_mode,
+                        image_metadata=image_metadata,
+                        extra_crop_percent=0.0,  # Не применяем дополнительную обрезку, так как она уже в границах
+                        removal_mode=removal_mode,
+                        use_mask_instead_of_transparency=use_mask_instead_of_transparency,
+                        halo_reduction_level=halo_reduction_level,
+                        boundaries=scaled_boundaries
+                    )
+                    image_utils.safe_close(scaled_img)
+                else:
+                    # ФАЗА 2: Применение удаления фона и обрезки к исходному изображению
+                    log.info(f"Phase 2: Applying processing with pre-calculated boundaries (no scaling needed)")
+                    img = _apply_background_crop(
+                        original_image,
+                        white_tolerance,
+                        perimeter_tolerance,
+                        crop_symmetric_absolute,
+                        crop_symmetric_axes,
+                        check_perimeter,
+                        enable_crop,
+                        perimeter_mode=perimeter_mode,
+                        image_metadata=image_metadata,
+                        extra_crop_percent=0.0,  # Не применяем дополнительную обрезку, так как она уже в границах
+                        removal_mode=removal_mode,
+                        use_mask_instead_of_transparency=use_mask_instead_of_transparency,
+                        halo_reduction_level=halo_reduction_level,
+                        boundaries=crop_boundaries
+                    )
+            else:
+                # Стандартная одноэтапная обработка
+                log.info(f"Using standard one-phase background/crop processing")
+                img = _apply_background_crop(
+                    img,
+                    white_tolerance,
+                    perimeter_tolerance,
+                    crop_symmetric_absolute,
+                    crop_symmetric_axes,
+                    check_perimeter,
+                    enable_crop,
+                    perimeter_mode=perimeter_mode,
+                    image_metadata=image_metadata,
+                    extra_crop_percent=extra_crop_percent,
+                    removal_mode=removal_mode,
+                    use_mask_instead_of_transparency=use_mask_instead_of_transparency,
+                    halo_reduction_level=halo_reduction_level
+                )
             
             if img is None:
                 log.error(f"Background removal / crop failed")
+                image_utils.safe_close(original_image)
                 return None, {}
                 
             log.debug(f"After background/crop: Size={img.size}")
+            
+        # Очищаем оригинальное изображение, оно больше не нужно
+        if original_image is not None and original_image is not img:
+            image_utils.safe_close(original_image)
+            original_image = None
         
         # 5. Добавление отступов (если включено)
         if pad_settings.get('mode', 'never') != 'never':
@@ -2298,8 +2483,8 @@ def process_image_base(image_or_path, prep_settings, white_settings, bgc_setting
         if bc_settings.get('enable_bc', False):
             brightness_factor = bc_settings.get('brightness_factor', 1.0)
             contrast_factor = bc_settings.get('contrast_factor', 1.0)
+            log.info(f"Applying brightness/contrast - B:{brightness_factor}, C:{contrast_factor}")
             
-            log.info(f"Applying brightness/contrast: B={brightness_factor}, C={contrast_factor}")
             img = image_utils.apply_brightness_contrast(img, brightness_factor, contrast_factor)
             
             if img is None:
@@ -2308,15 +2493,14 @@ def process_image_base(image_or_path, prep_settings, white_settings, bgc_setting
                 
             log.debug(f"After brightness/contrast: Size={img.size}")
         
-        # Сохраняем финальную информацию об изображении в метаданных
-        image_metadata["final_size"] = img.size
-        image_metadata["final_mode"] = img.mode
-        
-        log.debug(f"-- Finished base processing. Final image: Size={img.size}, Mode={img.mode}")
+        # Возвращаем обработанное изображение и словарь метаданных
         return img, image_metadata
         
     except Exception as e:
         log.error(f"Unexpected error in base processing: {str(e)}", exc_info=True)
+        # Очистка ресурсов
+        if original_image is not None and original_image is not img:
+            image_utils.safe_close(original_image)
         return None, {}
 
 # ==============================================================================

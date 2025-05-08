@@ -956,3 +956,155 @@ def apply_brightness_contrast(img: Optional[Image.Image], brightness_factor: flo
 # ======================
 
 # === Конец Файла image_utils.py ===
+# Добавляю новые функции для анализа границ и последующей обрезки
+
+def find_crop_boundaries(img, white_tolerance, symmetric_absolute=False, symmetric_axes=False, extra_crop_percent=0.0):
+    """
+    Анализирует изображение и находит границы прозрачной области,
+    но не выполняет фактическую обрезку.
+    
+    Args:
+        img: Входное изображение (RGBA)
+        white_tolerance: Порог определения белого цвета
+        symmetric_absolute: Применять ли абсолютно симметричную обрезку
+        symmetric_axes: Применять ли симметричную обрезку по осям независимо
+        extra_crop_percent: Дополнительный процент обрезки (0.0 - 100.0)
+    
+    Returns:
+        dict: Границы обрезки (top, bottom, left, right) или None в случае ошибки
+    """
+    if img is None or img.width <= 0 or img.height <= 0:
+        return None
+    
+    try:
+        # Конвертируем в RGBA для анализа
+        img_rgba = None
+        if img.mode != 'RGBA':
+            try:
+                img_rgba = img.convert('RGBA')
+            except Exception as e:
+                log.error(f"Failed to convert to RGBA for boundary analysis: {e}")
+                return None
+        else:
+            img_rgba = img
+        
+        # Находим непрозрачную область
+        bbox = img_rgba.getbbox()
+        if not bbox:
+            return None
+            
+        original_width, original_height = img_rgba.size
+        left, upper, right, lower = bbox
+        
+        # Проверяем корректность bbox
+        if left >= right or upper >= lower:
+            return None
+            
+        # Определяем границы обрезки в зависимости от настроек симметрии
+        crop_l, crop_u, crop_r, crop_b = left, upper, right, lower
+        
+        if symmetric_absolute:
+            # Абсолютно симметричная обрезка (одинаковое расстояние со всех сторон)
+            dist_left = left
+            dist_top = upper
+            dist_right = original_width - right
+            dist_bottom = original_height - lower
+            min_dist = min(dist_left, dist_top, dist_right, dist_bottom)
+            
+            crop_l = min_dist
+            crop_u = min_dist
+            crop_r = original_width - min_dist
+            crop_b = original_height - min_dist
+            
+            # Проверка валидности границ
+            if crop_l >= crop_r or crop_u >= crop_b:
+                # Используем стандартные границы, если симметричные некорректны
+                crop_l, crop_u, crop_r, crop_b = left, upper, right, lower
+                
+        elif symmetric_axes:
+            # Симметричная обрезка по осям независимо
+            dist_left = left
+            dist_top = upper
+            dist_right = original_width - right
+            dist_bottom = original_height - lower
+            
+            min_x_dist = min(dist_left, dist_right)
+            min_y_dist = min(dist_top, dist_bottom)
+            
+            crop_l = min_x_dist
+            crop_u = min_y_dist
+            crop_r = original_width - min_x_dist
+            crop_b = original_height - min_y_dist
+            
+            # Проверка валидности границ
+            if crop_l >= crop_r or crop_u >= crop_b:
+                # Используем стандартные границы, если симметричные некорректны
+                crop_l, crop_u, crop_r, crop_b = left, upper, right, lower
+        
+        # Применяем дополнительную обрезку, если указана
+        if extra_crop_percent > 0:
+            crop_width = crop_r - crop_l
+            crop_height = crop_b - crop_u
+            
+            extra_crop_x = int(round(crop_width * (extra_crop_percent / 100.0) / 2))
+            extra_crop_y = int(round(crop_height * (extra_crop_percent / 100.0) / 2))
+            
+            # Проверяем, чтобы не обрезать всё изображение
+            if (extra_crop_x * 2 < crop_width) and (extra_crop_y * 2 < crop_height):
+                crop_l += extra_crop_x
+                crop_r -= extra_crop_x
+                crop_u += extra_crop_y
+                crop_b -= extra_crop_y
+        
+        # Возвращаем финальные границы
+        return {
+            'left': crop_l,
+            'top': crop_u,
+            'right': crop_r,
+            'bottom': crop_b
+        }
+        
+    except Exception as e:
+        log.error(f"Error analyzing crop boundaries: {e}")
+        return None
+
+def apply_crop_with_boundaries(img, boundaries):
+    """
+    Применяет заранее вычисленные границы обрезки к изображению.
+    
+    Args:
+        img: Входное изображение
+        boundaries: Словарь с границами обрезки (left, top, right, bottom)
+    
+    Returns:
+        Image: Обрезанное изображение или None в случае ошибки
+    """
+    if img is None or boundaries is None:
+        return img
+        
+    try:
+        # Извлекаем границы
+        left = boundaries.get('left', 0)
+        top = boundaries.get('top', 0)
+        right = boundaries.get('right', img.width)
+        bottom = boundaries.get('bottom', img.height)
+        
+        # Проверяем корректность границ
+        if left < 0: left = 0
+        if top < 0: top = 0
+        if right > img.width: right = img.width
+        if bottom > img.height: bottom = img.height
+        
+        if left >= right or top >= bottom:
+            log.error(f"Invalid crop boundaries: {boundaries}")
+            return img
+            
+        # Применяем обрезку
+        crop_box = (left, top, right, bottom)
+        cropped_img = img.crop(crop_box)
+        
+        return cropped_img
+        
+    except Exception as e:
+        log.error(f"Error applying crop with boundaries: {e}")
+        return img

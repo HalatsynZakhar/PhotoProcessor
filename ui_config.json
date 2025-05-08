@@ -1,0 +1,483 @@
+{
+  "paths": {
+    "input_folder_path": {
+      "type": "path",
+      "default": "",
+      "label": "Исходная папка",
+      "help": "Папка с исходными изображениями"
+    },
+    "output_folder_path": {
+      "type": "path",
+      "default": "",
+      "label": "Папка для результатов",
+      "help": "Папка для сохранения обработанных изображений"
+    },
+    "backup_folder_path": {
+      "type": "path",
+      "default": "",
+      "label": "Папка для резервных копий",
+      "help": "Папка для резервных копий (опционально)"
+    },
+    "output_filename": {
+      "type": "string",
+      "default": "processed_image",
+      "label": "Имя выходного файла",
+      "help": "Базовое имя выходного файла"
+    }
+  },
+  "preprocessing": {
+    "enable_preresize": {
+      "type": "boolean",
+      "default": false,
+      "label": "Предварительное изменение размера",
+      "help": "Изменить размер до обработки"
+    },
+    "preresize_width": {
+      "type": "int",
+      "default": 1500,
+      "min": 1,
+      "max": 10000,
+      "label": "Ширина (пиксели)",
+      "help": "Максимальная ширина после изменения размера"
+    },
+    "preresize_height": {
+      "type": "int",
+      "default": 1500,
+      "min": 1,
+      "max": 10000,
+      "label": "Высота (пиксели)",
+      "help": "Максимальная высота после изменения размера"
+    }
+  },
+  "whitening": {
+    "enable_whitening": {
+      "type": "boolean",
+      "default": true,
+      "label": "Отбеливание фона",
+      "help": "Сделать фон более белым"
+    },
+    "whitening_cancel_threshold": {
+      "type": "int",
+      "default": 650,
+      "min": 0,
+      "max": 765,
+      "label": "Порог отмены",
+      "help": "Если периметр темнее этого значения, применять отбеливание"
+    }
+  },
+  "background_crop": {
+    "enable_bg_crop": {
+      "type": "boolean",
+      "default": true,
+      "label": "Удаление фона и обрезка",
+      "help": "Включить удаление белого фона и обрезку"
+    },
+    "use_two_phase_processing": {
+      "type": "boolean",
+      "default": true,
+      "label": "Двухэтапная обработка",
+      "help": "Включает двухэтапную обработку для предотвращения ореолов"
+    },
+    "scale_factor": {
+      "type": "float",
+      "default": 1.0,
+      "min": 1.0,
+      "max": 4.0,
+      "step": 0.1,
+      "label": "Коэффициент масштабирования",
+      "help": "Масштабирование оригинала перед обработкой (1 = автоматический выбор)"
+    },
+    "white_tolerance": {
+      "type": "int",
+      "default": 10,
+      "min": 0,
+      "max": 255,
+      "label": "Допуск для белого",
+      "help": "Чем выше значение, тем больше оттенков считаются белыми"
+    },
+    "removal_mode": {
+      "type": "string",
+      "default": "full",
+      "options": ["full", "edges"],
+      "label": "Режим удаления фона",
+      "help": "Полностью или только от краев?"
+    },
+    "enable_crop": {
+      "type": "boolean",
+      "default": true,
+      "label": "Обрезка",
+      "help": "Обрезать прозрачные границы"
+    },
+    "crop_symmetric_absolute": {
+      "type": "boolean",
+      "default": false,
+      "label": "Полная симметрия",
+      "help": "Обрезать одинаково со всех сторон"
+    },
+    "crop_symmetric_axes": {
+      "type": "boolean",
+      "default": false,
+      "label": "Осевая симметрия",
+      "help": "Обрезать симметрично по осям"
+    },
+    "check_perimeter": {
+      "type": "boolean",
+      "default": false,
+      "label": "Проверка периметра",
+      "help": "Проверять периметр перед обработкой"
+    },
+    "perimeter_mode": {
+      "type": "string",
+      "default": "always",
+      "options": ["always", "if_white", "if_not_white"],
+      "label": "Условие периметра",
+      "help": "Когда применять обработку"
+    },
+    "perimeter_tolerance": {
+      "type": "int",
+      "default": 10,
+      "min": 0,
+      "max": 255,
+      "label": "Допуск периметра",
+      "help": "Допуск при проверке белизны периметра"
+    },
+    "extra_crop_percent": {
+      "type": "float",
+      "default": 0.0,
+      "min": 0.0,
+      "max": 50.0,
+      "step": 0.1,
+      "label": "Дополнительная обрезка (%)",
+      "help": "Процент дополнительной обрезки после основной"
+    },
+    "use_mask_instead_of_transparency": {
+      "type": "boolean",
+      "default": false,
+      "label": "Маска вместо прозрачности",
+      "help": "Создать маску вместо прозрачности (решает проблему ореолов в PNG)"
+    },
+    "halo_reduction_level": {
+      "type": "int",
+      "default": 0,
+      "min": 0,
+      "max": 5,
+      "label": "Уровень устранения ореолов",
+      "help": "Уровень устранения ореолов (0-5), где 0 - отключено"
+    }
+  },
+  "padding": {
+    "mode": {
+      "type": "string",
+      "default": "never",
+      "options": ["always", "if_white", "never"],
+      "label": "Режим отступов",
+      "help": "Когда добавлять отступы"
+    },
+    "padding_percent": {
+      "type": "int",
+      "default": 10,
+      "min": -50,
+      "max": 100,
+      "label": "Процент отступа",
+      "help": "Процент от минимального размера изображения"
+    },
+    "allow_expansion": {
+      "type": "boolean",
+      "default": true,
+      "label": "Разрешить увеличение",
+      "help": "Разрешить увеличение размера при добавлении отступов"
+    },
+    "perimeter_check_tolerance": {
+      "type": "int",
+      "default": 10,
+      "min": 0,
+      "max": 255,
+      "label": "Допуск проверки периметра",
+      "help": "Допуск при проверке белизны периметра для отступов"
+    }
+  },
+  "brightness_contrast": {
+    "enable_bc": {
+      "type": "boolean",
+      "default": false,
+      "label": "Яркость и контрастность",
+      "help": "Настроить яркость и контрастность"
+    },
+    "brightness_factor": {
+      "type": "float",
+      "default": 1.0,
+      "min": 0.1,
+      "max": 5.0,
+      "step": 0.1,
+      "label": "Яркость",
+      "help": "Множитель яркости (1.0 = без изменений)"
+    },
+    "contrast_factor": {
+      "type": "float",
+      "default": 1.0,
+      "min": 0.1,
+      "max": 5.0,
+      "step": 0.1,
+      "label": "Контрастность",
+      "help": "Множитель контрастности (1.0 = без изменений)"
+    }
+  },
+  "final_settings": {
+    "output_format": {
+      "type": "string",
+      "default": "jpg",
+      "options": ["jpg", "png"],
+      "label": "Формат вывода",
+      "help": "Формат выходного файла"
+    },
+    "jpeg_quality": {
+      "type": "int",
+      "default": 95,
+      "min": 1,
+      "max": 100,
+      "label": "Качество JPEG",
+      "help": "Качество JPEG (1-100)"
+    },
+    "jpg_background_color": {
+      "type": "color",
+      "default": [255, 255, 255],
+      "label": "Цвет фона для JPG",
+      "help": "Цвет фона для JPG (белый по умолчанию)"
+    },
+    "png_transparent_background": {
+      "type": "boolean",
+      "default": true,
+      "label": "Прозрачный фон для PNG",
+      "help": "Сохранять прозрачность в PNG файлах"
+    },
+    "png_background_color": {
+      "type": "color",
+      "default": [255, 255, 255],
+      "label": "Цвет фона для PNG",
+      "help": "Цвет фона для PNG, если прозрачность отключена"
+    },
+    "enable_max_dimensions": {
+      "type": "boolean",
+      "default": false,
+      "label": "Ограничение размера вывода",
+      "help": "Ограничить максимальный размер выходного изображения"
+    },
+    "max_width": {
+      "type": "int",
+      "default": 1500,
+      "min": 1,
+      "max": 10000,
+      "label": "Макс. ширина (пиксели)",
+      "help": "Максимальная ширина выходного изображения"
+    },
+    "max_height": {
+      "type": "int",
+      "default": 1500,
+      "min": 1,
+      "max": 10000,
+      "label": "Макс. высота (пиксели)",
+      "help": "Максимальная высота выходного изображения"
+    },
+    "enable_exact_dimensions": {
+      "type": "boolean",
+      "default": false,
+      "label": "Точный размер вывода",
+      "help": "Установить точный размер выходного изображения"
+    },
+    "exact_width": {
+      "type": "int",
+      "default": 1200,
+      "min": 1,
+      "max": 10000,
+      "label": "Точная ширина (пиксели)",
+      "help": "Точная ширина выходного изображения"
+    },
+    "exact_height": {
+      "type": "int",
+      "default": 1200,
+      "min": 1,
+      "max": 10000,
+      "label": "Точная высота (пиксели)",
+      "help": "Точная высота выходного изображения"
+    },
+    "remove_metadata": {
+      "type": "boolean",
+      "default": false,
+      "label": "Удалить метаданные",
+      "help": "Удалить все метаданные из выходного изображения"
+    }
+  },
+  "collage_mode": {
+    "proportional_placement": {
+      "type": "boolean",
+      "default": true,
+      "label": "Пропорциональное размещение",
+      "help": "Сохранять пропорции между изображениями"
+    },
+    "placement_ratios": {
+      "type": "list_float",
+      "default": [1.0],
+      "min": 0.1,
+      "max": 10.0,
+      "label": "Коэффициенты размещения",
+      "help": "Коэффициенты размера для каждого изображения"
+    },
+    "enable_forced_cols": {
+      "type": "boolean",
+      "default": false,
+      "label": "Задать число колонок",
+      "help": "Использовать заданное число колонок"
+    },
+    "forced_cols": {
+      "type": "int",
+      "default": 2,
+      "min": 1,
+      "max": 20,
+      "label": "Количество колонок",
+      "help": "Количество колонок в коллаже"
+    },
+    "enable_spacing": {
+      "type": "boolean",
+      "default": true,
+      "label": "Отступы между изображениями",
+      "help": "Добавить отступы между изображениями"
+    },
+    "spacing_percent": {
+      "type": "float",
+      "default": 2.0,
+      "min": -50.0,
+      "max": 50.0,
+      "step": 0.1,
+      "label": "Процент отступов",
+      "help": "Отступы между изображениями в процентах"
+    },
+    "enable_outer_margins": {
+      "type": "boolean",
+      "default": true,
+      "label": "Внешние поля",
+      "help": "Добавить внешние поля вокруг коллажа"
+    },
+    "outer_margins_percent": {
+      "type": "float",
+      "default": 2.0,
+      "min": -50.0,
+      "max": 50.0,
+      "step": 0.1,
+      "label": "Процент внешних полей",
+      "help": "Размер внешних полей в процентах"
+    },
+    "force_collage_aspect_ratio": {
+      "type": "list_int",
+      "default": [],
+      "label": "Пропорции коллажа",
+      "help": "Соотношение сторон коллажа (ширина:высота)"
+    },
+    "enable_max_dimensions": {
+      "type": "boolean",
+      "default": true,
+      "label": "Ограничение размера коллажа",
+      "help": "Ограничить максимальный размер коллажа"
+    },
+    "max_collage_width": {
+      "type": "int",
+      "default": 1500,
+      "min": 1,
+      "max": 10000,
+      "label": "Макс. ширина коллажа",
+      "help": "Максимальная ширина коллажа в пикселях"
+    },
+    "max_collage_height": {
+      "type": "int",
+      "default": 1500,
+      "min": 1,
+      "max": 10000,
+      "label": "Макс. высота коллажа",
+      "help": "Максимальная высота коллажа в пикселях"
+    },
+    "final_collage_exact_width": {
+      "type": "int",
+      "default": 0,
+      "min": 0,
+      "max": 10000,
+      "label": "Точная ширина коллажа",
+      "help": "Установить точную ширину коллажа (0 = игнорировать)"
+    },
+    "final_collage_exact_height": {
+      "type": "int",
+      "default": 0,
+      "min": 0,
+      "max": 10000,
+      "label": "Точная высота коллажа",
+      "help": "Установить точную высоту коллажа (0 = игнорировать)"
+    },
+    "output_format": {
+      "type": "string",
+      "default": "jpg",
+      "options": ["jpg", "png"],
+      "label": "Формат вывода",
+      "help": "Формат выходного коллажа"
+    },
+    "jpeg_quality": {
+      "type": "int",
+      "default": 95,
+      "min": 1,
+      "max": 100,
+      "label": "Качество JPEG",
+      "help": "Качество JPEG для коллажа (1-100)"
+    },
+    "jpg_background_color": {
+      "type": "color",
+      "default": [255, 255, 255],
+      "label": "Цвет фона для JPG",
+      "help": "Цвет фона для JPG коллажа (белый по умолчанию)"
+    }
+  },
+  "merge_settings": {
+    "template_path": {
+      "type": "path",
+      "default": "",
+      "label": "Путь к шаблону",
+      "help": "Файл шаблона для наложения"
+    },
+    "template_position": {
+      "type": "string",
+      "default": "center",
+      "options": ["center", "top", "bottom", "left", "right", "top_left", "top_right", "bottom_left", "bottom_right"],
+      "label": "Позиция шаблона",
+      "help": "Расположение шаблона на изображении"
+    },
+    "enable_resize_template": {
+      "type": "boolean",
+      "default": false,
+      "label": "Изменить размер шаблона",
+      "help": "Изменить размер шаблона для соответствия изображению"
+    },
+    "template_width_percent": {
+      "type": "float",
+      "default": 100.0,
+      "min": 1.0,
+      "max": 200.0,
+      "step": 0.1,
+      "label": "Ширина шаблона (%)",
+      "help": "Ширина шаблона в процентах от изображения"
+    },
+    "template_height_percent": {
+      "type": "float",
+      "default": 100.0,
+      "min": 1.0,
+      "max": 200.0,
+      "step": 0.1,
+      "label": "Высота шаблона (%)",
+      "help": "Высота шаблона в процентах от изображения"
+    },
+    "template_opacity": {
+      "type": "float",
+      "default": 100.0,
+      "min": 1.0,
+      "max": 100.0,
+      "step": 0.1,
+      "label": "Прозрачность шаблона (%)",
+      "help": "Прозрачность шаблона в процентах"
+    }
+  }
+} 
