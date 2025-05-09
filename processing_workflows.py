@@ -1321,6 +1321,10 @@ def _merge_with_template(image, template_path_or_image, settings=None):
         
     log.info(f"  > Template loaded. Size: {template.size}, mode: {template.mode}")
     
+    # Создаем копии оригинальных изображений для масштабирования перед обработкой
+    original_image = image.copy()
+    original_template = template.copy()
+    
     # Получаем настройки
     position = settings.get('position', 'center')
     template_position = settings.get('template_position', 'center')  # Новая настройка для позиции шаблона
@@ -1343,19 +1347,23 @@ def _merge_with_template(image, template_path_or_image, settings=None):
     
     log.info(f"  > Original sizes - Image: {image_width}x{image_height}, Template: {template_width}x{template_height}")
     
-    # Определяем размеры холста и масштабирование
+    # Определяем размеры холста и коэффициенты масштабирования
     canvas_width = max(image_width, template_width)
     canvas_height = max(image_height, template_height)
-    scaled_image = image
-    scaled_template = template
     
+    # Флаги для отслеживания, какие изображения нужно масштабировать
+    image_needs_scaling = False
+    template_needs_scaling = False
+    image_scale_factor = 1.0
+    template_scale_factor = 1.0
+    
+    # Определяем необходимость и параметры масштабирования, но не применяем
     if no_scaling:
         # В режиме без масштабирования используем максимальные размеры
         log.info("  > No scaling mode - Using maximum sizes")
         log.info(f"  > Canvas size: {canvas_width}x{canvas_height}")
     elif enable_width_ratio:
         # Вычисляем целевые размеры на основе соотношения площадей
-        # Если соотношение 1:2, то площадь второго изображения должна быть в 2 раза больше
         target_area_ratio = width_ratio[0] / width_ratio[1]  # Соотношение площадей
         
         # Вычисляем площади
@@ -1366,39 +1374,17 @@ def _merge_with_template(image, template_path_or_image, settings=None):
         if image_area < template_area * target_area_ratio:
             # Нужно увеличить изображение
             target_area = template_area * target_area_ratio
-            area_scale = math.sqrt(target_area / image_area)
+            image_scale_factor = math.sqrt(target_area / image_area)
+            image_needs_scaling = True
             
-            new_width = int(image_width * area_scale)
-            new_height = int(image_height * area_scale)
-            
-            # Масштабируем изображение
-            scaled_image = image.resize((new_width, new_height), Image.Resampling.LANCZOS)
-            
-            # Обновляем размеры холста
-            canvas_width = max(template_width, new_width)
-            canvas_height = max(template_height, new_height)
-            
-            log.info(f"  > Width ratio enabled - Scaling image to match area ratio {target_area_ratio:.2f}")
-            log.info(f"  > Area-based scale factor: {area_scale:.3f}, New size: {new_width}x{new_height}")
+            log.info(f"  > Width ratio enabled - Will scale image with factor {image_scale_factor:.3f} to match area ratio {target_area_ratio:.2f}")
         else:
             # Нужно увеличить шаблон
             target_area = image_area / target_area_ratio
-            area_scale = math.sqrt(target_area / template_area)
+            template_scale_factor = math.sqrt(target_area / template_area)
+            template_needs_scaling = True
             
-            new_width = int(template_width * area_scale)
-            new_height = int(template_height * area_scale)
-            
-            # Масштабируем шаблон
-            scaled_template = template.resize((new_width, new_height), Image.Resampling.LANCZOS)
-            
-            # Обновляем размеры холста
-            canvas_width = max(image_width, new_width)
-            canvas_height = max(image_height, new_height)
-            
-            log.info(f"  > Width ratio enabled - Scaling template to match area ratio {target_area_ratio:.2f}")
-            log.info(f"  > Area-based scale factor: {area_scale:.3f}, New size: {new_width}x{new_height}")
-        
-        log.info(f"  > Canvas size: {canvas_width}x{canvas_height}")
+            log.info(f"  > Width ratio enabled - Will scale template with factor {template_scale_factor:.3f} to match area ratio {target_area_ratio:.2f}")
     elif fit_image_to_template:
         # Масштабируем изображение или шаблон, чтобы они соответствовали друг другу
         if image_width <= template_width and image_height <= template_height:
@@ -1406,82 +1392,85 @@ def _merge_with_template(image, template_path_or_image, settings=None):
             width_ratio = template_width / image_width
             height_ratio = template_height / image_height
             # Используем минимальный коэффициент, чтобы изображение касалось шаблона по одной стороне
-            scale_factor = min(width_ratio, height_ratio)
+            image_scale_factor = min(width_ratio, height_ratio)
+            image_needs_scaling = True
             
-            new_width = int(image_width * scale_factor)
-            new_height = int(image_height * scale_factor)
-            
-            # Масштабируем изображение
-            scaled_image = image.resize((new_width, new_height), Image.Resampling.LANCZOS)
-            
-            # Размеры холста остаются равными размерам шаблона
-            canvas_width = template_width
-            canvas_height = template_height
-            
-            log.info(f"  > Fit image to template - Image is smaller, scaling up image with factor: {scale_factor:.3f}")
-            log.info(f"  > New image size: {new_width}x{new_height}")
+            log.info(f"  > Fit image to template - Will scale image up with factor: {image_scale_factor:.3f}")
         else:
             # Изображение больше шаблона хотя бы по одному измерению - увеличиваем шаблон
             width_ratio = image_width / template_width
             height_ratio = image_height / template_height
             # Используем минимальный коэффициент, чтобы шаблон касался изображения по одной стороне
-            scale_factor = min(width_ratio, height_ratio)
+            template_scale_factor = min(width_ratio, height_ratio)
+            template_needs_scaling = True
             
-            new_width = int(template_width * scale_factor)
-            new_height = int(template_height * scale_factor)
-            
-            # Масштабируем шаблон
-            scaled_template = template.resize((new_width, new_height), Image.Resampling.LANCZOS)
-            
-            # Размеры холста равны размерам изображения
-            canvas_width = image_width
-            canvas_height = image_height
-            
-            log.info(f"  > Fit image to template - Image is larger, scaling up template with factor: {scale_factor:.3f}")
-            log.info(f"  > New template size: {new_width}x{new_height}")
-        
-        log.info(f"  > Canvas size: {canvas_width}x{canvas_height}")
+            log.info(f"  > Fit image to template - Will scale template up with factor: {template_scale_factor:.3f}")
     elif fit_template_to_image:
         # Масштабируем шаблон, чтобы он помещался в изображение
-        # Если шаблон меньше изображения, увеличиваем его
         if template_width < image_width and template_height < image_height:
             # Шаблон меньше изображения, увеличиваем его
             width_ratio = image_width / template_width
             height_ratio = image_height / template_height
-            scale_factor = max(width_ratio, height_ratio)  # Используем max для максимального увеличения
+            template_scale_factor = max(width_ratio, height_ratio)  # Используем max для максимального увеличения
+            template_needs_scaling = True
             
-            new_width = int(template_width * scale_factor)
-            new_height = int(template_height * scale_factor)
-            
-            # Масштабируем шаблон
-            scaled_template = template.resize((new_width, new_height), Image.Resampling.LANCZOS)
-            
-            # Обновляем размеры холста
-            canvas_width = max(image_width, new_width)
-            canvas_height = max(image_height, new_height)
-            
-            log.info(f"  > Fit template to image - Template is smaller, scaling up with factor: {scale_factor:.3f}")
-            log.info(f"  > New template size: {new_width}x{new_height}")
+            log.info(f"  > Fit template to image - Will scale template up with factor: {template_scale_factor:.3f}")
         else:
             # Шаблон больше изображения, увеличиваем изображение
             width_ratio = template_width / image_width
             height_ratio = template_height / image_height
-            scale_factor = max(width_ratio, height_ratio)  # Используем max для максимального увеличения
+            image_scale_factor = max(width_ratio, height_ratio)  # Используем max для максимального увеличения
+            image_needs_scaling = True
             
-            new_width = int(image_width * scale_factor)
-            new_height = int(image_height * scale_factor)
-            
-            # Масштабируем изображение
-            scaled_image = image.resize((new_width, new_height), Image.Resampling.LANCZOS)
-            
-            # Обновляем размеры холста
-            canvas_width = max(template_width, new_width)
-            canvas_height = max(template_height, new_height)
-            
-            log.info(f"  > Fit template to image - Image is smaller, scaling up with factor: {scale_factor:.3f}")
-            log.info(f"  > New image size: {new_width}x{new_height}")
+            log.info(f"  > Fit template to image - Will scale image up with factor: {image_scale_factor:.3f}")
+    
+    # Масштабируем оригинальные изображения до обработки
+    scaled_image = original_image
+    scaled_template = original_template
+    
+    # Применяем масштабирование к оригиналам, если нужно
+    if image_needs_scaling and image_scale_factor > 1.0:
+        new_width = int(round(image_width * image_scale_factor))
+        new_height = int(round(image_height * image_scale_factor))
         
-        log.info(f"  > Canvas size: {canvas_width}x{canvas_height}")
+        log.info(f"  > Scaling original image: {image_width}x{image_height} -> {new_width}x{new_height}")
+        
+        # Используем NEAREST для предотвращения ореолов при увеличении
+        scaled_image = _scale_image(original_image, (new_width, new_height), 'fit', use_transparency=False)
+        
+        # Обновляем размеры холста
+        canvas_width = max(canvas_width, new_width)
+        canvas_height = max(canvas_height, new_height)
+    
+    if template_needs_scaling and template_scale_factor > 1.0:
+        new_width = int(round(template_width * template_scale_factor))
+        new_height = int(round(template_height * template_scale_factor))
+        
+        log.info(f"  > Scaling original template: {template_width}x{template_height} -> {new_width}x{new_height}")
+        
+        # Используем NEAREST для предотвращения ореолов при увеличении
+        scaled_template = _scale_image(original_template, (new_width, new_height), 'fit', use_transparency=False)
+        
+        # Обновляем размеры холста
+        canvas_width = max(canvas_width, new_width)
+        canvas_height = max(canvas_height, new_height)
+    
+    # Очищаем оригиналы, которые больше не нужны
+    if original_image is not scaled_image:
+        image_utils.safe_close(original_image)
+    if original_template is not scaled_template:
+        image_utils.safe_close(original_template)
+    
+    # Конвертируем в RGBA для корректного наложения
+    if scaled_image.mode != 'RGBA':
+        temp_img = scaled_image.convert('RGBA')
+        image_utils.safe_close(scaled_image)
+        scaled_image = temp_img
+        
+    if scaled_template.mode != 'RGBA':
+        temp_tmpl = scaled_template.convert('RGBA')
+        image_utils.safe_close(scaled_template)
+        scaled_template = temp_tmpl
     
     # Создаем холст нужного размера
     canvas = Image.new('RGBA', (canvas_width, canvas_height), (0, 0, 0, 0))
@@ -1489,18 +1478,18 @@ def _merge_with_template(image, template_path_or_image, settings=None):
     
     # Вычисляем позиции для размещения
     image_pos = _calculate_paste_position(scaled_image.size, canvas.size, position)
-    template_pos = _calculate_template_position(scaled_template.size, canvas.size, template_position)  # Используем специальную функцию для шаблона
+    template_pos = _calculate_template_position(scaled_template.size, canvas.size, template_position)
     
     # Размещаем изображения в зависимости от порядка
     if template_on_top:
-        canvas.paste(scaled_image, image_pos, scaled_image if scaled_image.mode == 'RGBA' else None)
-        canvas.paste(scaled_template, template_pos, scaled_template if scaled_template.mode == 'RGBA' else None)
+        canvas.paste(scaled_image, image_pos, scaled_image)
+        canvas.paste(scaled_template, template_pos, scaled_template)
     else:
-        canvas.paste(scaled_template, template_pos, scaled_template if scaled_template.mode == 'RGBA' else None)
-        canvas.paste(scaled_image, image_pos, scaled_image if scaled_image.mode == 'RGBA' else None)
+        canvas.paste(scaled_template, template_pos, scaled_template)
+        canvas.paste(scaled_image, image_pos, scaled_image)
     
-    log.info(f"  > Image position: {image_pos}")
-    log.info(f"  > Template position: {template_pos}")
+    log.info(f"  > Image position: {image_pos}, size: {scaled_image.size}")
+    log.info(f"  > Template position: {template_pos}, size: {scaled_template.size}")
     log.info(f"  > Template on top: {template_on_top}")
     
     return canvas
