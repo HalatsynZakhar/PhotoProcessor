@@ -1860,8 +1860,18 @@ def _apply_background_crop(img, white_tolerance, perimeter_tolerance, symmetric_
                     log.debug(f"Returning safe boundaries for non-white perimeter image: {safe_boundaries}")
                     return safe_boundaries
                 elif perimeter_mode == 'if_not_white' and perimeter_is_white:
-                    log.debug("Phase 1: Analysis skipped - perimeter is white (mode: if_not_white)")
-                    return None
+                    log.info("Phase 1: Analysis skipped - perimeter is white (mode: if_not_white)")
+                    # Для изображений с белым периметром в режиме 'if_not_white'
+                    # также возвращаем безопасные границы всего изображения
+                    width, height = img.size
+                    safe_boundaries = {
+                        'left': 0,
+                        'top': 0,
+                        'right': width,
+                        'bottom': height
+                    }
+                    log.debug(f"Returning safe boundaries for white perimeter image (if_not_white mode): {safe_boundaries}")
+                    return safe_boundaries
                     
             log.info("Analyzing crop boundaries without applying changes")
             
