@@ -1407,19 +1407,26 @@ with st.sidebar:
                      try:
                          new_bg_color_ind = list(map(int, new_bg_color_str_ind.split(',')))
                          if len(new_bg_color_ind) == 3 and all(0 <= c <= 255 for c in new_bg_color_ind):
-                             if new_bg_color_ind != get_setting('individual_mode.jpg_background_color', [255,255,255]): set_setting('individual_mode.jpg_background_color', new_bg_color_ind)
+                             if new_bg_color_ind != get_setting('individual_mode.jpg_background_color', [255,255,255]): 
+                                 set_setting('individual_mode.jpg_background_color', new_bg_color_ind)
+                                 # Синхронизируем цвет фона для PNG с цветом фона для JPG
+                                 set_setting('individual_mode.png_background_color', new_bg_color_ind)
                          else: st.caption("❌ R,G,B 0-255")
                      except ValueError: st.caption("❌ R,G,B 0-255")
                  elif not get_setting('individual_mode.png_transparent_background', True):
-                     bg_color_str_ind = ",".join(map(str, get_setting('individual_mode.png_background_color', [255,255,255])))
+                     # Используем тот же интерфейс для цвета фона PNG, что и для JPG
+                     bg_color_str_ind = ",".join(map(str, get_setting('individual_mode.jpg_background_color', [255,255,255])))
                      new_bg_color_str_ind = st.text_input("Фон (R,G,B)", 
                                                     value=bg_color_str_ind, 
-                                                    key='ind_png_bg',
+                                                    key='ind_bg_png',
                                                     help="Цвет фона для PNG в формате R,G,B (значения 0-255). Для белого: 255,255,255, для черного: 0,0,0")
                      try:
                          new_bg_color_ind = list(map(int, new_bg_color_str_ind.split(',')))
                          if len(new_bg_color_ind) == 3 and all(0 <= c <= 255 for c in new_bg_color_ind):
-                             if new_bg_color_ind != get_setting('individual_mode.png_background_color', [255,255,255]): set_setting('individual_mode.png_background_color', new_bg_color_ind)
+                             if new_bg_color_ind != get_setting('individual_mode.jpg_background_color', [255,255,255]): 
+                                 # Устанавливаем тот же цвет для обоих форматов
+                                 set_setting('individual_mode.jpg_background_color', new_bg_color_ind)
+                                 set_setting('individual_mode.png_background_color', new_bg_color_ind)
                          else: st.caption("❌ R,G,B 0-255")
                      except ValueError: st.caption("❌ R,G,B 0-255")
                  else:
@@ -1645,19 +1652,26 @@ with st.sidebar:
                      try:
                          new_bg_color_coll = list(map(int, new_bg_color_str_coll.split(',')))
                          if len(new_bg_color_coll) == 3 and all(0 <= c <= 255 for c in new_bg_color_coll):
-                            if new_bg_color_coll != get_setting('collage_mode.jpg_background_color', [255,255,255]): set_setting('collage_mode.jpg_background_color', new_bg_color_coll)
+                            if new_bg_color_coll != get_setting('collage_mode.jpg_background_color', [255,255,255]): 
+                                set_setting('collage_mode.jpg_background_color', new_bg_color_coll)
+                                # Синхронизируем цвет фона для PNG с цветом фона для JPG
+                                set_setting('collage_mode.png_background_color', new_bg_color_coll)
                          else: st.caption("❌ R,G,B 0-255")
                      except ValueError: st.caption("❌ R,G,B 0-255")
                  elif not get_setting('collage_mode.png_transparent_background', True):
-                     bg_color_str_coll = ",".join(map(str, get_setting('collage_mode.png_background_color', [255,255,255])))
+                     # Используем тот же интерфейс для цвета фона PNG, что и для JPG
+                     bg_color_str_coll = ",".join(map(str, get_setting('collage_mode.jpg_background_color', [255,255,255])))
                      new_bg_color_str_coll = st.text_input("Фон (R,G,B)", 
                                                          value=bg_color_str_coll, 
-                                                         key='coll_png_bg',
+                                                         key='coll_bg_png',
                                                          help="Цвет фона для PNG в формате R,G,B (значения 0-255). Для белого: 255,255,255, для черного: 0,0,0")
                      try:
                          new_bg_color_coll = list(map(int, new_bg_color_str_coll.split(',')))
                          if len(new_bg_color_coll) == 3 and all(0 <= c <= 255 for c in new_bg_color_coll):
-                            if new_bg_color_coll != get_setting('collage_mode.png_background_color', [255,255,255]): set_setting('collage_mode.png_background_color', new_bg_color_coll)
+                            if new_bg_color_coll != get_setting('collage_mode.jpg_background_color', [255,255,255]): 
+                                # Устанавливаем тот же цвет для обоих форматов
+                                set_setting('collage_mode.jpg_background_color', new_bg_color_coll)
+                                set_setting('collage_mode.png_background_color', new_bg_color_coll)
                          else: st.caption("❌ R,G,B 0-255")
                      except ValueError: st.caption("❌ R,G,B 0-255")
                  else:
