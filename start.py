@@ -3,6 +3,8 @@ import subprocess
 import sys
 import os
 import time # Для небольшой паузы
+import traceback
+import multiprocessing
 
 def update_pip():
     """
@@ -93,6 +95,76 @@ def install_requirements():
         print(f"Ошибка при установке зависимостей: {e}")
         return False
 
+def initialize_multiprocessing():
+    """
+    Инициализирует мультипроцессинг перед запуском приложения.
+    Устанавливает правильный метод запуска процессов и выполняет другие необходимые настройки.
+    """
+    try:
+        print("=" * 50)
+        print("Настройка мультипроцессинга...")
+        
+        # Устанавливаем критичные переменные окружения для Windows
+        if sys.platform == 'win32':
+            # Устанавливаем необходимые переменные окружения для поддержки многопроцессорности
+            os.environ['PYTHONMULTIPROCESSING'] = '1'
+            os.environ['PYTHONMULTIPROCESSINGMETHOD'] = 'spawn'
+            os.environ['PYTHONNOWINDOW'] = '1'
+            os.environ['PYTHONLEGACYWINDOWSSUBPROCESS'] = '1'
+            os.environ['PYTHONSUBPROCESSNOSESSION'] = '1'
+            print("Установлены переменные окружения для Windows")
+            
+            # Устанавливаем метод запуска 'spawn' напрямую, до импорта модулей
+            if hasattr(multiprocessing, 'set_start_method'):
+                try:
+                    multiprocessing.set_start_method('spawn', force=True)
+                    print("Установлен метод запуска процессов 'spawn'")
+                except RuntimeError as e:
+                    print(f"Метод запуска уже установлен: {e}")
+            
+        # Импортируем модуль мультипроцессинга
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        sys.path.insert(0, script_dir)
+        
+        # Импортируем наш модуль multiprocessing_utils
+        try:
+            import multiprocessing_utils
+            
+            # Вызываем функцию инициализации
+            multiprocessing_utils.enable_multiprocessing()
+        except AttributeError as e:
+            if '_subprocess' in str(e):
+                print(f"Обнаружена ошибка с subprocess._subprocess. Используем переменные окружения для решения.")
+                # Продолжаем выполнение, т.к. переменные окружения уже установлены выше
+            else:
+                raise e
+        
+        # Выводим информацию о доступных ядрах
+        cpu_count = multiprocessing.cpu_count() if 'multiprocessing' in sys.modules else "Unknown"
+        print(f"Доступно CPU ядер: {cpu_count}")
+        print(f"Текущая платформа: {sys.platform}")
+        
+        # Для Windows выводим дополнительную информацию
+        if sys.platform == 'win32':
+            try:
+                method = multiprocessing.get_start_method()
+                print(f"Используется метод запуска процессов '{method}' для Windows")
+            except Exception as e:
+                print(f"Не удалось получить текущий метод запуска: {e}")
+            
+        print("Мультипроцессинг успешно настроен")
+        return True
+        
+    except ImportError as e:
+        print(f"\n[!!! ОШИБКА !!!]")
+        print(f"Не удалось импортировать модуль multiprocessing_utils: {e}")
+        return False
+    except Exception as e:
+        print(f"\n[!!! ОШИБКА !!!]")
+        print(f"Произошла ошибка при настройке мультипроцессинга: {e}")
+        print(f"Детали: {traceback.format_exc()}")
+        return False
+
 def main():
     """
     Запускает Streamlit-приложение app.py с помощью команды 'streamlit run'.
@@ -130,6 +202,10 @@ def main():
         print("=" * 50)
         time.sleep(5)
         # Продолжаем выполнение, даже если установка не удалась
+    
+    # Инициализируем мультипроцессинг перед запуском приложения
+    print("Настройка системы мультипроцессорной обработки...")
+    initialize_multiprocessing()
 
     # Формируем команду для запуска
     # Используем sys.executable, чтобы гарантировать использование
@@ -151,9 +227,38 @@ def main():
     print("Для остановки приложения закройте это окно консоли или нажмите Ctrl+C.")
 
     try:
+        # Подготавливаем переменные окружения для дочернего процесса
+        env = os.environ.copy()
+        
+        # Устанавливаем переменные окружения для мультипроцессинга
+        # Форсируем использование 'spawn' метода на Windows
+        if sys.platform == 'win32':
+            env['PYTHONPATH'] = script_dir
+            env['PYTHONMULTIPROCESSING'] = '1'
+            # Устанавливаем переменную для метода запуска
+            env['PYTHONEXECUTABLE'] = sys.executable
+            # Форсируем использование 'spawn' метода для многопроцессорной обработки
+            env['PYTHONMULTIPROCESSINGMETHOD'] = 'spawn'
+            # Устанавливаем переменную для контроля за подпроцессами - предотвращает создание окон консоли
+            env['PYTHONNOWINDOW'] = '1'
+            # Устанавливаем переменную для обработки ошибки subprocess._subprocess
+            env['PYTHONLEGACYWINDOWSSUBPROCESS'] = '1'
+            # Добавим дополнительную переменную для совместимости с разными версиями Python
+            env['PYTHONSUBPROCESSNOSESSION'] = '1'
+            
+            # Уставливаем переменные напрямую в текущем процессе, чтобы модули могли их подхватить
+            os.environ['PYTHONMULTIPROCESSING'] = '1'
+            os.environ['PYTHONMULTIPROCESSINGMETHOD'] = 'spawn'
+            os.environ['PYTHONNOWINDOW'] = '1'
+            os.environ['PYTHONLEGACYWINDOWSSUBPROCESS'] = '1'
+            os.environ['PYTHONSUBPROCESSNOSESSION'] = '1'
+            
+            print(f"Установлены переменные окружения для мультипроцессинга и контроля за подпроцессами")
+        
         # Запускаем streamlit run app.py как дочерний процесс
         # stdout и stderr будут выводиться в эту же консоль
-        process = subprocess.run(command, check=False) # check=False, т.к. код возврата streamlit может быть разным
+        # Передаем настроенные переменные окружения
+        process = subprocess.run(command, check=False, env=env) # check=False, т.к. код возврата streamlit может быть разным
 
         print("\n" + "=" * 50)
         print("Процесс Streamlit завершился.")

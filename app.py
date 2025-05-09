@@ -4,6 +4,48 @@ import logging
 import config_manager # Убедимся, что импортирован
 import functools # Добавляем для более удобного связывания колбэков
 
+# --- БЛОК ИНИЦИАЛИЗАЦИИ МНОГОПРОЦЕССОРНОЙ ОБРАБОТКИ ---
+print("="*50)
+print("--- Инициализация многопроцессорной обработки ---")
+try:
+    import multiprocessing
+    import sys
+    import os
+    
+    # Получаем метод запуска из переменной окружения, если задана
+    mp_method = os.environ.get('PYTHONMULTIPROCESSINGMETHOD', 'spawn' if sys.platform == 'win32' else None)
+    
+    # Инициализируем многопроцессорную обработку как можно раньше
+    if sys.platform == 'win32' or mp_method == 'spawn':
+        try:
+            # На Windows необходимо использовать 'spawn' метод
+            multiprocessing.set_start_method('spawn', force=True)
+            print(f"Установлен метод запуска процессов 'spawn' для {'Windows' if sys.platform == 'win32' else 'всех платформ'}")
+        except RuntimeError as e:
+            # Если метод уже был установлен
+            print(f"Метод запуска процессов уже установлен: {e}")
+    
+    # Выводим информацию о доступных процессорах
+    cpu_count = multiprocessing.cpu_count()
+    print(f"Доступно CPU ядер: {cpu_count}")
+    print(f"Операционная система: {sys.platform}")
+    
+    # Выводим значения переменных окружения, связанных с многопроцессорной обработкой
+    for env_var in ['PYTHONPATH', 'PYTHONMULTIPROCESSING', 'PYTHONEXECUTABLE', 'PYTHONMULTIPROCESSINGMETHOD', 'PYTHONNOWINDOW']:
+        value = os.environ.get(env_var, 'не задана')
+        print(f"Переменная окружения {env_var}: {value}")
+    
+    # Импортируем наш модуль multiprocessing_utils
+    import multiprocessing_utils
+    multiprocessing_utils.enable_multiprocessing()
+    print("Мультипроцессинг успешно инициализирован")
+except Exception as e:
+    print(f"[!] Ошибка при инициализации многопроцессорной обработки: {e}")
+    import traceback
+    traceback.print_exc()
+    print("Приложение продолжит работу в однопроцессорном режиме")
+print("="*50)
+
 # --- БЛОК ПРОВЕРКИ И УСТАНОВКИ ЗАВИСИМОСТЕЙ ---
 import sys
 import subprocess
@@ -1676,6 +1718,49 @@ with st.sidebar:
                      except ValueError: st.caption("❌ R,G,B 0-255")
                  else:
                      st.caption("-")
+
+    # Добавляем секцию настроек производительности
+    with st.expander("Настройки производительности", expanded=False):
+        st.info("Эти настройки позволяют ускорить обработку за счет использования многопроцессорной обработки.")
+        
+        # Получаем текущие настройки производительности
+        performance_settings = st.session_state.current_settings.get('performance', {})
+        
+        # Создаем колонки для более компактного отображения
+        perf_col1, perf_col2 = st.columns(2)
+        
+        with perf_col1:
+            enable_multiprocessing = st.checkbox(
+                "Включить многопроцессорную обработку", 
+                value=performance_settings.get('enable_multiprocessing', False),
+                key='enable_multiprocessing',
+                help="Позволяет использовать все ядра процессора для ускорения обработки изображений."
+            )
+            
+            set_setting('performance.enable_multiprocessing', enable_multiprocessing)
+        
+        with perf_col2:
+            max_workers = st.number_input(
+                "Количество процессов (0 = автоматически)", 
+                min_value=0, 
+                max_value=32,
+                value=performance_settings.get('max_workers', 0),
+                key='max_workers',
+                help="Максимальное количество процессов для параллельной обработки. 0 = автоматически (по числу ядер)."
+            )
+            
+            set_setting('performance.max_workers', int(max_workers))
+        
+        if enable_multiprocessing:
+            num_cores = multiprocessing.cpu_count()
+            st.success(f"✅ Многопроцессорная обработка включена. Доступно {num_cores} ядер CPU.")
+            
+            if max_workers > 0:
+                st.info(f"Будет использовано {max_workers} процессов.")
+            else:
+                st.info(f"Будет использовано количество процессов, равное количеству ядер ({num_cores}).")
+        else:
+            st.warning("⚠️ Многопроцессорная обработка отключена. Обработка будет выполняться в один поток.")
 
 # === Конец блока with st.sidebar ===
 

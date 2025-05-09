@@ -190,14 +190,30 @@ DEFAULT_SETTINGS = {
             "final_exact_height": 1500
         }
     },
+    "performance": {
+        "enable_multiprocessing": False,
+        "max_workers": 0,  # 0 или None означает автоматический выбор (по количеству ядер CPU)
+        "memory_limit": 0  # 0 означает без ограничений
+    }
 }
 
-def get_default_settings() -> Dict[str, Any]:
+def get_default_settings(ensure_all_keys=True):
     """
-    Возвращает словарь с настройками по умолчанию для приложения.
+    Возвращает настройки по умолчанию.
+    
+    Args:
+        ensure_all_keys: Если True, проверяет наличие всех необходимых ключей
+        
+    Returns:
+        Словарь с настройками по умолчанию
     """
-    # Используем копию, чтобы избежать случайных изменений оригинала
-    return DEFAULT_SETTINGS.copy()
+    settings = DEFAULT_SETTINGS.copy()
+    
+    if ensure_all_keys:
+        settings = ensure_performance_settings(settings)
+        # Другие проверки...
+    
+    return settings
 
 def _ensure_presets_dir_exists():
     """Убеждается, что директория для пресетов существует."""
@@ -469,6 +485,28 @@ def delete_all_custom_presets() -> Optional[int]:
     except Exception as e:
         log.error(f"Error deleting custom presets from {PRESETS_DIR}: {e}")
         return None # Возвращаем None при общей ошибке
+
+# Проверим наличие секции performance в DEFAULT_SETTINGS, если ее нет, добавим
+def ensure_performance_settings(settings):
+    """
+    Обеспечивает наличие секции performance в настройках.
+    
+    Args:
+        settings: Словарь с настройками
+        
+    Returns:
+        Обновленный словарь с настройками
+    """
+    if 'performance' not in settings:
+        settings['performance'] = {
+            'enable_multiprocessing': False,
+            'max_workers': 0  # 0 означает автоматическое определение (по количеству ядер)
+        }
+    elif 'enable_multiprocessing' not in settings['performance']:
+        settings['performance']['enable_multiprocessing'] = False
+        settings['performance']['max_workers'] = 0
+    
+    return settings
 
 # Пример использования (если файл запускается напрямую)
 if __name__ == "__main__":

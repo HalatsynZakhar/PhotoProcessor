@@ -11,6 +11,8 @@ import uuid
 import re
 from datetime import datetime, timedelta
 import random
+import multiprocessing
+import sys
 
 # Используем абсолютный импорт (если все файлы в одной папке)
 import image_utils
@@ -459,6 +461,39 @@ def run_individual_processing(**all_settings: Dict[str, Any]) -> bool:
     try:
         log.info("--- Starting Individual File Processing ---")
         
+        # Проверяем настройки многопроцессорной обработки
+        performance_settings = all_settings.get('performance', {})
+        enable_multiprocessing = performance_settings.get('enable_multiprocessing', False)
+        max_workers = performance_settings.get('max_workers', None)
+        
+        # Выводим подробную информацию о производительности
+        log.info("Performance settings:")
+        log.info(f"  enable_multiprocessing: {enable_multiprocessing}")
+        log.info(f"  max_workers: {max_workers}")
+        log.info(f"  CPU count: {multiprocessing.cpu_count()}")
+        log.info(f"  Platform: {sys.platform}")
+        
+        if enable_multiprocessing:
+            log.info(f"Multiprocessing enabled with {max_workers if max_workers else 'auto'} workers")
+            # Импортируем модуль многопроцессорной обработки
+            try:
+                import multiprocessing_utils
+                # Инициализируем многопроцессорную обработку
+                multiprocessing_utils.enable_multiprocessing()
+                log.info(f"Initialized multiprocessing, CPU count: {multiprocessing.cpu_count()}")
+                
+                # Дополнительная проверка метода запуска процессов
+                try:
+                    method = multiprocessing.get_start_method()
+                    log.info(f"Current process start method: {method}")
+                except Exception as m_err:
+                    log.warning(f"Unable to get start method: {m_err}")
+            except ImportError:
+                log.warning("Failed to import multiprocessing_utils. Falling back to single-process mode")
+                enable_multiprocessing = False
+        else:
+            log.info("Multiprocessing disabled. Using single-process mode")
+        
         # Extract merge settings
         merge_settings = all_settings.get('merge_settings', {})
         enable_merge = merge_settings.get('enable_merge', False)
@@ -604,7 +639,103 @@ def run_individual_processing(**all_settings: Dict[str, Any]) -> bool:
                 log.error(f"Error pre-processing template: {e}")
                 return False
         
-        # Process each file
+        # Если включена многопроцессорная обработка и все подготовительные шаги выполнены успешно
+        if enable_multiprocessing and files:
+            try:
+                log.info("Starting multiprocessing processing mode")
+                
+                # Подготовка настроек для передачи в процессы
+                process_settings = {
+                    'preprocessing_settings': preprocessing_settings,
+                    'whitening_settings': whitening_settings,
+                    'background_crop_settings': background_crop_settings,
+                    'padding_settings': padding_settings,
+                    'brightness_contrast_settings': brightness_contrast_settings,
+                    'individual_mode_settings': individual_mode_settings, 
+                    'merge_settings': merge_settings,
+                    'paths': {
+                        'output_folder_path': output_folder
+                    },
+                    'same_input_output': same_input_output
+                }
+                
+                # Если включено объединение с шаблоном, сериализуем его
+                if enable_merge and processed_template is not None:
+                    # Сохраняем шаблон как байты
+                    import io
+                    template_buffer = io.BytesIO()
+                    processed_template.save(template_buffer, format='PNG')
+                    process_settings['template_image_bytes'] = template_buffer.getvalue()
+                    template_buffer.close()
+                
+                # Вызываем многопроцессорную обработку
+                import multiprocessing_utils
+                results = multiprocessing_utils.process_images_with_multiprocessing(
+                    files,
+                    multiprocessing_utils.mp_process_individual_file,
+                    process_settings,
+                    max_workers
+                )
+                
+                successful_files = []  # Добавляем определение переменной, которая не была объявлена
+                
+                # Обрабатываем результаты
+                for i, result in enumerate(results):
+                    if result and isinstance(result, str) and os.path.exists(result):
+                        filename = os.path.basename(files[i])
+                        log.info(f"Successfully processed file {i+1}/{len(files)}: {filename}")
+                        successful_files.append(filename)
+                        processed_file_paths.append(result)
+                        processed_output_files.append(result)
+                    else:
+                        log.error(f"Failed to process file {i+1}/{len(files)}: {os.path.basename(files[i])}")
+                        overall_success = False
+                
+                # Если были ошибки, отмечаем это
+                num_processed = len(successful_files)
+                if num_processed < len(files):
+                    overall_success = False
+                    log.warning(f"Failed to process {len(files) - num_processed} files")
+                
+                log.info(f"Multiprocessing completed. Processed {num_processed}/{len(files)} files.")
+                
+                # Очищаем ресурсы
+                if processed_template:
+                    processed_template.close()
+                
+                # Устанавливаем даты создания файлов, если нужно
+                if individual_mode_settings.get('preserve_file_dates', False) and processed_file_paths:
+                    try:
+                        log.info("Trying to preserve file dates...")
+                        # Код для сохранения дат файлов...
+                    except Exception as date_err:
+                        log.error(f"Failed to preserve file dates: {date_err}")
+                
+                # Удаляем оригиналы при необходимости
+                if individual_mode_settings.get('delete_originals', False) and not same_input_output:
+                    try:
+                        log.info("Deleting original files...")
+                        for file_path in files:
+                            # Проверяем, не является ли этот файл выходным
+                            if file_path not in processed_output_files:
+                                try:
+                                    os.remove(file_path)
+                                    log.debug(f"Deleted original: {file_path}")
+                                except Exception as del_err:
+                                    log.warning(f"Failed to delete original {file_path}: {del_err}")
+                    except Exception as del_all_err:
+                        log.error(f"Error during delete originals: {del_all_err}")
+                
+                # Возвращаем результат обработки
+                return overall_success
+                
+            except Exception as mp_err:
+                log.error(f"Error during multiprocessing: {mp_err}")
+                log.exception("Multiprocessing details")
+                log.warning("Falling back to single-process mode")
+                # Продолжаем выполнение в однопоточном режиме
+        
+        # Process each file (однопоточный режим)
         for i, file_path in enumerate(files, 1):
             try:
                 filename = os.path.basename(file_path)
@@ -849,6 +980,25 @@ def run_collage_processing(**all_settings: Dict[str, Any]) -> bool:
     log.debug("Extracting settings for collage mode...")
     log.info("Backup is disabled for collage mode for better performance.")
     try:
+        # Проверяем настройки многопроцессорной обработки
+        performance_settings = all_settings.get('performance', {})
+        enable_multiprocessing = performance_settings.get('enable_multiprocessing', False)
+        max_workers = performance_settings.get('max_workers', None)
+        
+        if enable_multiprocessing:
+            log.info(f"Multiprocessing enabled for collage with {max_workers if max_workers else 'auto'} workers")
+            # Импортируем модуль многопроцессорной обработки
+            try:
+                import multiprocessing_utils
+                # Инициализируем многопроцессорную обработку
+                multiprocessing_utils.enable_multiprocessing()
+                log.info(f"Initialized multiprocessing for collage, CPU count: {multiprocessing.cpu_count()}")
+            except ImportError:
+                log.warning("Failed to import multiprocessing_utils. Falling back to single-process mode")
+                enable_multiprocessing = False
+        else:
+            log.info("Multiprocessing disabled for collage. Using single-process mode")
+            
         paths_settings = all_settings.get('paths', {})
         prep_settings = all_settings.get('preprocessing', {})
         white_settings = all_settings.get('whitening', {})
@@ -993,44 +1143,96 @@ def run_collage_processing(**all_settings: Dict[str, Any]) -> bool:
             f"(Mode: {pad_settings.get('mode', 'never')}, Percentage: {pad_settings.get('padding_percent', 0)}%)")
     log.info(f"5. Brightness/Contrast: {'Enabled' if bc_settings.get('enable_bc', False) else 'Disabled'} " +
             f"(B:{bc_settings.get('brightness_factor', 1.0)}, C:{bc_settings.get('contrast_factor', 1.0)})")
+            
+    # Если включена многопроцессорная обработка, используем ее для предварительной обработки изображений
+    if enable_multiprocessing and input_files_sorted:
+        try:
+            log.info("Starting multiprocessing for collage image preprocessing")
+            
+            # Подготовка настроек для передачи в процессы
+            process_settings = {
+                'preprocessing_settings': prep_settings,
+                'whitening_settings': white_settings,
+                'background_crop_settings': bgc_settings,
+                'padding_settings': pad_settings,
+                'brightness_contrast_settings': bc_settings,
+                'jpg_background_color': jpg_background_color,
+                'process_type': 'collage'
+            }
+            
+            # Вызываем многопроцессорную обработку
+            import multiprocessing_utils
+            results = multiprocessing_utils.process_images_with_multiprocessing(
+                input_files_sorted,
+                multiprocessing_utils.mp_process_collage_image,
+                process_settings,
+                max_workers
+            )
+            
+            processed_images = []  # Для хранения обработанных изображений
+            
+            # Обрабатываем результаты - десериализуем изображения
+            for i, result in enumerate(results):
+                if result and isinstance(result, bytes):
+                    try:
+                        # Восстанавливаем изображение из байтов
+                        import io
+                        img_buffer = io.BytesIO(result)
+                        img = Image.open(img_buffer)
+                        img.load()  # Загружаем данные в память
+                        processed_images.append(img)
+                        log.info(f"  Successfully processed image {i+1}/{total_files_coll}: {os.path.basename(input_files_sorted[i])}")
+                    except Exception as img_err:
+                        log.error(f"  Error deserializing image data for {os.path.basename(input_files_sorted[i])}: {img_err}")
+                else:
+                    log.warning(f"  Skipping {os.path.basename(input_files_sorted[i])} due to processing errors.")
+            
+            log.info(f"Multiprocessing preprocessing completed. Processed {len(processed_images)}/{total_files_coll} images.")
+            
+        except Exception as mp_err:
+            log.error(f"Error during multiprocessing: {mp_err}")
+            log.exception("Multiprocessing details")
+            log.warning("Falling back to single-process mode for collage image preprocessing")
+            # Очищаем список изображений в случае ошибки
+            processed_images = []
     
-    for idx, path in enumerate(input_files_sorted):
-        log.info(f"-> Processing {idx+1}/{total_files_coll}: {os.path.basename(path)}")
-        
-        # Используем базовый конвейер обработки
-        img, metadata = process_image_base(
-            path,
-            prep_settings,
-            white_settings,
-            bgc_settings,
-            pad_settings,
-            bc_settings,
-            {'jpg_background_color': jpg_background_color}  # Передаем цвет фона из настроек
-        )
-        
-        if img:
-            # Убедимся, что изображение в формате RGBA для коллажа
-            if img.mode != 'RGBA':
-                try:
-                    rgba_img = img.convert('RGBA')
-                    image_utils.safe_close(img)
-                    img = rgba_img
-                except Exception as e:
-                    log.error(f"Failed to convert to RGBA: {e}")
-                    image_utils.safe_close(img)
-                    continue
-                    
-            processed_images.append(img)
-            log.info(f"  Successfully processed image {os.path.basename(path)}")
-        else:
-            log.warning(f"  Skipping {os.path.basename(path)} due to processing errors.")
-
+    # Если многопроцессорная обработка не включена или произошла ошибка, используем обычную обработку
+    if not enable_multiprocessing or not processed_images:
+        for idx, path in enumerate(input_files_sorted):
+            log.info(f"-> Processing {idx+1}/{total_files_coll}: {os.path.basename(path)}")
+            
+            # Используем базовый конвейер обработки
+            img, metadata = process_image_base(
+                path,
+                prep_settings,
+                white_settings,
+                bgc_settings,
+                pad_settings,
+                bc_settings,
+                {'jpg_background_color': jpg_background_color}  # Передаем цвет фона из настроек
+            )
+            
+            if img:
+                # Убедимся, что изображение в формате RGBA для коллажа
+                if img.mode != 'RGBA':
+                    try:
+                        rgba_img = img.convert('RGBA')
+                        image_utils.safe_close(img)
+                        img = rgba_img
+                    except Exception as e:
+                        log.error(f"Failed to convert to RGBA: {e}")
+                        image_utils.safe_close(img)
+                        continue
+                        
+                processed_images.append(img)
+                log.info(f"  Successfully processed image {os.path.basename(path)}")
+            else:
+                log.warning(f"  Skipping {os.path.basename(path)} due to processing errors.")
+                
     num_processed = len(processed_images)
     if num_processed == 0:
-        log.error("No images successfully processed for collage.")
-        log.info(">>> Exiting: No images were successfully processed.")
-        # Важно: Нужно очистить память от непроцессированных файлов, если они остались
-        for img in processed_images: image_utils.safe_close(img)
+        log.error("No images were successfully processed for collage. Cannot continue.")
+        log.info(">>> Exiting: No successfully processed images.")
         return False # Возвращаем False
     log.info(f"--- Successfully processed {num_processed} images. Starting assembly... ---")
 
