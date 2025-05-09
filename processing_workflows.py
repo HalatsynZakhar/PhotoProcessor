@@ -2255,11 +2255,11 @@ def _apply_padding(img: Image.Image, pad_settings: dict, image_metadata: dict = 
 
     try:
         padding_percent = int(pad_settings.get('padding_percent', 0)) # Процент padding'а
-        padding_type = pad_settings.get('mode', 'never')  # Тип padding'а (always, never, или if_white)
+        padding_type = pad_settings.get('mode', 'never')  # Тип padding'а (always, never, if_white, if_not_white)
         allow_expansion = bool(pad_settings.get('allow_expansion', True))  # Разрешить увеличение размера
         perimeter_check_tolerance = int(pad_settings.get('perimeter_check_tolerance', 10))
         
-        log.debug(f"Padding settings: Mode={padding_type}, Percent={padding_percent}%, Allow expansion={allow_expansion}")
+        log.info(f"Padding settings - Mode: {padding_type}, Percentage: {padding_percent}%, Allow expansion={allow_expansion}")
         
         # Проверяем необходимость добавления padding на основе метаданных
         should_apply_padding = False
@@ -2270,11 +2270,17 @@ def _apply_padding(img: Image.Image, pad_settings: dict, image_metadata: dict = 
         elif padding_type == 'never':
             should_apply_padding = False
             log.debug("Padding mode is 'never', skipping padding")
-        elif padding_type == 'if_white':
+        elif padding_type == 'if_white' or padding_type == 'if_not_white':
+            # Получаем информацию о периметре
+            has_white_perimeter = None
+            
             # Используем сохраненную информацию о периметре из метаданных
-            if 'has_white_perimeter_after_whitening' in image_metadata:
+            if 'has_white_perimeter_after_crop' in image_metadata:
+                has_white_perimeter = image_metadata['has_white_perimeter_after_crop']
+                log.debug(f"Using cached perimeter state after crop: white_perimeter={has_white_perimeter}")
+            elif 'has_white_perimeter_after_whitening' in image_metadata:
                 has_white_perimeter = image_metadata['has_white_perimeter_after_whitening']
-                log.debug(f"Using cached perimeter state: white_perimeter={has_white_perimeter}")
+                log.debug(f"Using cached perimeter state after whitening: white_perimeter={has_white_perimeter}")
             elif 'has_white_perimeter_before_crop' in image_metadata:
                 has_white_perimeter = image_metadata['has_white_perimeter_before_crop']
                 log.debug(f"Using cached perimeter state before crop: white_perimeter={has_white_perimeter}")
@@ -2282,9 +2288,14 @@ def _apply_padding(img: Image.Image, pad_settings: dict, image_metadata: dict = 
                 # Если нет сохраненной информации - проверяем периметр сейчас
                 log.debug(f"No cached perimeter state found, checking perimeter now")
                 has_white_perimeter = image_utils.check_perimeter_is_white(img, perimeter_check_tolerance, 1)
-                
-            should_apply_padding = has_white_perimeter
-            log.debug(f"Padding mode is 'if_white', white perimeter={has_white_perimeter}, applying padding={should_apply_padding}")
+            
+            # Принимаем решение в зависимости от типа padding'а
+            if padding_type == 'if_white':
+                should_apply_padding = has_white_perimeter
+                log.info(f"Padding mode is 'if_white', white perimeter={has_white_perimeter}, applying padding={should_apply_padding}")
+            elif padding_type == 'if_not_white': 
+                should_apply_padding = not has_white_perimeter
+                log.info(f"Padding mode is 'if_not_white', white perimeter={has_white_perimeter}, applying padding={should_apply_padding}")
             
         # Если размер изображения уже оптимален и не разрешено увеличение, пропускаем
         if not allow_expansion and should_apply_padding:
@@ -2296,7 +2307,7 @@ def _apply_padding(img: Image.Image, pad_settings: dict, image_metadata: dict = 
         
         # Применяем padding, если нужно
         if should_apply_padding:
-            log.debug(f"Applying padding with {padding_percent}% of min dimension")
+            log.info(f"Adding padding: {padding_percent}% ({int(min(img.size) * padding_percent / 100)}px). New size: {(img.width + int(img.width * padding_percent / 50), img.height + int(img.height * padding_percent / 50))}")
             old_size = img.size
             img = image_utils.add_padding(img, padding_percent)
             if img:
@@ -2305,7 +2316,7 @@ def _apply_padding(img: Image.Image, pad_settings: dict, image_metadata: dict = 
                 log.error("Failed to apply padding")
                 return None
         else:
-            log.debug("Skipping padding based on settings and perimeter state")
+            log.info("Skipping padding based on settings and perimeter state")
             
         return img
         
