@@ -146,7 +146,12 @@ def whiten_image_by_darkest_perimeter(img, cancel_threshold_sum):
         log.info(f"Сумма RGB темного пикселя: {current_pixel_sum}")
         log.info(f"Пороговое значение: {cancel_threshold_sum}")
         
-        if current_pixel_sum > cancel_threshold_sum:  # Изменено с <= на >
+        # Специальная логика для порогового значения 0 - полное отключение отбеливания
+        if cancel_threshold_sum == 0:
+            log.info(f"Отбеливание отключено полностью (порог = 0), пропускаем обработку")
+            final_image = img_copy
+            img_copy = None
+        elif current_pixel_sum > cancel_threshold_sum:  # Изменено с <= на >
             log.info(f"Периметр подходит для отбеливания (сумма {current_pixel_sum} > порог {cancel_threshold_sum})")
             log.info("=== ПРИМЕНЕНИЕ ОТБЕЛИВАНИЯ ===")
             

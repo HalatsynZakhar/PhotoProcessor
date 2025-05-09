@@ -1771,7 +1771,7 @@ def _apply_background_crop(img, white_tolerance, perimeter_tolerance, symmetric_
     
     Args:
         img: Исходное изображение
-        white_tolerance: Допуск для определения белого цвета
+        white_tolerance: Допуск для определения белого цвета при удалении фона
         perimeter_tolerance: Допуск для проверки периметра
         symmetric_absolute: Полная симметрия обрезки
         symmetric_axes: Симметрия обрезки по осям
@@ -1807,7 +1807,8 @@ def _apply_background_crop(img, white_tolerance, perimeter_tolerance, symmetric_
         bg_color = (255, 255, 255)
     
     log.info(f"=== Processing background crop (Mode: {removal_mode}, Extra crop: {extra_crop_percent}%, Analyze only: {analyze_only}, BG color: {bg_color}) ===")
-    log.debug(f"Parameters: white_tol={white_tolerance}, perim_tol={perimeter_tolerance}, "
+    log.debug(f"Parameters: white_tol={white_tolerance} (для удаления белого), " 
+             f"perim_tol={perimeter_tolerance} (для проверки периметра), "
              f"sym_abs={symmetric_absolute}, sym_axes={symmetric_axes}, check_perim={check_perimeter}, "
              f"enable_crop={enable_crop}, perim_mode={perimeter_mode}, "
              f"mask_instead_transparency={use_mask_instead_of_transparency}, "
@@ -1815,38 +1816,55 @@ def _apply_background_crop(img, white_tolerance, perimeter_tolerance, symmetric_
              f"using_precomputed_boundaries={boundaries is not None}")
     
     try:
-        # Определяем, нужно ли проверять периметр
-        perimeter_is_white = None
+        # Шаг 1: Проверка периметра с использованием perimeter_tolerance
+        # Важно: для проверки периметра используется perimeter_tolerance, а не white_tolerance
+        log.info(f"Checking perimeter with tolerance: {perimeter_tolerance}")
+        perimeter_is_white = image_utils.check_perimeter_is_white(img, perimeter_tolerance, 1)
+        image_metadata["has_white_perimeter_before_crop"] = perimeter_is_white
+        log.info(f"Perimeter check result: {'White' if perimeter_is_white else 'NOT White'} (Tolerance: {perimeter_tolerance})")
         
-        # Сначала проверяем, есть ли сохраненная информация о периметре
-        if "has_white_perimeter_before_crop" in image_metadata:
-            perimeter_is_white = image_metadata["has_white_perimeter_before_crop"]
-            log.debug(f"Using cached perimeter state before crop: white_perimeter={perimeter_is_white}")
-        elif "has_white_perimeter_after_whitening" in image_metadata:
-            perimeter_is_white = image_metadata["has_white_perimeter_after_whitening"]
-            log.debug(f"Using cached perimeter state after whitening: white_perimeter={perimeter_is_white}")
-        else:
-            # Если нет сохраненной информации, проверяем периметр сейчас и сохраняем
-            perimeter_is_white = image_utils.check_perimeter_is_white(img, perimeter_tolerance, 1)
-            image_metadata["has_white_perimeter_before_crop"] = perimeter_is_white
-            log.debug(f"Checked and saved perimeter state before crop: white_perimeter={perimeter_is_white}")
-        
-        # Проверяем периметр перед применением (определяем, применять ли обработку)
-        if check_perimeter and perimeter_mode != 'always':
-            if perimeter_mode == 'if_white' and not perimeter_is_white:
-                log.debug("Background removal skipped: perimeter is not white (mode: if_white).")
-                if analyze_only:
-                    return None  # Не анализируем границы, если не удовлетворяет условию периметра
-                return img # Возвращаем оригинал без изменений
-            elif perimeter_mode == 'if_not_white' and perimeter_is_white:
-                log.debug("Background removal skipped: perimeter is white (mode: if_not_white).")
-                if analyze_only:
-                    return None  # Не анализируем границы, если не удовлетворяет условию периметра
-                return img # Возвращаем оригинал без изменений
+        # Фаза 2: проверяем периметр для решения о продолжении всего процесса
+        if not analyze_only:
+            if check_perimeter and perimeter_mode != 'always':
+                # ВАЖНОЕ ИЗМЕНЕНИЕ: Всегда проверяем периметр, независимо от наличия boundaries
+                if perimeter_mode == 'if_white' and not perimeter_is_white:
+                    log.info("Phase 2: Background removal and cropping skipped - perimeter is not white (mode: if_white)")
+                    if boundaries is not None:
+                        log.info("Pre-calculated boundaries ignored because perimeter does not match criteria")
+                    return img  # Возвращаем оригинал без изменений
+                elif perimeter_mode == 'if_not_white' and perimeter_is_white:
+                    log.info("Phase 2: Background removal and cropping skipped - perimeter is white (mode: if_not_white)")
+                    if boundaries is not None:
+                        log.info("Pre-calculated boundaries ignored because perimeter does not match criteria")
+                    return img  # Возвращаем оригинал без изменений
+            
+            # Только для логирования
+            if boundaries is not None:
+                log.debug("Using pre-calculated boundaries (perimeter check passed)")
         
         # Если это только анализ границ
         if analyze_only:
+            # Фаза 1: строго соблюдаем проверку периметра для анализа границ
+            if check_perimeter and perimeter_mode != 'always':
+                if perimeter_mode == 'if_white' and not perimeter_is_white:
+                    log.debug("Phase 1: Analysis skipped - perimeter is not white (mode: if_white)")
+                    # Для изображений с не-белым периметром в режиме анализа границ
+                    # Возвращаем безопасные границы всего изображения
+                    width, height = img.size
+                    safe_boundaries = {
+                        'left': 0,
+                        'top': 0,
+                        'right': width,
+                        'bottom': height
+                    }
+                    log.debug(f"Returning safe boundaries for non-white perimeter image: {safe_boundaries}")
+                    return safe_boundaries
+                elif perimeter_mode == 'if_not_white' and perimeter_is_white:
+                    log.debug("Phase 1: Analysis skipped - perimeter is white (mode: if_not_white)")
+                    return None
+                    
             log.info("Analyzing crop boundaries without applying changes")
+            
             # Создаем копию изображения для анализа
             img_rgba = None
             if img.mode != 'RGBA':
@@ -1854,17 +1872,34 @@ def _apply_background_crop(img, white_tolerance, perimeter_tolerance, symmetric_
                     img_rgba = img.convert('RGBA')
                 except Exception as e:
                     log.error(f"Failed to convert to RGBA for boundary analysis: {e}")
-                    return None
+                    
+                    # В случае ошибки конвертации возвращаем безопасные границы
+                    width, height = img.size
+                    return {
+                        'left': 0,
+                        'top': 0,
+                        'right': width,
+                        'bottom': height
+                    }
             else:
                 img_rgba = img.copy()
             
             # Определяем примерные границы после удаления фона
-            # Сначала удаляем фон для анализа
+            # Сначала удаляем фон для анализа используя white_tolerance
+            log.info(f"Analyzing borders with white_tolerance={white_tolerance}")
             img_no_bg = image_utils.remove_white_background(img_rgba, white_tolerance, mode=removal_mode)
             if not img_no_bg:
                 log.error("Background removal failed during analysis.")
                 image_utils.safe_close(img_rgba)
-                return None
+                
+                # Если не удалось удалить фон, возвращаем безопасные границы
+                width, height = img.size
+                return {
+                    'left': 0,
+                    'top': 0,
+                    'right': width,
+                    'bottom': height
+                }
                 
             if enable_crop:
                 # Находим границы обрезки без применения
@@ -1902,7 +1937,8 @@ def _apply_background_crop(img, white_tolerance, perimeter_tolerance, symmetric_
         else:
             img_rgba = img.copy()
         
-        # Применяем удаление фона - используем правильное имя функции и передаем режим
+        # Применяем удаление фона используя white_tolerance
+        log.info(f"Removing white background using white_tolerance={white_tolerance}")
         img_processed = image_utils.remove_white_background(img_rgba, white_tolerance, mode=removal_mode)
         if not img_processed:
             log.error("Background removal failed.")
@@ -1934,7 +1970,7 @@ def _apply_background_crop(img, white_tolerance, perimeter_tolerance, symmetric_
             log.info("Cropping is disabled, keeping canvas size")
         
         # Проверяем и сохраняем состояние периметра ПОСЛЕ обработки для использования в _apply_padding
-        # Это поможет следующим шагам обработки (например, padding) не выполнять повторную проверку
+        # Используем perimeter_tolerance для последующих шагов
         try:
             has_white_perimeter_after = image_utils.check_perimeter_is_white(img_processed, perimeter_tolerance, 1)
             image_metadata["has_white_perimeter_after_crop"] = has_white_perimeter_after
@@ -2411,15 +2447,23 @@ def process_image_base(image_or_path, prep_settings, white_settings, bgc_setting
                 
             log.debug(f"After whitening: Size={img.size}")
             
-            # Обновляем оригинальное изображение с примененным отбеливанием
+            # Обновляем оригинальное изображение с примененным отбеливанием или без
             if original_image is not None:
                 image_utils.safe_close(original_image)
                 original_image = img.copy()
+                log.debug("Original image copy updated after whitening phase")
             
             # Сохраняем состояние периметра после отбеливания
             has_white_perimeter = image_utils.check_perimeter_is_white(img, perimeter_check_tolerance, 1)
             image_metadata["has_white_perimeter_after_whitening"] = has_white_perimeter
             log.debug(f"Saved perimeter state after whitening: white_perimeter={has_white_perimeter}")
+        else:
+            # Обновляем оригинальное изображение даже если отбеливание отключено
+            # Это необходимо для корректной работы двухфазной обработки фона
+            if original_image is not None:
+                image_utils.safe_close(original_image)
+                original_image = img.copy()
+            log.debug("Whitening disabled but original image copy updated for correct two-phase processing")
         
         # 4. Удаление фона и обрезка (если включено) - ДВУХЭТАПНАЯ ОБРАБОТКА
         if bgc_settings.get('enable_bg_crop', False):
