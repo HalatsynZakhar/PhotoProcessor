@@ -949,7 +949,8 @@ def run_collage_processing(**all_settings: Dict[str, Any]) -> bool:
             white_settings,
             bgc_settings,
             pad_settings,
-            bc_settings
+            bc_settings,
+            {'jpg_background_color': jpg_background_color}  # Передаем цвет фона из настроек
         )
         
         if img:
@@ -1110,7 +1111,24 @@ def run_collage_processing(**all_settings: Dict[str, Any]) -> bool:
 
     collage_canvas = None; final_collage = None
     try:
-        collage_canvas = Image.new('RGBA', (canvas_width, canvas_height), (0, 0, 0, 0))
+        # Определяем, нужна ли прозрачность
+        use_transparency = coll_settings.get('png_transparent_background', True)
+        
+        # Используем правильный цвет фона в зависимости от настроек прозрачности
+        if use_transparency:
+            # Если прозрачность включена, используем прозрачный фон
+            collage_canvas = Image.new('RGBA', (canvas_width, canvas_height), (0, 0, 0, 0))
+        else:
+            # Если прозрачность отключена, используем цвет фона из настроек или белый по умолчанию
+            bg_color = coll_settings.get('jpg_background_color', [255, 255, 255])
+            # Преобразуем список в кортеж, который требуется для PIL.Image.new()
+            if isinstance(bg_color, list) and len(bg_color) >= 3:
+                bg_color = tuple(bg_color[:3])
+            else:
+                bg_color = (255, 255, 255)  # Белый по умолчанию если формат некорректный
+                
+            collage_canvas = Image.new('RGB', (canvas_width, canvas_height), bg_color)
+            
         log.debug(f"    Canvas created: {repr(collage_canvas)}") 
         current_idx = 0
         
@@ -1335,7 +1353,27 @@ def _merge_with_template(image, template_path_or_image, settings=None):
     fit_image_to_template = settings.get('fit_image_to_template', False)
     fit_template_to_image = settings.get('fit_template_to_image', False)
     
+    # Получаем цвет фона, установленный пользователем (или белый по умолчанию)
+    jpg_background_color = settings.get('jpg_background_color', [255, 255, 255])
+    # Проверяем тип и формат цвета фона
+    default_bg_color = (255, 255, 255)
+    bg_color = default_bg_color
+    
+    if jpg_background_color is not None:
+        if isinstance(jpg_background_color, (tuple, list)) and len(jpg_background_color) == 3:
+            bg_color = tuple(map(int, jpg_background_color))
+        elif isinstance(jpg_background_color, int):
+            bg_color = jpg_background_color
+        else:
+            log.warning(f"Invalid jpg_background_color format: {jpg_background_color}, using default white")
+    
+    log.info(f"  > Using background color: {bg_color}")
+    
     # Конвертируем изображения в RGBA если нужно
+    # Сохраняем исходные режимы для правильной финальной конвертации
+    original_image_mode = original_image.mode
+    original_template_mode = original_template.mode
+    
     if image.mode != 'RGBA':
         image = image.convert('RGBA')
     if template.mode != 'RGBA':
@@ -1345,7 +1383,7 @@ def _merge_with_template(image, template_path_or_image, settings=None):
     image_width, image_height = image.size
     template_width, template_height = template.size
     
-    log.info(f"  > Original sizes - Image: {image_width}x{image_height}, Template: {template_width}x{template_height}")
+    log.info(f"  > Original sizes - Image: {image_width}x{image_height} ({original_image_mode}), Template: {template_width}x{template_height} ({original_template_mode})")
     
     # Определяем размеры холста и коэффициенты масштабирования
     canvas_width = max(image_width, template_width)
@@ -1435,8 +1473,24 @@ def _merge_with_template(image, template_path_or_image, settings=None):
         
         log.info(f"  > Scaling original image: {image_width}x{image_height} -> {new_width}x{new_height}")
         
-        # Используем NEAREST для предотвращения ореолов при увеличении
-        scaled_image = _scale_image(original_image, (new_width, new_height), 'fit', use_transparency=False)
+        # Создаем фон с пользовательским цветом
+        background = Image.new('RGB', (new_width, new_height), bg_color)
+        
+        # Масштабируем исходное изображение
+        if original_image.mode == 'RGBA':
+            # Для RGBA масштабируем с использованием NEAREST для предотвращения ореолов
+            temp_scaled = _scale_image(original_image, (new_width, new_height), 'fit', use_transparency=False)
+            # Накладываем на фон с сохранением прозрачности
+            background.paste(temp_scaled, (0, 0), temp_scaled)
+            image_utils.safe_close(temp_scaled)
+        else:
+            # Для RGB сначала масштабируем
+            temp_scaled = _scale_image(original_image, (new_width, new_height), 'fit', use_transparency=False)
+            # Затем просто копируем на фон с пользовательским цветом (прозрачности нет)
+            background.paste(temp_scaled, (0, 0))
+            image_utils.safe_close(temp_scaled)
+        
+        scaled_image = background
         
         # Обновляем размеры холста
         canvas_width = max(canvas_width, new_width)
@@ -1448,8 +1502,24 @@ def _merge_with_template(image, template_path_or_image, settings=None):
         
         log.info(f"  > Scaling original template: {template_width}x{template_height} -> {new_width}x{new_height}")
         
-        # Используем NEAREST для предотвращения ореолов при увеличении
-        scaled_template = _scale_image(original_template, (new_width, new_height), 'fit', use_transparency=False)
+        # Создаем фон с пользовательским цветом
+        background = Image.new('RGB', (new_width, new_height), bg_color)
+        
+        # Масштабируем исходный шаблон
+        if original_template.mode == 'RGBA':
+            # Для RGBA масштабируем с использованием NEAREST для предотвращения ореолов
+            temp_scaled = _scale_image(original_template, (new_width, new_height), 'fit', use_transparency=False)
+            # Накладываем на фон с сохранением прозрачности
+            background.paste(temp_scaled, (0, 0), temp_scaled)
+            image_utils.safe_close(temp_scaled)
+        else:
+            # Для RGB сначала масштабируем
+            temp_scaled = _scale_image(original_template, (new_width, new_height), 'fit', use_transparency=False)
+            # Затем просто копируем на фон с пользовательским цветом (прозрачности нет)
+            background.paste(temp_scaled, (0, 0))
+            image_utils.safe_close(temp_scaled)
+        
+        scaled_template = background
         
         # Обновляем размеры холста
         canvas_width = max(canvas_width, new_width)
@@ -1472,9 +1542,10 @@ def _merge_with_template(image, template_path_or_image, settings=None):
         image_utils.safe_close(scaled_template)
         scaled_template = temp_tmpl
     
-    # Создаем холст нужного размера
-    canvas = Image.new('RGBA', (canvas_width, canvas_height), (0, 0, 0, 0))
-    log.info(f"  > Created canvas: {canvas_width}x{canvas_height}")
+    # Создаем холст нужного размера с пользовательским фоном
+    # Используем RGBA для холста, чтобы правильно работать с прозрачностью
+    canvas = Image.new('RGBA', (canvas_width, canvas_height), (bg_color[0], bg_color[1], bg_color[2], 255))
+    log.info(f"  > Created canvas: {canvas_width}x{canvas_height} with background color: {bg_color}")
     
     # Вычисляем позиции для размещения
     image_pos = _calculate_paste_position(scaled_image.size, canvas.size, position)
@@ -1693,7 +1764,8 @@ def _apply_background_crop(img, white_tolerance, perimeter_tolerance, symmetric_
                          symmetric_axes=False, check_perimeter=True, enable_crop=True,
                          perimeter_mode='if_white', image_metadata=None, extra_crop_percent=0.0,
                          removal_mode='full', use_mask_instead_of_transparency=False,
-                         halo_reduction_level=0, analyze_only=False, boundaries=None):
+                         halo_reduction_level=0, analyze_only=False, boundaries=None,
+                         background_color=None):
     """
     Применяет удаление фона и обрезку изображения.
     
@@ -1713,6 +1785,7 @@ def _apply_background_crop(img, white_tolerance, perimeter_tolerance, symmetric_
         halo_reduction_level: Уровень устранения ореолов (0-5), где 0 - отключено
         analyze_only: Только анализировать границы, без удаления фона и обрезки
         boundaries: Предварительно вычисленные границы обрезки (для второго этапа)
+        background_color: Цвет фона для RGB изображений (если None, используется белый)
     
     Returns:
         Обработанное изображение или исходное, если периметр не соответствует условию
@@ -1722,7 +1795,18 @@ def _apply_background_crop(img, white_tolerance, perimeter_tolerance, symmetric_
     if image_metadata is None:
         image_metadata = {}
     
-    log.info(f"=== Processing background crop (Mode: {removal_mode}, Extra crop: {extra_crop_percent}%, Analyze only: {analyze_only}) ===")
+    # Если цвет фона не задан, используем белый
+    if background_color is None:
+        background_color = [255, 255, 255]
+    
+    # Убедимся, что цвет фона в правильном формате
+    if isinstance(background_color, list) and len(background_color) >= 3:
+        bg_color = tuple(map(int, background_color[:3]))
+    else:
+        log.warning("Invalid background color format, using default white")
+        bg_color = (255, 255, 255)
+    
+    log.info(f"=== Processing background crop (Mode: {removal_mode}, Extra crop: {extra_crop_percent}%, Analyze only: {analyze_only}, BG color: {bg_color}) ===")
     log.debug(f"Parameters: white_tol={white_tolerance}, perim_tol={perimeter_tolerance}, "
              f"sym_abs={symmetric_absolute}, sym_axes={symmetric_axes}, check_perim={check_perimeter}, "
              f"enable_crop={enable_crop}, perim_mode={perimeter_mode}, "
@@ -1865,8 +1949,9 @@ def _apply_background_crop(img, white_tolerance, perimeter_tolerance, symmetric_
         
         # Если нужно использовать маску вместо прозрачности
         if use_mask_instead_of_transparency:
-            img_processed = _create_mask_instead_of_transparency(img_processed)
-            log.debug("Created mask instead of transparency")
+            # Используем пользовательский цвет фона при создании маски
+            img_processed = _create_mask_instead_of_transparency(img_processed, bg_color)
+            log.debug("Created mask instead of transparency with user-defined background color")
         
         return img_processed
     except Exception as e:
@@ -2233,7 +2318,7 @@ def _process_single_image(file_path: str, prep_settings, white_settings, bgc_set
         log.error(f"Unexpected error processing {os.path.basename(file_path)}: {str(e)}", exc_info=True)
         return None
 
-def process_image_base(image_or_path, prep_settings, white_settings, bgc_settings, pad_settings, bc_settings) -> Optional[Tuple[Image.Image, dict]]:
+def process_image_base(image_or_path, prep_settings, white_settings, bgc_settings, pad_settings, bc_settings, extra_options=None) -> Optional[Tuple[Image.Image, dict]]:
     """
     Базовый конвейер обработки изображения. Применяет 5 основных шагов обработки:
     1. Изменение размера (preresize)
@@ -2249,6 +2334,7 @@ def process_image_base(image_or_path, prep_settings, white_settings, bgc_setting
         bgc_settings: Настройки удаления фона и обрезки
         pad_settings: Настройки отступов
         bc_settings: Настройки яркости/контрастности
+        extra_options: Дополнительные настройки (включая jpg_background_color)
     
     Returns:
         Tuple[Image.Image, dict]: (Обработанное изображение, словарь метаданных) или (None, {}) в случае ошибки
@@ -2260,6 +2346,13 @@ def process_image_base(image_or_path, prep_settings, white_settings, bgc_setting
     original_image = None  # Для хранения оригинала при применении двухэтапной обработки
     crop_boundaries = None  # Для хранения границ обрезки
     scale_factor = 1.0
+    
+    # Получаем дополнительные настройки, если они предоставлены
+    if extra_options is None:
+        extra_options = {}
+    
+    # Получаем цвет фона из дополнительных настроек или используем белый по умолчанию
+    jpg_background_color = extra_options.get('jpg_background_color', [255, 255, 255])
     
     try:
         # 1. Загрузка изображения
@@ -2426,7 +2519,8 @@ def process_image_base(image_or_path, prep_settings, white_settings, bgc_setting
                         removal_mode=removal_mode,
                         use_mask_instead_of_transparency=use_mask_instead_of_transparency,
                         halo_reduction_level=halo_reduction_level,
-                        boundaries=scaled_boundaries
+                        boundaries=scaled_boundaries,
+                        background_color=jpg_background_color  # Добавляем пользовательский цвет фона
                     )
                     image_utils.safe_close(scaled_img)
                 else:
@@ -2446,7 +2540,8 @@ def process_image_base(image_or_path, prep_settings, white_settings, bgc_setting
                         removal_mode=removal_mode,
                         use_mask_instead_of_transparency=use_mask_instead_of_transparency,
                         halo_reduction_level=halo_reduction_level,
-                        boundaries=crop_boundaries
+                        boundaries=crop_boundaries,
+                        background_color=jpg_background_color  # Добавляем пользовательский цвет фона
                     )
             else:
                 # Стандартная одноэтапная обработка
@@ -2464,7 +2559,8 @@ def process_image_base(image_or_path, prep_settings, white_settings, bgc_setting
                     extra_crop_percent=extra_crop_percent,
                     removal_mode=removal_mode,
                     use_mask_instead_of_transparency=use_mask_instead_of_transparency,
-                    halo_reduction_level=halo_reduction_level
+                    halo_reduction_level=halo_reduction_level,
+                    background_color=jpg_background_color  # Добавляем пользовательский цвет фона
                 )
             
             if img is None:
@@ -2823,18 +2919,19 @@ def guess_article_from_filenames(folder_path: str) -> str:
         log.exception(f"Error in guess_article_from_filenames: {e}")
         return ""
 
-def _create_mask_instead_of_transparency(img):
+def _create_mask_instead_of_transparency(img, background_color=(255, 255, 255)):
     """
-    Вместо прозрачности создает и сохраняет маску, переводя изображение в RGB с белым фоном.
+    Вместо прозрачности создает и сохраняет маску, переводя изображение в RGB с указанным цветом фона.
     Это решает проблему ореолов при масштабировании, так как в процессе обработки изображение 
     не имеет прозрачности (никаких полупрозрачных пикселей).
     Прозрачность применяется только в момент сохранения PNG.
     
     Args:
         img: RGBA изображение с прозрачностью
+        background_color: Цвет фона для RGB изображения (по умолчанию белый)
     
     Returns:
-        RGB изображение с белым фоном и сохраненной маской в img.info['transparency_mask']
+        RGB изображение с указанным цветом фона и сохраненной маской в img.info['transparency_mask']
     """
     if img.mode != 'RGBA':
         try:
@@ -2850,18 +2947,19 @@ def _create_mask_instead_of_transparency(img):
         r, g, b, alpha = rgba_img.split()
         
         # Создаем более жесткую бинарную маску для предотвращения ореолов
-        # Значения ниже 240 становятся полностью прозрачными (255),
+        # Значения ниже 250 становятся полностью прозрачными (255),
         # остальные - полностью непрозрачными (0)
-        threshold = 240
+        threshold = 250  # Очень высокий порог для предотвращения ореолов
         mask = alpha.point(lambda x: 0 if x >= threshold else 255)
         
-        # Создаем RGB изображение с белым фоном
-        rgb_img = Image.new("RGB", rgba_img.size, (255, 255, 255))
+        # Создаем RGB изображение с указанным цветом фона
+        rgb_img = Image.new("RGB", rgba_img.size, background_color)
         
-        # Создаем RGBA с измененной альфой для четких краев
-        clean_edges_img = Image.merge("RGBA", (r, g, b, alpha.point(lambda x: 255 if x >= threshold else 0)))
+        # Создаем RGBA с измененной альфой для четких краев (бинарная прозрачность)
+        clean_edges_alpha = alpha.point(lambda x: 255 if x >= threshold else 0)
+        clean_edges_img = Image.merge("RGBA", (r, g, b, clean_edges_alpha))
         
-        # Вставляем изображение с четкими краями на белый фон
+        # Вставляем изображение с четкими краями на указанный фон
         rgb_img.paste(clean_edges_img, (0, 0), clean_edges_img)
         
         # Сохраняем маску в info
@@ -2870,6 +2968,7 @@ def _create_mask_instead_of_transparency(img):
         # Очищаем промежуточный ресурс
         if rgba_img is not img:
             image_utils.safe_close(rgba_img)
+        image_utils.safe_close(clean_edges_img)
         
         return rgb_img
     except Exception as e:
@@ -2920,61 +3019,4 @@ def _apply_mask_for_png_save(img):
         return img
     except Exception as e:
         log.error(f"Error applying mask for PNG save: {e}")
-        return img
-
-def _create_mask_instead_of_transparency(img):
-    """
-    Вместо прозрачности создает и сохраняет маску, переводя изображение в RGB с белым фоном.
-    Это решает проблему ореолов при масштабировании, так как в процессе обработки изображение 
-    не имеет прозрачности (никаких полупрозрачных пикселей).
-    Прозрачность применяется только в момент сохранения PNG.
-    
-    Args:
-        img: RGBA изображение с прозрачностью
-    
-    Returns:
-        RGB изображение с белым фоном и сохраненной маской в img.info['transparency_mask']
-    """
-    if img.mode != 'RGBA':
-        try:
-            rgba_img = img.convert('RGBA')
-        except Exception as e:
-            log.error(f"Failed to convert to RGBA in _create_mask_instead_of_transparency: {e}")
-            return img
-    else:
-        rgba_img = img
-        
-    try:
-        # Создаем маску из альфа-канала (1 = непрозрачно, 0 = прозрачно)
-        r, g, b, alpha = rgba_img.split()
-        
-        # Создаем более жесткую бинарную маску для предотвращения ореолов
-        # Значения ниже 250 становятся полностью прозрачными (255),
-        # остальные - полностью непрозрачными (0)
-        threshold = 250  # Очень высокий порог для предотвращения ореолов
-        mask = alpha.point(lambda x: 0 if x >= threshold else 255)
-        
-        # Создаем RGB изображение с белым фоном
-        rgb_img = Image.new("RGB", rgba_img.size, (255, 255, 255))
-        
-        # Создаем RGBA с измененной альфой для четких краев (бинарная прозрачность)
-        clean_edges_alpha = alpha.point(lambda x: 255 if x >= threshold else 0)
-        clean_edges_img = Image.merge("RGBA", (r, g, b, clean_edges_alpha))
-        
-        # Вставляем изображение с четкими краями на белый фон
-        rgb_img.paste(clean_edges_img, (0, 0), clean_edges_img)
-        
-        # Сохраняем маску в info
-        rgb_img.info['transparency_mask'] = mask
-        
-        # Очищаем промежуточный ресурс
-        if rgba_img is not img:
-            image_utils.safe_close(rgba_img)
-        image_utils.safe_close(clean_edges_img)
-        
-        return rgb_img
-    except Exception as e:
-        log.error(f"Error in _create_mask_instead_of_transparency: {e}")
-        if rgba_img is not img:
-            image_utils.safe_close(rgba_img)
         return img
