@@ -1765,7 +1765,7 @@ def _apply_background_crop(img, white_tolerance, perimeter_tolerance, symmetric_
                          perimeter_mode='if_white', image_metadata=None, extra_crop_percent=0.0,
                          removal_mode='full', use_mask_instead_of_transparency=False,
                          halo_reduction_level=0, analyze_only=False, boundaries=None,
-                         background_color=None):
+                         background_color=None, padding_settings=None):
     """
     Применяет удаление фона и обрезку изображения.
     
@@ -1786,6 +1786,7 @@ def _apply_background_crop(img, white_tolerance, perimeter_tolerance, symmetric_
         analyze_only: Только анализировать границы, без удаления фона и обрезки
         boundaries: Предварительно вычисленные границы обрезки (для второго этапа)
         background_color: Цвет фона для RGB изображений (если None, используется белый)
+        padding_settings: Настройки отступов для дополнительной проверки с tolerance отступов
     
     Returns:
         Обработанное изображение или исходное, если периметр не соответствует условию
@@ -1822,6 +1823,18 @@ def _apply_background_crop(img, white_tolerance, perimeter_tolerance, symmetric_
         perimeter_is_white = image_utils.check_perimeter_is_white(img, perimeter_tolerance, 1)
         image_metadata["has_white_perimeter_before_crop"] = perimeter_is_white
         log.info(f"Perimeter check result: {'White' if perimeter_is_white else 'NOT White'} (Tolerance: {perimeter_tolerance})")
+        
+        # Дополнительно: Проверка периметра с использованием tolerance из настроек отступов
+        if padding_settings and 'perimeter_check_tolerance' in padding_settings:
+            padding_tolerance = int(padding_settings.get('perimeter_check_tolerance', 10))
+            log.info(f"Also checking perimeter with padding tolerance: {padding_tolerance}")
+            padding_perimeter_is_white = image_utils.check_perimeter_is_white(img, padding_tolerance, 1)
+            image_metadata["has_white_perimeter_for_padding"] = padding_perimeter_is_white
+            # ВАЖНО: Сохраняем состояние ДО обрезки в специальном ключе для if_white режима
+            if padding_settings.get('mode') == 'if_white':
+                image_metadata["has_white_perimeter_for_padding_before_crop"] = padding_perimeter_is_white
+                log.debug(f"Saved pre-crop padding perimeter state for if_white mode: white_perimeter={padding_perimeter_is_white}")
+            log.info(f"Padding perimeter check result: {'White' if padding_perimeter_is_white else 'NOT White'} (Tolerance: {padding_tolerance})")
         
         # Фаза 2: проверяем периметр для решения о продолжении всего процесса
         if not analyze_only:
@@ -1985,6 +1998,13 @@ def _apply_background_crop(img, white_tolerance, perimeter_tolerance, symmetric_
             has_white_perimeter_after = image_utils.check_perimeter_is_white(img_processed, perimeter_tolerance, 1)
             image_metadata["has_white_perimeter_after_crop"] = has_white_perimeter_after
             log.debug(f"Saved perimeter state AFTER crop/bg-removal: white_perimeter={has_white_perimeter_after}")
+            
+            # Также сохраняем состояние с использованием tolerance для padding, если он указан
+            if padding_settings and 'perimeter_check_tolerance' in padding_settings:
+                padding_tolerance = int(padding_settings.get('perimeter_check_tolerance', 10))
+                padding_perimeter_after = image_utils.check_perimeter_is_white(img_processed, padding_tolerance, 1)
+                image_metadata["has_white_perimeter_for_padding_after_crop"] = padding_perimeter_after
+                log.debug(f"Saved perimeter state for padding AFTER crop: white_perimeter={padding_perimeter_after} (tolerance={padding_tolerance})")
         except Exception as e:
             log.warning(f"Failed to check perimeter after crop/bg-removal: {e}")
         
@@ -2261,6 +2281,17 @@ def _apply_padding(img: Image.Image, pad_settings: dict, image_metadata: dict = 
         
         log.info(f"Padding settings - Mode: {padding_type}, Percentage: {padding_percent}%, Allow expansion={allow_expansion}")
         
+        # Логируем все доступные метаданные для диагностики
+        log.debug(f"Available metadata keys: {list(image_metadata.keys())}")
+        if 'has_white_perimeter_for_padding_before_crop' in image_metadata:
+            log.debug(f"has_white_perimeter_for_padding_before_crop = {image_metadata['has_white_perimeter_for_padding_before_crop']}")
+        if 'has_white_perimeter_for_padding_after_crop' in image_metadata:
+            log.debug(f"has_white_perimeter_for_padding_after_crop = {image_metadata['has_white_perimeter_for_padding_after_crop']}")
+        if 'has_white_perimeter_for_padding' in image_metadata:
+            log.debug(f"has_white_perimeter_for_padding = {image_metadata['has_white_perimeter_for_padding']}")
+        if 'has_white_perimeter_after_crop' in image_metadata:
+            log.debug(f"has_white_perimeter_after_crop = {image_metadata['has_white_perimeter_after_crop']}")
+        
         # Проверяем необходимость добавления padding на основе метаданных
         should_apply_padding = False
         
@@ -2273,21 +2304,44 @@ def _apply_padding(img: Image.Image, pad_settings: dict, image_metadata: dict = 
         elif padding_type == 'if_white' or padding_type == 'if_not_white':
             # Получаем информацию о периметре
             has_white_perimeter = None
+            padded_perimeter_used = False
             
-            # Используем сохраненную информацию о периметре из метаданных
-            if 'has_white_perimeter_after_crop' in image_metadata:
-                has_white_perimeter = image_metadata['has_white_perimeter_after_crop']
-                log.debug(f"Using cached perimeter state after crop: white_perimeter={has_white_perimeter}")
+            # Для режима if_white используем информацию ДО обрезки
+            if padding_type == 'if_white' and 'has_white_perimeter_for_padding_before_crop' in image_metadata:
+                has_white_perimeter = image_metadata['has_white_perimeter_for_padding_before_crop']
+                padded_perimeter_used = True
+                log.debug(f"Using pre-crop padding perimeter check (special for if_white): white_perimeter={has_white_perimeter}")
+            # Сначала ищем результаты проверки с учетом tolerance отступов
+            elif 'has_white_perimeter_for_padding_after_crop' in image_metadata:
+                has_white_perimeter = image_metadata['has_white_perimeter_for_padding_after_crop']
+                padded_perimeter_used = True
+                log.debug(f"Using pre-computed padding-specific perimeter check after crop: white_perimeter={has_white_perimeter}")
+            elif 'has_white_perimeter_for_padding' in image_metadata:
+                has_white_perimeter = image_metadata['has_white_perimeter_for_padding']
+                padded_perimeter_used = True
+                log.debug(f"Using pre-computed padding-specific perimeter check: white_perimeter={has_white_perimeter}")
+            # Если не найдены специфичные для отступов проверки, используем обычные или делаем новую проверку
+            elif 'has_white_perimeter_after_crop' in image_metadata:
+                log.debug(f"No padding-specific perimeter check found, using current image with padding tolerance={perimeter_check_tolerance}")
+                has_white_perimeter = image_utils.check_perimeter_is_white(img, perimeter_check_tolerance, 1)
+                log.debug(f"Fresh perimeter check for padding: white_perimeter={has_white_perimeter}")
             elif 'has_white_perimeter_after_whitening' in image_metadata:
-                has_white_perimeter = image_metadata['has_white_perimeter_after_whitening']
-                log.debug(f"Using cached perimeter state after whitening: white_perimeter={has_white_perimeter}")
+                log.debug(f"No padding-specific perimeter check found, using current image with padding tolerance={perimeter_check_tolerance}")
+                has_white_perimeter = image_utils.check_perimeter_is_white(img, perimeter_check_tolerance, 1)
+                log.debug(f"Fresh perimeter check for padding: white_perimeter={has_white_perimeter}")
             elif 'has_white_perimeter_before_crop' in image_metadata:
-                has_white_perimeter = image_metadata['has_white_perimeter_before_crop']
-                log.debug(f"Using cached perimeter state before crop: white_perimeter={has_white_perimeter}")
+                log.debug(f"No padding-specific perimeter check found, using current image with padding tolerance={perimeter_check_tolerance}")
+                has_white_perimeter = image_utils.check_perimeter_is_white(img, perimeter_check_tolerance, 1)
+                log.debug(f"Fresh perimeter check for padding: white_perimeter={has_white_perimeter}")
             else:
                 # Если нет сохраненной информации - проверяем периметр сейчас
-                log.debug(f"No cached perimeter state found, checking perimeter now")
+                log.debug(f"No cached perimeter state found, checking perimeter now with tolerance={perimeter_check_tolerance}")
                 has_white_perimeter = image_utils.check_perimeter_is_white(img, perimeter_check_tolerance, 1)
+            
+            # Для диагностики, всегда выполняем проверку текущего состояния
+            current_perimeter_white = image_utils.check_perimeter_is_white(img, perimeter_check_tolerance, 1)
+            log.debug(f"Current perimeter check (for reference): white_perimeter={current_perimeter_white}")
+            log.debug(f"Using {'padding-specific perimeter check' if padded_perimeter_used else 'regular perimeter check'} for decision")
             
             # Принимаем решение в зависимости от типа padding'а
             if padding_type == 'if_white':
@@ -2530,7 +2584,8 @@ def process_image_base(image_or_path, prep_settings, white_settings, bgc_setting
                     image_metadata=image_metadata,
                     extra_crop_percent=extra_crop_percent,
                     removal_mode=removal_mode,
-                    analyze_only=True  # Только анализируем, не применяем
+                    analyze_only=True,  # Только анализируем, не применяем
+                    padding_settings=pad_settings  # Передаем настройки отступов для проверки их tolerance
                 )
                 
                 if not crop_boundaries:
@@ -2585,7 +2640,8 @@ def process_image_base(image_or_path, prep_settings, white_settings, bgc_setting
                         use_mask_instead_of_transparency=use_mask_instead_of_transparency,
                         halo_reduction_level=halo_reduction_level,
                         boundaries=scaled_boundaries,
-                        background_color=jpg_background_color  # Добавляем пользовательский цвет фона
+                        background_color=jpg_background_color,  # Добавляем пользовательский цвет фона
+                        padding_settings=pad_settings  # Передаем настройки отступов
                     )
                     image_utils.safe_close(scaled_img)
                 else:
@@ -2606,7 +2662,8 @@ def process_image_base(image_or_path, prep_settings, white_settings, bgc_setting
                         use_mask_instead_of_transparency=use_mask_instead_of_transparency,
                         halo_reduction_level=halo_reduction_level,
                         boundaries=crop_boundaries,
-                        background_color=jpg_background_color  # Добавляем пользовательский цвет фона
+                        background_color=jpg_background_color,  # Добавляем пользовательский цвет фона
+                        padding_settings=pad_settings  # Передаем настройки отступов
                     )
             else:
                 # Стандартная одноэтапная обработка
@@ -2625,7 +2682,8 @@ def process_image_base(image_or_path, prep_settings, white_settings, bgc_setting
                     removal_mode=removal_mode,
                     use_mask_instead_of_transparency=use_mask_instead_of_transparency,
                     halo_reduction_level=halo_reduction_level,
-                    background_color=jpg_background_color  # Добавляем пользовательский цвет фона
+                    background_color=jpg_background_color,  # Добавляем пользовательский цвет фона
+                    padding_settings=pad_settings  # Передаем настройки отступов
                 )
             
             if img is None:
