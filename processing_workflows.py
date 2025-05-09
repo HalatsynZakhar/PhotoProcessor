@@ -2376,13 +2376,16 @@ def _apply_padding(img: Image.Image, pad_settings: dict, image_metadata: dict = 
             elif padding_type == 'if_not_white': 
                 should_apply_padding = not has_white_perimeter
                 log.info(f"Padding mode is 'if_not_white', white perimeter={has_white_perimeter}, applying padding={should_apply_padding}")
-            
-        # Если размер изображения уже оптимален и не разрешено увеличение, пропускаем
+        
+        # ИСПРАВЛЕНИЕ: Если не разрешено увеличение холста и размер изображения будет увеличен, пропускаем padding
         if not allow_expansion and should_apply_padding:
+            # Вычисляем, будет ли изображение увеличено в размере
             original_size = img.size
             padding_pixels = min(original_size) * padding_percent / 100
-            if padding_pixels < 1:
-                log.debug(f"Padding would be less than 1 pixel and expansion not allowed, skipping")
+            
+            # Проверяем, действительно ли произойдет увеличение размера холста
+            if padding_pixels > 0:
+                log.info(f"Canvas expansion prevented: allow_expansion={allow_expansion}. Skipping padding.")
                 should_apply_padding = False
         
         # Применяем padding, если нужно
