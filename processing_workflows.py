@@ -300,8 +300,6 @@ def _save_image(img, output_file_path, output_format, jpeg_quality=95,
                     binary_mask = mask.point(lambda x: 0 if x == 0 else 255)
                     final_alpha = binary_mask.point(lambda x: 0 if x > 0 else 255)  # Инвертируем
                     img_to_save = Image.merge("RGBA", (r, g, b, final_alpha))
-                else:
-                    img_to_save = img.convert('RGBA')
             else:
                 # Для PNG без прозрачности
                 if img.mode == 'RGBA':
@@ -332,11 +330,28 @@ def _save_image(img, output_file_path, output_format, jpeg_quality=95,
             
         # Удаляем метаданные, если нужно
         if remove_metadata and hasattr(img_to_save, 'info') and img_to_save.info:
-            # Сохраняем только необходимые данные
+            # Полностью очищаем все метаданные
             preserved_info = {}
-            if 'transparency_mask' in img_to_save.info and png_transparent_background:
-                preserved_info['transparency_mask'] = img_to_save.info['transparency_mask']
+            
+            # Сохраняем только маску прозрачности для PNG, если включена прозрачность
+            if output_format.lower() == 'png' and png_transparent_background:
+                if 'transparency_mask' in img_to_save.info:
+                    preserved_info['transparency_mask'] = img_to_save.info['transparency_mask']
+                    
+            # Устанавливаем новый словарь info с минимальными или нулевыми данными    
             img_to_save.info = preserved_info
+            
+            # Удаляем EXIF и другие метаданные
+            if hasattr(img_to_save, 'getexif'):
+                try:
+                    # Для PIL >= 7.0.0
+                    exif = img_to_save.getexif()
+                    if exif:
+                        exif.clear()
+                except Exception as e:
+                    log.debug(f"No EXIF data or error clearing EXIF: {e}")
+                    
+            log.info(f"Metadata removed from output file")
             
         # Сохраняем изображение
         img_to_save.save(output_file_path, **save_options)
@@ -539,6 +554,9 @@ def run_individual_processing(**all_settings: Dict[str, Any]) -> bool:
         # Список для хранения выходных имен файлов, чтобы не удалять их
         processed_output_files = []
         
+        # Список для хранения путей к обработанным файлам, используется для установки дат
+        processed_file_paths = []
+        
         # Pre-process template if merge is enabled
         processed_template = None
         if enable_merge and template_path:
@@ -695,6 +713,9 @@ def run_individual_processing(**all_settings: Dict[str, Any]) -> bool:
                 processed_output_files.append(output_filename)
                 log.info(f"Added to preserved files list: {output_filename}")
                 
+                # Сохраняем полный путь к обработанному файлу для установки даты
+                processed_file_paths.append(output_path)
+                
                 # Откладываем удаление оригиналов до конца обработки всех файлов
                 # Это предотвратит удаление файлов, которые соответствуют выходным именам
                 
@@ -705,6 +726,40 @@ def run_individual_processing(**all_settings: Dict[str, Any]) -> bool:
                 log.exception("Error details")
                 overall_success = False
                 continue
+        
+        # Установка единой даты для файлов, если нужно
+        if individual_mode_settings.get('remove_metadata', False) and processed_file_paths:
+            try:
+                log.info("Setting unified file dates...")
+                # Получаем текущее время как базовое
+                base_time = time.time()
+                # Получаем настройку обратного порядка дат
+                reverse_order = individual_mode_settings.get('reverse_date_order', False)
+                
+                # Упорядочиваем файлы
+                if reverse_order:
+                    log.info("Using reverse date order (newest to oldest)")
+                    # В обратном порядке: первый файл самый новый, каждый следующий старше на 2 секунды
+                    files_with_times = [(f, base_time - i * 2) for i, f in enumerate(processed_file_paths)]
+                else:
+                    log.info("Using normal date order (oldest to newest)")
+                    # В прямом порядке: первый файл самый старый, каждый следующий новее на 2 секунды
+                    files_with_times = [(f, base_time + i * 2) for i, f in enumerate(processed_file_paths)]
+                
+                # Применяем даты к файлам
+                for file_path, file_time in files_with_times:
+                    try:
+                        # Устанавливаем время доступа и модификации
+                        os.utime(file_path, (file_time, file_time))
+                        log.debug(f"Set date for file: {os.path.basename(file_path)} to {time.ctime(file_time)}")
+                    except Exception as e:
+                        log.error(f"Failed to set date for {file_path}: {e}")
+                
+                log.info(f"Successfully set dates for {len(processed_file_paths)} files")
+            except Exception as e:
+                log.error(f"Error setting file dates: {e}")
+                log.exception("Date setting error details")
+                # Продолжаем выполнение, даже если установка дат не удалась
                 
         # Теперь, когда все файлы обработаны, мы можем безопасно удалить оригиналы (если нужно)
         if individual_mode_settings.get('delete_originals', False) and overall_success:
