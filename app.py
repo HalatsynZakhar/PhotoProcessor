@@ -987,13 +987,14 @@ with st.sidebar:
     # Проверяем, включено ли добавление отступов
     padding_mode = get_setting('padding.mode', 'never')
     should_expand_padding = padding_mode != 'never'
+ 
     
     # Устанавливаем значение по умолчанию для padding.mode, если оно не "Никогда"
-    if padding_mode == 'never' and get_setting('padding.padding_percent', 0.0) > 0:
+    #if padding_mode == 'never' and get_setting('padding.padding_percent', 0.0) > 0:
         # Если padding_percent > 0, но mode = 'never', устанавливаем mode = 'always'
-        set_setting('padding.mode', 'always')
-        padding_mode = 'always'
-        should_expand_padding = True
+        #set_setting('padding.mode', 'always')
+        #padding_mode = 'always'
+        #should_expand_padding = True
     
     with st.expander("4. Добавление отступов", expanded=should_expand_padding):
         # Определяем режим padding
