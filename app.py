@@ -742,7 +742,7 @@ with st.sidebar:
             # --- Backup Path ---
             current_backup_path = get_setting('paths.backup_folder_path')
             # Only set a default value if current_backup_path is not explicitly None or empty string
-            backup_path_default_value = current_backup_path if current_backup_path is not None and current_backup_path != "" else ""
+            backup_path_default_value = current_backup_path if current_backup_path else os.path.join(user_downloads_folder, "Backups")
             backup_path_val = st.text_input(
                 "Папка для бэкапов:",
                 value=backup_path_default_value,
