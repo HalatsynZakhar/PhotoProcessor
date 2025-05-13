@@ -608,7 +608,8 @@ with st.sidebar:
                     # Устанавливаем пути по умолчанию, чтобы они были доступны сразу после сброса
                     default_settings['paths']['input_folder_path'] = user_downloads
                     default_settings['paths']['output_folder_path'] = os.path.join(user_downloads, "Processed")
-                    default_settings['paths']['backup_folder_path'] = os.path.join(user_downloads, "Backups")
+                    # Не устанавливаем путь к бэкапу по умолчанию, чтобы он был отключен
+                    default_settings['paths']['backup_folder_path'] = ""
                     
                     # Сохраняем обновленные настройки с путями в пресет
                     config_manager.save_settings_preset(default_settings, config_manager.DEFAULT_PRESET_NAME)
@@ -740,7 +741,8 @@ with st.sidebar:
 
             # --- Backup Path ---
             current_backup_path = get_setting('paths.backup_folder_path')
-            backup_path_default_value = current_backup_path if current_backup_path else os.path.join(user_downloads_folder, "Backups")
+            # Only set a default value if current_backup_path is not explicitly None or empty string
+            backup_path_default_value = current_backup_path if current_backup_path is not None and current_backup_path != "" else ""
             backup_path_val = st.text_input(
                 "Папка для бэкапов:",
                 value=backup_path_default_value,
@@ -783,7 +785,11 @@ with st.sidebar:
             # Устанавливаем пути на основе папки загрузок
             set_setting('paths.input_folder_path', user_downloads)
             set_setting('paths.output_folder_path', os.path.join(user_downloads, "Processed"))
-            set_setting('paths.backup_folder_path', os.path.join(user_downloads, "Backups"))
+            
+            # Устанавливаем путь к бэкапу только если он не был явно отключен пользователем
+            current_backup_path = get_setting('paths.backup_folder_path')
+            if current_backup_path is not None and current_backup_path != "":
+                set_setting('paths.backup_folder_path', os.path.join(user_downloads, "Backups"))
             
             st.toast("Пути установлены на основе папки загрузок", icon="🔄")
             st.rerun()
