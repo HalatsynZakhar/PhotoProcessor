@@ -609,7 +609,7 @@ with st.sidebar:
                     default_settings['paths']['input_folder_path'] = user_downloads
                     default_settings['paths']['output_folder_path'] = os.path.join(user_downloads, "Processed")
                     # Не устанавливаем путь к бэкапу по умолчанию, чтобы он был отключен
-                    default_settings['paths']['backup_folder_path'] = ""
+                    default_settings['paths']['backup_folder_path'] = os.path.join(user_downloads, "Backups")
                     
                     # Сохраняем обновленные настройки с путями в пресет
                     config_manager.save_settings_preset(default_settings, config_manager.DEFAULT_PRESET_NAME)
