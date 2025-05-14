@@ -735,6 +735,8 @@ def check_perimeter_is_white(img, tolerance, margin):
         return False
 
     log.debug(f"Checking perimeter white (tolerance: {tolerance}, margin: {margin}px)...")
+    log.debug(f"DIAGNOSTICS: Image mode: {img.mode}, Size: {img.size}, ID: {id(img)}")
+    
     img_to_check = None
     created_new_object = False
     mask = None
@@ -744,42 +746,54 @@ def check_perimeter_is_white(img, tolerance, margin):
         # Prepare an RGB version, simulating a white background if alpha is present
         if img.mode == 'RGBA' or 'A' in img.getbands():
             try:
+                log.debug(f"DIAGNOSTICS: Creating white RGB canvas for alpha image: {id(img)}")
                 img_to_check = Image.new("RGB", img.size, (255, 255, 255))
                 created_new_object = True
-                log.debug("Created white RGB canvas for perimeter check.")
+                log.debug(f"DIAGNOSTICS: Created white RGB canvas: {id(img_to_check)}")
+                
                 # Get alpha mask
                 if img.mode == 'RGBA':
                     mask = img.getchannel('A')
+                    log.debug(f"DIAGNOSTICS: Extracted alpha channel from RGBA: {id(mask)}")
                 else: # Handle modes like 'LA', 'PA'
                     with img.convert('RGBA') as temp_rgba:
+                        log.debug(f"DIAGNOSTICS: Converted to RGBA temporarily: {id(temp_rgba)}")
                         mask = temp_rgba.getchannel('A')
+                        log.debug(f"DIAGNOSTICS: Extracted alpha channel from converted: {id(mask)}")
+                
                 # Paste using the mask
+                log.debug(f"DIAGNOSTICS: About to paste image {id(img)} onto canvas {id(img_to_check)}")
                 img_to_check.paste(img, mask=mask)
-                log.debug("Pasted image onto white canvas using alpha mask.")
+                log.debug(f"DIAGNOSTICS: Paste operation completed")
+                
             except Exception as paste_err:
                 log.error(f"Failed to create or paste onto white background for perimeter check: {paste_err}", exc_info=True)
                 # Fallback or return False? Let's return False as we can't check.
+                log.debug(f"DIAGNOSTICS: Error during paste, closing resources: mask={id(mask) if mask else 'None'}, img_to_check={id(img_to_check) if img_to_check and created_new_object else 'None'}")
                 safe_close(mask)
                 if created_new_object: safe_close(img_to_check)
                 return False
         elif img.mode != 'RGB':
              # If no alpha but not RGB, convert to RGB
              try:
+                 log.debug(f"DIAGNOSTICS: Converting {img.mode} image {id(img)} to RGB")
                  img_to_check = img.convert('RGB')
                  created_new_object = True
-                 log.debug(f"Converted {img.mode} -> RGB for perimeter check.")
+                 log.debug(f"DIAGNOSTICS: Converted to RGB: {id(img_to_check)}")
              except Exception as conv_e:
                  log.error(f"Failed to convert {img.mode} -> RGB for perimeter check: {conv_e}", exc_info=True)
                  return False # Cannot check
         else:
              # If already RGB, use it directly (no copy needed for reading pixels)
              img_to_check = img
-             log.debug("Using original RGB image for perimeter check.")
+             created_new_object = False
+             log.debug(f"DIAGNOSTICS: Using original RGB image directly: {id(img_to_check)}")
 
         width, height = img_to_check.size
         if width <= 0 or height <= 0:
             log.warning(f"Image for perimeter check has zero size ({width}x{height}).")
             # Clean up resources if created
+            log.debug(f"DIAGNOSTICS: Zero size image, closing resources: mask={id(mask) if mask else 'None'}, img_to_check={id(img_to_check) if img_to_check and created_new_object else 'None'}")
             safe_close(mask)
             if created_new_object: safe_close(img_to_check)
             return False
@@ -794,22 +808,39 @@ def check_perimeter_is_white(img, tolerance, margin):
 
         if margin_h == 0 or margin_w == 0:
             log.warning(f"Cannot check perimeter with margin {margin}px on image {width}x{height}. Effective margins are W={margin_w}, H={margin_h}.")
+            log.debug(f"DIAGNOSTICS: Invalid margins, closing resources: mask={id(mask) if mask else 'None'}, img_to_check={id(img_to_check) if img_to_check and created_new_object else 'None'}")
             safe_close(mask)
             if created_new_object: safe_close(img_to_check)
             return False
 
         # --- Check pixels ---
-        pixels = img_to_check.load()
+        log.debug(f"DIAGNOSTICS: About to load pixels from {id(img_to_check)}")
+        try:
+            pixels = img_to_check.load()
+            log.debug(f"DIAGNOSTICS: Pixels loaded successfully")
+        except Exception as px_err:
+            log.error(f"Error loading pixels: {px_err}", exc_info=True)
+            log.debug(f"DIAGNOSTICS: Error loading pixels, closing resources")
+            safe_close(mask)
+            if created_new_object: safe_close(img_to_check)
+            return False
+            
         cutoff = 255 - tolerance
-        is_perimeter_white = True # Assume white until proven otherwise
+        is_perimeter_white = True
 
         # Iterate over perimeter pixels efficiently
+        log.debug(f"DIAGNOSTICS: Starting perimeter check: width={width}, height={height}, margin_w={margin_w}, margin_h={margin_h}, cutoff={cutoff}")
+        
         # Top margin_h rows
         for y in range(margin_h):
             for x in range(width):
                 try: r, g, b = pixels[x, y][:3]
-                except (IndexError, TypeError): is_perimeter_white = False; break
-                if not (r >= cutoff and g >= cutoff and b >= cutoff): is_perimeter_white = False; break
+                except (IndexError, TypeError): 
+                    log.debug(f"DIAGNOSTICS: Pixel access error at ({x},{y})")
+                    is_perimeter_white = False; break
+                if not (r >= cutoff and g >= cutoff and b >= cutoff): 
+                    log.debug(f"DIAGNOSTICS: Non-white pixel found at ({x},{y}): RGB=({r},{g},{b})")
+                    is_perimeter_white = False; break
             if not is_perimeter_white: break
         if not is_perimeter_white: log.debug("Non-white pixel found in top margin.");
 
@@ -818,8 +849,12 @@ def check_perimeter_is_white(img, tolerance, margin):
             for y in range(height - margin_h, height):
                 for x in range(width):
                     try: r, g, b = pixels[x, y][:3]
-                    except (IndexError, TypeError): is_perimeter_white = False; break
-                    if not (r >= cutoff and g >= cutoff and b >= cutoff): is_perimeter_white = False; break
+                    except (IndexError, TypeError): 
+                        log.debug(f"DIAGNOSTICS: Pixel access error at ({x},{y})")
+                        is_perimeter_white = False; break
+                    if not (r >= cutoff and g >= cutoff and b >= cutoff): 
+                        log.debug(f"DIAGNOSTICS: Non-white pixel found at ({x},{y}): RGB=({r},{g},{b})")
+                        is_perimeter_white = False; break
                 if not is_perimeter_white: break
             if not is_perimeter_white: log.debug("Non-white pixel found in bottom margin.");
 
@@ -828,8 +863,12 @@ def check_perimeter_is_white(img, tolerance, margin):
             for x in range(margin_w):
                 for y in range(margin_h, height - margin_h):
                      try: r, g, b = pixels[x, y][:3]
-                     except (IndexError, TypeError): is_perimeter_white = False; break
-                     if not (r >= cutoff and g >= cutoff and b >= cutoff): is_perimeter_white = False; break
+                     except (IndexError, TypeError): 
+                         log.debug(f"DIAGNOSTICS: Pixel access error at ({x},{y})")
+                         is_perimeter_white = False; break
+                     if not (r >= cutoff and g >= cutoff and b >= cutoff): 
+                         log.debug(f"DIAGNOSTICS: Non-white pixel found at ({x},{y}): RGB=({r},{g},{b})")
+                         is_perimeter_white = False; break
                 if not is_perimeter_white: break
             if not is_perimeter_white: log.debug("Non-white pixel found in left margin.");
 
@@ -839,9 +878,11 @@ def check_perimeter_is_white(img, tolerance, margin):
                  for y in range(margin_h, height - margin_h):
                      try: r, g, b = pixels[x, y][:3]
                      except (IndexError, TypeError):
+                         log.debug(f"DIAGNOSTICS: Pixel access error at ({x},{y})")
                          is_perimeter_white = False;
                          break
                      if not (r >= cutoff and g >= cutoff and b >= cutoff):
+                         log.debug(f"DIAGNOSTICS: Non-white pixel found at ({x},{y}): RGB=({r},{g},{b})")
                          is_perimeter_white = False;
                          break
                  if not is_perimeter_white:
@@ -855,10 +896,13 @@ def check_perimeter_is_white(img, tolerance, margin):
         log.error(f"General error in check_perimeter_is_white: {e}", exc_info=True)
         is_white = False # Return False on error
     finally:
+         log.debug(f"DIAGNOSTICS: Cleanup in finally block: mask={id(mask) if mask else 'None'}, img_to_check={id(img_to_check) if img_to_check else 'None'}, created_new_object={created_new_object}")
          safe_close(mask) # Close alpha mask if extracted
          # Close the checked image only if we created a new object
          if created_new_object and img_to_check:
+             log.debug(f"DIAGNOSTICS: Closing img_to_check={id(img_to_check)}")
              safe_close(img_to_check)
+         log.debug(f"DIAGNOSTICS: Finished perimeter check, is_white={is_white}")
 
     return is_white
 
