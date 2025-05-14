@@ -2112,7 +2112,9 @@ def _apply_background_crop(img, white_tolerance, perimeter_tolerance, symmetric_
                         if padding_settings.get('mode') == 'if_not_white':
                             log.debug(f"Saved perimeter state for if_not_white mode when skipping crop: white_perimeter={padding_perimeter_is_white}")
                     
-                    return img  # Возвращаем оригинал без изменений
+                    # ИСПРАВЛЕНИЕ - Возвращаем копию оригинала, не сам оригинал
+                    log.debug("Returning a copy of the original image when skipping background/crop processing")
+                    return img.copy()  # Возвращаем копию оригинала
                 elif perimeter_mode == 'if_not_white' and perimeter_is_white:
                     log.info("Phase 2: Background removal and cropping skipped - perimeter is white (mode: if_not_white)")
                     if boundaries is not None:
@@ -2128,7 +2130,9 @@ def _apply_background_crop(img, white_tolerance, perimeter_tolerance, symmetric_
                         if padding_settings.get('mode') == 'if_not_white':
                             log.debug(f"Saved perimeter state for if_not_white mode when skipping crop: white_perimeter={padding_perimeter_is_white}")
                     
-                    return img  # Возвращаем оригинал без изменений
+                    # ИСПРАВЛЕНИЕ - Возвращаем копию оригинала, не сам оригинал
+                    log.debug("Returning a copy of the original image when skipping background/crop processing")
+                    return img.copy()  # Возвращаем копию оригинала
             
             # Только для логирования
             if boundaries is not None:
@@ -2184,7 +2188,7 @@ def _apply_background_crop(img, white_tolerance, perimeter_tolerance, symmetric_
                         'bottom': height
                     }
             else:
-                img_rgba = img.copy()
+                img_rgba = img.copy()  # Создаем копию, а не используем оригинал
             
             # Определяем примерные границы после удаления фона
             # Сначала удаляем фон для анализа используя white_tolerance
@@ -2302,10 +2306,13 @@ def _apply_background_crop(img, white_tolerance, perimeter_tolerance, symmetric_
             img_processed = _create_mask_instead_of_transparency(img_processed, bg_color)
             log.debug("Created mask instead of transparency with user-defined background color")
         
-        return img_processed
+        # Всегда возвращаем новый объект для безопасности
+        log.debug("Returning the processed image (normal flow)")
+        return img_processed.copy() if img_processed is not None else img.copy()
     except Exception as e:
         log.error(f"Error in background/crop: {e}")
-        return img
+        log.debug("Returning a copy of the original image due to exception")
+        return img.copy()  # Всегда возвращаем копию, не оригинал
 
 def _reduce_halos(img, level=1):
     """
@@ -2357,7 +2364,7 @@ def _reduce_halos(img, level=1):
         return result
     except Exception as e:
         log.error(f"Error in halo reduction: {e}")
-        return img  # Возвращаем оригинал при ошибке
+        return img.copy()  # Возвращаем копию оригинала при ошибке
 
 def _scale_image(image, target_size, mode='fit', use_transparency=True):
     """
@@ -3342,14 +3349,20 @@ def _create_mask_instead_of_transparency(img, background_color=(255, 255, 255)):
     Returns:
         RGB изображение с указанным цветом фона и сохраненной маской в img.info['transparency_mask']
     """
+    if img is None:
+        return None
+        
+    # Всегда работаем с копиями или новыми объектами
+    rgba_img = None
+    
     if img.mode != 'RGBA':
         try:
-            rgba_img = img.convert('RGBA')
+            rgba_img = img.convert('RGBA')  # .convert создает новый объект
         except Exception as e:
             log.error(f"Failed to convert to RGBA in _create_mask_instead_of_transparency: {e}")
-            return img
+            return img.copy()  # Возвращаем копию оригинала
     else:
-        rgba_img = img
+        rgba_img = img.copy()  # Явно создаем копию для RGBA
         
     try:
         # Создаем маску из альфа-канала (1 = непрозрачно, 0 = прозрачно)
@@ -3374,17 +3387,15 @@ def _create_mask_instead_of_transparency(img, background_color=(255, 255, 255)):
         # Сохраняем маску в info
         rgb_img.info['transparency_mask'] = mask
         
-        # Очищаем промежуточный ресурс
-        if rgba_img is not img:
-            image_utils.safe_close(rgba_img)
+        # Очищаем промежуточные ресурсы
+        image_utils.safe_close(rgba_img)
         image_utils.safe_close(clean_edges_img)
         
-        return rgb_img
+        return rgb_img  # rgb_img это новый объект, созданный с Image.new
     except Exception as e:
         log.error(f"Error in _create_mask_instead_of_transparency: {e}")
-        if rgba_img is not img:
-            image_utils.safe_close(rgba_img)
-        return img
+        image_utils.safe_close(rgba_img)
+        return img.copy()  # Всегда возвращаем копию оригинала при ошибке
 
 def _apply_mask_for_png_save(img):
     """
@@ -3397,17 +3408,23 @@ def _apply_mask_for_png_save(img):
     Returns:
         RGBA изображение с чистой прозрачностью (без полутонов)
     """
+    if img is None:
+        return None
+        
     try:
-        if 'transparency_mask' in img.info:
+        # Создаем копию для работы
+        img_copy = img.copy()
+        
+        if 'transparency_mask' in img_copy.info:
             # Получаем маску
-            mask = img.info['transparency_mask']
+            mask = img_copy.info['transparency_mask']
             
             # Проверяем совпадение размеров
-            if mask.size != img.size:
-                mask = mask.resize(img.size, Image.Resampling.NEAREST)
+            if mask.size != img_copy.size:
+                mask = mask.resize(img_copy.size, Image.Resampling.NEAREST)
             
             # Создаем RGBA изображение
-            rgba_img = img.convert("RGBA")
+            rgba_img = img_copy.convert("RGBA")
             
             # Применяем маску к альфа-каналу с полностью бинарным подходом
             r, g, b, _ = rgba_img.split()
@@ -3417,15 +3434,29 @@ def _apply_mask_for_png_save(img):
             binary_mask = mask.point(lambda x: 0 if x == 0 else 255)
             final_a = binary_mask.point(lambda x: 0 if x > 0 else 255)  # Инвертируем для RGBA
             
-            # Объединяем каналы обратно
-            return Image.merge("RGBA", (r, g, b, final_a))
-        elif img.mode == 'RGBA':
-            # Если нет сохраненной маски, но есть альфа-канал, создаем бинарную прозрачность
-            r, g, b, alpha = img.split()
-            binary_alpha = alpha.point(lambda x: 255 if x > 240 else 0)
-            return Image.merge("RGBA", (r, g, b, binary_alpha))
+            # Объединяем каналы обратно в новое изображение
+            result = Image.merge("RGBA", (r, g, b, final_a))
             
-        return img
+            # Закрываем временные объекты
+            image_utils.safe_close(rgba_img)
+            image_utils.safe_close(img_copy)
+            
+            return result
+        elif img_copy.mode == 'RGBA':
+            # Если нет сохраненной маски, но есть альфа-канал, создаем бинарную прозрачность
+            r, g, b, alpha = img_copy.split()
+            binary_alpha = alpha.point(lambda x: 255 if x > 240 else 0)
+            
+            # Создаем новое изображение
+            result = Image.merge("RGBA", (r, g, b, binary_alpha))
+            
+            # Закрываем исходную копию
+            image_utils.safe_close(img_copy)
+            
+            return result
+            
+        # Возвращаем копию без изменений
+        return img_copy
     except Exception as e:
         log.error(f"Error applying mask for PNG save: {e}")
-        return img
+        return img.copy()  # Всегда возвращаем копию при ошибке
