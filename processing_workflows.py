@@ -2024,53 +2024,60 @@ def _apply_background_crop(img, white_tolerance, perimeter_tolerance, symmetric_
                          halo_reduction_level=0, analyze_only=False, boundaries=None,
                          background_color=None, padding_settings=None):
     """
-    Удаляет белый фон и/или обрезает изображение.
+    Применяет удаление фона и обрезку изображения.
     
     Args:
-        img: PIL Image
-        white_tolerance: Допуск для определения белого цвета (0-255)
-        perimeter_tolerance: Допуск для проверки периметра (0-255)
-        symmetric_absolute: Обрезать симметрично во всех направлениях
-        symmetric_axes: Обрезать симметрично по осям X/Y
-        check_perimeter: Проверять периметр перед обработкой
-        enable_crop: Включить обрезку или только удалить фон
-        perimeter_mode: 'if_white', 'if_not_white', 'always'
-        image_metadata: Словарь метаданных для передачи информации
-        extra_crop_percent: Дополнительная обрезка (в процентах)
-        removal_mode: Режим удаления фона ('full' или 'edges')
-        use_mask_instead_of_transparency: Использовать маску вместо прозрачности
-        analyze_only: Анализировать только границы, не применять изменения
-        boundaries: Предварительно вычисленные границы для обрезки
-        background_color: Цвет фона для указания при создании маски
-        padding_settings: Настройки отступов для проверки white_perimeter
+        img: Исходное изображение
+        white_tolerance: Допуск для определения белого цвета при удалении фона
+        perimeter_tolerance: Допуск для проверки периметра
+        symmetric_absolute: Полная симметрия обрезки
+        symmetric_axes: Симметрия обрезки по осям
+        check_perimeter: Проверять ли периметр изображения
+        enable_crop: Применять ли обрезку
+        perimeter_mode: Режим проверки периметра ('if_white', 'if_not_white', 'always')
+        image_metadata: Словарь с метаданными изображения
+        extra_crop_percent: Дополнительный процент обрезки после основной (0.0 - 100.0)
+        removal_mode: Режим удаления фона ('full' - все белые пиксели, 'edges' - только по краям)
+        use_mask_instead_of_transparency: Использовать маску вместо прозрачности (решает проблему ореолов в PNG)
+        halo_reduction_level: Уровень устранения ореолов (0-5), где 0 - отключено
+        analyze_only: Только анализировать границы, без удаления фона и обрезки
+        boundaries: Предварительно вычисленные границы обрезки (для второго этапа)
+        background_color: Цвет фона для RGB изображений (если None, используется белый)
+        padding_settings: Настройки отступов для дополнительной проверки с tolerance отступов
     
     Returns:
-        Изображение без белого фона / обрезанное или None при ошибке
-        В режиме analyze_only возвращает словарь границ обрезки
+        Обработанное изображение или исходное, если периметр не соответствует условию
+        Если analyze_only=True, возвращает границы обрезки как словарь
     """
-    log.debug(f"DIAGNOSTICS: _apply_background_crop start, img ID: {id(img)}, mode: {img.mode}, size: {img.size}")
-    log.debug(f"DIAGNOSTICS: Parameters: white_tolerance={white_tolerance}, perimeter_tolerance={perimeter_tolerance}, "
-              f"symmetric_absolute={symmetric_absolute}, symmetric_axes={symmetric_axes}, check_perimeter={check_perimeter}, "
-              f"enable_crop={enable_crop}, perimeter_mode={perimeter_mode}, analyze_only={analyze_only}, "
-              f"has_boundaries={boundaries is not None}, removal_mode={removal_mode}")
-    
+    # Инициализируем метаданные, если не переданы
     if image_metadata is None:
         image_metadata = {}
-
-    # Устанавливаем цвет фона по умолчанию
-    bg_color = (255, 255, 255)
-    if background_color:
-        bg_color = background_color
+    
+    # Если цвет фона не задан, используем белый
+    if background_color is None:
+        background_color = [255, 255, 255]
+    
+    # Убедимся, что цвет фона в правильном формате
+    if isinstance(background_color, list) and len(background_color) >= 3:
+        bg_color = tuple(map(int, background_color[:3]))
+    else:
+        log.warning("Invalid background color format, using default white")
+        bg_color = (255, 255, 255)
+    
+    log.info(f"=== Processing background crop (Mode: {removal_mode}, Extra crop: {extra_crop_percent}%, Analyze only: {analyze_only}, BG color: {bg_color}) ===")
+    log.debug(f"Parameters: white_tol={white_tolerance} (для удаления белого), " 
+             f"perim_tol={perimeter_tolerance} (для проверки периметра), "
+             f"sym_abs={symmetric_absolute}, sym_axes={symmetric_axes}, check_perim={check_perimeter}, "
+             f"enable_crop={enable_crop}, perim_mode={perimeter_mode}, "
+             f"mask_instead_transparency={use_mask_instead_of_transparency}, "
+             f"halo_reduction={halo_reduction_level}, "
+             f"using_precomputed_boundaries={boundaries is not None}")
     
     try:
         # Шаг 1: Проверка периметра с использованием perimeter_tolerance
         # Важно: для проверки периметра используется perimeter_tolerance, а не white_tolerance
         log.info(f"Checking perimeter with tolerance: {perimeter_tolerance}")
-        log.debug(f"DIAGNOSTICS: Before perimeter check, img ID: {id(img)}")
-        
         perimeter_is_white = image_utils.check_perimeter_is_white(img, perimeter_tolerance, 1)
-        log.debug(f"DIAGNOSTICS: After perimeter check, img ID: {id(img)}, still valid: {img is not None}")
-        
         image_metadata["has_white_perimeter_before_crop"] = perimeter_is_white
         log.info(f"Perimeter check result: {'White' if perimeter_is_white else 'NOT White'} (Tolerance: {perimeter_tolerance})")
         
@@ -2078,93 +2085,13 @@ def _apply_background_crop(img, white_tolerance, perimeter_tolerance, symmetric_
         if padding_settings and 'perimeter_check_tolerance' in padding_settings:
             padding_tolerance = int(padding_settings.get('perimeter_check_tolerance', 10))
             log.info(f"Also checking perimeter with padding tolerance: {padding_tolerance}")
-            log.debug(f"DIAGNOSTICS: Before padding perimeter check, img ID: {id(img)}")
-            
             padding_perimeter_is_white = image_utils.check_perimeter_is_white(img, padding_tolerance, 1)
-            log.debug(f"DIAGNOSTICS: After padding perimeter check, img ID: {id(img)}, still valid: {img is not None}")
-            
             image_metadata["has_white_perimeter_for_padding"] = padding_perimeter_is_white
             # ВАЖНО: Сохраняем состояние ДО обрезки в специальном ключе для if_white режима
             if padding_settings.get('mode') == 'if_white':
                 image_metadata["has_white_perimeter_for_padding_before_crop"] = padding_perimeter_is_white
                 log.debug(f"Saved pre-crop padding perimeter state for if_white mode: white_perimeter={padding_perimeter_is_white}")
             log.info(f"Padding perimeter check result: {'White' if padding_perimeter_is_white else 'NOT White'} (Tolerance: {padding_tolerance})")
-        
-        # ВАЖНОЕ ИСПРАВЛЕНИЕ: Специальная обработка режима analyze_only
-        if analyze_only:
-            log.debug(f"DIAGNOSTICS: analyze_only mode detected, checking perimeter conditions")
-            
-            # Если проверка периметра включена и режим не "always"
-            if check_perimeter and perimeter_mode != 'always':
-                # Если не соответствует условиям периметра - возвращаем безопасные границы
-                if (perimeter_mode == 'if_white' and not perimeter_is_white) or (perimeter_mode == 'if_not_white' and perimeter_is_white):
-                    log.debug(f"DIAGNOSTICS: analyze_only - perimeter check failed, returning safe boundaries")
-                    # Возвращаем безопасные границы для всего изображения
-                    width, height = img.size
-                    return {
-                        'left': 0,
-                        'top': 0,
-                        'right': width,
-                        'bottom': height
-                    }
-                    
-            # Продолжаем анализ для analyze_only, если соответствует условиям периметра
-            log.debug(f"DIAGNOSTICS: analyze_only - performing boundary analysis")
-            
-            # Создаем копию изображения для анализа
-            img_rgba = None
-            try:
-                if img.mode != 'RGBA':
-                    img_rgba = img.convert('RGBA')
-                    log.debug(f"DIAGNOSTICS: Converted to RGBA for analysis, ID: {id(img_rgba)}")
-                else:
-                    img_rgba = img.copy()
-                    log.debug(f"DIAGNOSTICS: Created RGBA copy for analysis, ID: {id(img_rgba)}")
-                
-                # Применяем удаление фона
-                img_no_bg = image_utils.remove_white_background(img_rgba, white_tolerance, mode=removal_mode)
-                
-                if not img_no_bg:
-                    log.error("Background removal failed during analysis")
-                    image_utils.safe_close(img_rgba)
-                    # Возвращаем безопасные границы при ошибке
-                    width, height = img.size
-                    return {
-                        'left': 0,
-                        'top': 0,
-                        'right': width,
-                        'bottom': height
-                    }
-                
-                # Находим границы обрезки
-                crop_boundaries = image_utils.find_crop_boundaries(
-                    img_no_bg, 
-                    white_tolerance,
-                    symmetric_absolute, 
-                    symmetric_axes, 
-                    extra_crop_percent
-                )
-                
-                # Очищаем ресурсы
-                image_utils.safe_close(img_rgba)
-                image_utils.safe_close(img_no_bg)
-                
-                log.debug(f"DIAGNOSTICS: analyze_only returning boundaries: {crop_boundaries}")
-                return crop_boundaries
-                
-            except Exception as e:
-                log.error(f"Error during boundary analysis: {e}")
-                if img_rgba:
-                    image_utils.safe_close(img_rgba)
-                
-                # Возвращаем безопасные границы при ошибке
-                width, height = img.size
-                return {
-                    'left': 0,
-                    'top': 0,
-                    'right': width,
-                    'bottom': height
-                }
         
         # Фаза 2: проверяем периметр для решения о продолжении всего процесса
         if not analyze_only:
@@ -2185,10 +2112,10 @@ def _apply_background_crop(img, white_tolerance, perimeter_tolerance, symmetric_
                         if padding_settings.get('mode') == 'if_not_white':
                             log.debug(f"Saved perimeter state for if_not_white mode when skipping crop: white_perimeter={padding_perimeter_is_white}")
                     
-                    log.debug(f"DIAGNOSTICS: Skipping background removal due to perimeter check, returning original img ID: {id(img)}")
-                    return img.copy()  # ИСПРАВЛЕНИЕ: Возвращаем копию вместо оригинала
-                
-                if perimeter_mode == 'if_not_white' and perimeter_is_white:
+                    # ИСПРАВЛЕНИЕ - Возвращаем копию оригинала, не сам оригинал
+                    log.debug("Returning a copy of the original image when skipping background/crop processing")
+                    return img.copy()  # Возвращаем копию оригинала
+                elif perimeter_mode == 'if_not_white' and perimeter_is_white:
                     log.info("Phase 2: Background removal and cropping skipped - perimeter is white (mode: if_not_white)")
                     if boundaries is not None:
                         log.info("Pre-calculated boundaries ignored because perimeter does not match criteria")
@@ -2203,137 +2130,189 @@ def _apply_background_crop(img, white_tolerance, perimeter_tolerance, symmetric_
                         if padding_settings.get('mode') == 'if_not_white':
                             log.debug(f"Saved perimeter state for if_not_white mode when skipping crop: white_perimeter={padding_perimeter_is_white}")
                     
-                    log.debug(f"DIAGNOSTICS: Skipping background removal due to perimeter check, returning original img ID: {id(img)}")
-                    return img.copy()  # ИСПРАВЛЕНИЕ: Возвращаем копию вместо оригинала
+                    # ИСПРАВЛЕНИЕ - Возвращаем копию оригинала, не сам оригинал
+                    log.debug("Returning a copy of the original image when skipping background/crop processing")
+                    return img.copy()  # Возвращаем копию оригинала
             
             # Только для логирования
             if boundaries is not None:
                 log.debug("Using pre-calculated boundaries (perimeter check passed)")
         
+        # Если это только анализ границ
+        if analyze_only:
+            # Фаза 1: строго соблюдаем проверку периметра для анализа границ
+            if check_perimeter and perimeter_mode != 'always':
+                if perimeter_mode == 'if_white' and not perimeter_is_white:
+                    log.debug("Phase 1: Analysis skipped - perimeter is not white (mode: if_white)")
+                    # Для изображений с не-белым периметром в режиме анализа границ
+                    # Возвращаем безопасные границы всего изображения
+                    width, height = img.size
+                    safe_boundaries = {
+                        'left': 0,
+                        'top': 0,
+                        'right': width,
+                        'bottom': height
+                    }
+                    log.debug(f"Returning safe boundaries for non-white perimeter image: {safe_boundaries}")
+                    return safe_boundaries
+                elif perimeter_mode == 'if_not_white' and perimeter_is_white:
+                    log.info("Phase 1: Analysis skipped - perimeter is white (mode: if_not_white)")
+                    # Для изображений с белым периметром в режиме 'if_not_white'
+                    # также возвращаем безопасные границы всего изображения
+                    width, height = img.size
+                    safe_boundaries = {
+                        'left': 0,
+                        'top': 0,
+                        'right': width,
+                        'bottom': height
+                    }
+                    log.debug(f"Returning safe boundaries for white perimeter image (if_not_white mode): {safe_boundaries}")
+                    return safe_boundaries
+                    
+            log.info("Analyzing crop boundaries without applying changes")
+            
+            # Создаем копию изображения для анализа
+            img_rgba = None
+            if img.mode != 'RGBA':
+                try:
+                    img_rgba = img.convert('RGBA')
+                except Exception as e:
+                    log.error(f"Failed to convert to RGBA for boundary analysis: {e}")
+                    
+                    # В случае ошибки конвертации возвращаем безопасные границы
+                    width, height = img.size
+                    return {
+                        'left': 0,
+                        'top': 0,
+                        'right': width,
+                        'bottom': height
+                    }
+            else:
+                img_rgba = img.copy()  # Создаем копию, а не используем оригинал
+            
+            # Определяем примерные границы после удаления фона
+            # Сначала удаляем фон для анализа используя white_tolerance
+            log.info(f"Analyzing borders with white_tolerance={white_tolerance}")
+            img_no_bg = image_utils.remove_white_background(img_rgba, white_tolerance, mode=removal_mode)
+            if not img_no_bg:
+                log.error("Background removal failed during analysis.")
+                image_utils.safe_close(img_rgba)
+                
+                # Если не удалось удалить фон, возвращаем безопасные границы
+                width, height = img.size
+                return {
+                    'left': 0,
+                    'top': 0,
+                    'right': width,
+                    'bottom': height
+                }
+                
+            if enable_crop:
+                # Находим границы обрезки без применения
+                crop_boundaries = image_utils.find_crop_boundaries(
+                    img_no_bg, 
+                    white_tolerance,
+                    symmetric_absolute, 
+                    symmetric_axes, 
+                    extra_crop_percent
+                )
+                # Закрываем временное изображение
+                image_utils.safe_close(img_rgba)
+                image_utils.safe_close(img_no_bg)
+                return crop_boundaries
+            else:
+                # Если обрезка не включена, возвращаем None
+                image_utils.safe_close(img_rgba)
+                image_utils.safe_close(img_no_bg)
+                return None
+        
+        # Если границы предоставлены, но обрезка не включена, игнорируем границы
+        if boundaries is not None and not enable_crop:
+            log.debug("Boundaries provided but crop is disabled. Ignoring boundaries.")
+            boundaries = None
+        
         # Создаем копию и конвертируем в RGBA, если еще не RGBA
-        log.debug(f"DIAGNOSTICS: About to create RGBA copy for background processing, original img ID: {id(img)}")
         img_rgba = None
         if img.mode != 'RGBA':
             try:
                 img_rgba = img.convert('RGBA')
                 log.debug(f"Converted {img.mode} -> RGBA for background processing")
-                log.debug(f"DIAGNOSTICS: Converted to RGBA, new img_rgba ID: {id(img_rgba)}")
             except Exception as e:
                 log.error(f"Failed to convert to RGBA for background removal: {e}")
-                log.debug(f"DIAGNOSTICS: Failed to convert to RGBA, returning original img ID: {id(img)}")
-                return img.copy()  # ИСПРАВЛЕНИЕ: Возвращаем копию вместо оригинала
+                return img
         else:
             img_rgba = img.copy()
-            log.debug(f"DIAGNOSTICS: Created RGBA copy, img_rgba ID: {id(img_rgba)}")
         
         # Применяем удаление фона используя white_tolerance
         log.info(f"Removing white background using white_tolerance={white_tolerance}")
-        log.debug(f"DIAGNOSTICS: Before removing background, img_rgba ID: {id(img_rgba)}")
-        
         img_processed = image_utils.remove_white_background(img_rgba, white_tolerance, mode=removal_mode)
-        
         if not img_processed:
             log.error("Background removal failed.")
-            log.debug(f"DIAGNOSTICS: Background removal failed, cleaning up img_rgba ID: {id(img_rgba)}")
             image_utils.safe_close(img_rgba)
-            log.debug(f"DIAGNOSTICS: Returning original img ID: {id(img)}")
-            return img.copy()  # ИСПРАВЛЕНИЕ: Возвращаем копию вместо оригинала
-        
-        log.debug(f"DIAGNOSTICS: Background removed, img_processed ID: {id(img_processed)}")
+            return img
         
         # Если включена обрезка, применяем ее
         if enable_crop:
-            log.debug(f"DIAGNOSTICS: Crop is enabled, preparing to crop")
             if boundaries is not None:
                 # Используем предварительно вычисленные границы
                 log.info(f"Using pre-calculated crop boundaries: {boundaries}")
-                log.debug(f"DIAGNOSTICS: Before applying crop with boundaries, img_processed ID: {id(img_processed)}")
-                
                 img_processed = image_utils.apply_crop_with_boundaries(img_processed, boundaries)
-                
                 if not img_processed:
                     log.error("Failed to apply pre-calculated crop boundaries")
-                    log.debug(f"DIAGNOSTICS: Failed to apply crop, returning original img ID: {id(img)}")
-                    return img.copy()  # ИСПРАВЛЕНИЕ: Возвращаем копию вместо оригинала
-                
-                log.debug(f"DIAGNOSTICS: After applying crop, img_processed ID: {id(img_processed)}")
+                    return img
             else:
                 # Вычисляем границы и сразу применяем
                 log.info(f"Applying standard crop with extra crop percent: {extra_crop_percent}%")
-                log.debug(f"DIAGNOSTICS: Before standard crop, img_processed ID: {id(img_processed)}")
-                
                 img_processed = image_utils.crop_image(
                     img_processed, 
                     symmetric_axes, 
                     symmetric_absolute, 
                     extra_crop_percent
                 )
-                
                 if not img_processed:
                     log.error("Failed to crop image")
-                    log.debug(f"DIAGNOSTICS: Failed to crop, returning original img ID: {id(img)}")
-                    return img.copy()  # ИСПРАВЛЕНИЕ: Возвращаем копию вместо оригинала
-                
-                log.debug(f"DIAGNOSTICS: After standard crop, img_processed ID: {id(img_processed)}")
+                    return img
         else:
             log.info("Cropping is disabled, keeping canvas size")
         
         # Проверяем и сохраняем состояние периметра ПОСЛЕ обработки для использования в _apply_padding
         # Используем perimeter_tolerance для последующих шагов
         try:
-            log.debug(f"DIAGNOSTICS: Before checking perimeter after crop, img_processed ID: {id(img_processed)}")
             has_white_perimeter_after = image_utils.check_perimeter_is_white(img_processed, perimeter_tolerance, 1)
-            log.debug(f"DIAGNOSTICS: After checking perimeter, img_processed ID: {id(img_processed)}, still valid: {img_processed is not None}")
-            
             image_metadata["has_white_perimeter_after_crop"] = has_white_perimeter_after
             log.debug(f"Saved perimeter state AFTER crop/bg-removal: white_perimeter={has_white_perimeter_after}")
             
             # Также сохраняем состояние с использованием tolerance для padding, если он указан
             if padding_settings and 'perimeter_check_tolerance' in padding_settings:
                 padding_tolerance = int(padding_settings.get('perimeter_check_tolerance', 10))
-                log.debug(f"DIAGNOSTICS: Before checking padding perimeter, img_processed ID: {id(img_processed)}")
-                
                 padding_perimeter_after = image_utils.check_perimeter_is_white(img_processed, padding_tolerance, 1)
-                log.debug(f"DIAGNOSTICS: After checking padding perimeter, img_processed ID: {id(img_processed)}, still valid: {img_processed is not None}")
-                
                 image_metadata["has_white_perimeter_for_padding_after_crop"] = padding_perimeter_after
                 log.debug(f"Saved perimeter state for padding AFTER crop: white_perimeter={padding_perimeter_after} (tolerance={padding_tolerance})")
                         
-                # Сохраняем специальное значение для режима if_not_white
-                if padding_settings.get('mode') == 'if_not_white':
-                    log.debug(f"Saved post-crop padding perimeter state for if_not_white mode: white_perimeter={padding_perimeter_after}")
+                        # Сохраняем специальное значение для режима if_not_white
+            if padding_settings.get('mode') == 'if_not_white':
+                log.debug(f"Saved post-crop padding perimeter state for if_not_white mode: white_perimeter={padding_perimeter_after}")
         except Exception as e:
             log.warning(f"Failed to check perimeter after crop/bg-removal: {e}")
-            log.debug(f"DIAGNOSTICS: Exception during post-processing perimeter check: {e}")
         
         # Применяем устранение ореолов, если уровень > 0
         if halo_reduction_level > 0 and img_processed.mode == 'RGBA':
             log.info(f"Applying halo reduction with level: {halo_reduction_level}")
-            log.debug(f"DIAGNOSTICS: Before halo reduction, img_processed ID: {id(img_processed)}")
-            
             img_processed = _reduce_halos(img_processed, halo_reduction_level)
-            log.debug(f"DIAGNOSTICS: After halo reduction, img_processed ID: {id(img_processed)}")
         
         # Если нужно использовать маску вместо прозрачности
         if use_mask_instead_of_transparency:
             # Используем пользовательский цвет фона при создании маски
-            log.debug(f"DIAGNOSTICS: Before creating mask, img_processed ID: {id(img_processed)}")
-            
             img_processed = _create_mask_instead_of_transparency(img_processed, bg_color)
-            log.debug(f"DIAGNOSTICS: After creating mask, img_processed ID: {id(img_processed)}")
             log.debug("Created mask instead of transparency with user-defined background color")
         
-        # ИСПРАВЛЕНИЕ: Дополнительная проверка для избежания ошибки "Operation on closed image"
-        if img_processed is None:
-            log.warning("Safety check: img_processed is None at the end of _apply_background_crop. Returning copy of original.")
-            return img.copy()
-            
-        log.debug(f"DIAGNOSTICS: Returning processed image, img_processed ID: {id(img_processed)}")
-        return img_processed
+        # Всегда возвращаем новый объект для безопасности
+        log.debug("Returning the processed image (normal flow)")
+        return img_processed.copy() if img_processed is not None else img.copy()
     except Exception as e:
         log.error(f"Error in background/crop: {e}")
-        log.debug(f"DIAGNOSTICS: Exception in _apply_background_crop: {e}, returning copy of original img")
-        return img.copy()  # ИСПРАВЛЕНИЕ: Возвращаем копию вместо оригинала
+        log.debug("Returning a copy of the original image due to exception")
+        return img.copy()  # Всегда возвращаем копию, не оригинал
 
 def _reduce_halos(img, level=1):
     """
@@ -2385,7 +2364,7 @@ def _reduce_halos(img, level=1):
         return result
     except Exception as e:
         log.error(f"Error in halo reduction: {e}")
-        return img.copy()  # ИСПРАВЛЕНИЕ: Возвращаем копию вместо оригинала
+        return img.copy()  # Возвращаем копию оригинала при ошибке
 
 def _scale_image(image, target_size, mode='fit', use_transparency=True):
     """
@@ -2909,43 +2888,11 @@ def process_image_base(image_or_path, prep_settings, white_settings, bgc_setting
                 
                 log.debug(f"Phase 1: Got crop boundaries: {crop_boundaries}")
                 
-                # ИСПРАВЛЕНИЕ: Проверяем, что crop_boundaries - это словарь, а не изображение
-                if not isinstance(crop_boundaries, dict):
-                    log.error(f"Phase 1: Invalid crop_boundaries type: {type(crop_boundaries)}, expected dict")
-                    # Создаем безопасные границы - всё изображение
-                    width, height = img.size
-                    crop_boundaries = {
-                        'left': 0,
-                        'top': 0,
-                        'right': width,
-                        'bottom': height
-                    }
-                    log.info(f"Created safe boundaries instead: {crop_boundaries}")
-                
-                # Проверяем, что все необходимые ключи существуют
-                required_keys = ['left', 'top', 'right', 'bottom']
-                if not all(key in crop_boundaries for key in required_keys):
-                    log.error(f"Phase 1: Missing required keys in crop_boundaries: {crop_boundaries}")
-                    # Создаем безопасные границы - всё изображение
-                    width, height = img.size
-                    crop_boundaries = {
-                        'left': 0,
-                        'top': 0,
-                        'right': width,
-                        'bottom': height
-                    }
-                    log.info(f"Created safe boundaries instead: {crop_boundaries}")
-                
                 # Определяем оптимальный масштаб для предотвращения ореолов
                 if scale_factor == 1.0:  # Автоматический режим
                     min_size = 200  # Минимальный размер для обрабатываемой части изображения
-                    try:
-                        crop_width = crop_boundaries['right'] - crop_boundaries['left']
-                        crop_height = crop_boundaries['bottom'] - crop_boundaries['top']
-                    except (TypeError, KeyError) as e:
-                        log.error(f"Error calculating crop dimensions: {e}")
-                        crop_width = img.width
-                        crop_height = img.height
+                    crop_width = crop_boundaries['right'] - crop_boundaries['left']
+                    crop_height = crop_boundaries['bottom'] - crop_boundaries['top']
                     
                     if crop_width < min_size or crop_height < min_size:
                         width_scale = min_size / max(1, crop_width)
@@ -2971,7 +2918,6 @@ def process_image_base(image_or_path, prep_settings, white_settings, bgc_setting
                     
                     # ФАЗА 2: Применение удаления фона и обрезки к масштабированному изображению
                     log.info(f"Phase 2: Applying processing to scaled image with pre-calculated boundaries")
-                    log.debug(f"DIAGNOSTICS: PHASE 2 - Before calling _apply_background_crop with scaled image, ID: {id(scaled_img)}, crop={enable_crop}, check_perimeter={check_perimeter}, mode={perimeter_mode}")
                     img = _apply_background_crop(
                         scaled_img,
                         white_tolerance,
@@ -2990,12 +2936,10 @@ def process_image_base(image_or_path, prep_settings, white_settings, bgc_setting
                         background_color=jpg_background_color,  # Добавляем пользовательский цвет фона
                         padding_settings=pad_settings  # Передаем настройки отступов
                     )
-                    log.debug(f"DIAGNOSTICS: PHASE 2 - After _apply_background_crop with scaled image, returned ID: {id(img) if img else 'None'}")
                     image_utils.safe_close(scaled_img)
                 else:
                     # ФАЗА 2: Применение удаления фона и обрезки к исходному изображению
                     log.info(f"Phase 2: Applying processing with pre-calculated boundaries (no scaling needed)")
-                    log.debug(f"DIAGNOSTICS: PHASE 2 - Before calling _apply_background_crop with original image, ID: {id(original_image)}, crop={enable_crop}, check_perimeter={check_perimeter}, mode={perimeter_mode}")
                     img = _apply_background_crop(
                         original_image,
                         white_tolerance,
@@ -3014,23 +2958,9 @@ def process_image_base(image_or_path, prep_settings, white_settings, bgc_setting
                         background_color=jpg_background_color,  # Добавляем пользовательский цвет фона
                         padding_settings=pad_settings  # Передаем настройки отступов
                     )
-                    log.debug(f"DIAGNOSTICS: PHASE 2 - After _apply_background_crop with original image, returned ID: {id(img) if img else 'None'}")
-                
-                # Очищаем оригинальное изображение после обработки
-                image_utils.safe_close(original_image)
-                original_image = None
-                
-                if img is None:
-                    log.error(f"Background removal / crop failed")
-                    return None, {}
-                    
-                log.debug(f"After background/crop: Size={img.size}")
-                log.debug(f"DIAGNOSTICS: After both phases of background processing, final image ID: {id(img)}")
-                
             else:
-                # ОДНОЭТАПНАЯ ОБРАБОТКА
+                # Стандартная одноэтапная обработка
                 log.info(f"Using standard one-phase background/crop processing")
-                log.debug(f"DIAGNOSTICS: ONE-PHASE - Before calling _apply_background_crop, image ID: {id(img)}, crop={enable_crop}, check_perimeter={check_perimeter}, mode={perimeter_mode}")
                 img = _apply_background_crop(
                     img,
                     white_tolerance,
@@ -3048,14 +2978,6 @@ def process_image_base(image_or_path, prep_settings, white_settings, bgc_setting
                     background_color=jpg_background_color,  # Добавляем пользовательский цвет фона
                     padding_settings=pad_settings  # Передаем настройки отступов
                 )
-                log.debug(f"DIAGNOSTICS: ONE-PHASE - After _apply_background_crop, returned ID: {id(img) if img else 'None'}")
-                
-                if img is None:
-                    log.error(f"Background removal / crop failed")
-                    return None, {}
-                    
-                log.debug(f"After background/crop: Size={img.size}")
-                log.debug(f"DIAGNOSTICS: After one-phase background processing, final image ID: {id(img)}")
             
             if img is None:
                 log.error(f"Background removal / crop failed")
@@ -3427,14 +3349,20 @@ def _create_mask_instead_of_transparency(img, background_color=(255, 255, 255)):
     Returns:
         RGB изображение с указанным цветом фона и сохраненной маской в img.info['transparency_mask']
     """
+    if img is None:
+        return None
+        
+    # Всегда работаем с копиями или новыми объектами
+    rgba_img = None
+    
     if img.mode != 'RGBA':
         try:
-            rgba_img = img.convert('RGBA')
+            rgba_img = img.convert('RGBA')  # .convert создает новый объект
         except Exception as e:
             log.error(f"Failed to convert to RGBA in _create_mask_instead_of_transparency: {e}")
-            return img
+            return img.copy()  # Возвращаем копию оригинала
     else:
-        rgba_img = img
+        rgba_img = img.copy()  # Явно создаем копию для RGBA
         
     try:
         # Создаем маску из альфа-канала (1 = непрозрачно, 0 = прозрачно)
@@ -3459,17 +3387,15 @@ def _create_mask_instead_of_transparency(img, background_color=(255, 255, 255)):
         # Сохраняем маску в info
         rgb_img.info['transparency_mask'] = mask
         
-        # Очищаем промежуточный ресурс
-        if rgba_img is not img:
-            image_utils.safe_close(rgba_img)
+        # Очищаем промежуточные ресурсы
+        image_utils.safe_close(rgba_img)
         image_utils.safe_close(clean_edges_img)
         
-        return rgb_img
+        return rgb_img  # rgb_img это новый объект, созданный с Image.new
     except Exception as e:
         log.error(f"Error in _create_mask_instead_of_transparency: {e}")
-        if rgba_img is not img:
-            image_utils.safe_close(rgba_img)
-        return img
+        image_utils.safe_close(rgba_img)
+        return img.copy()  # Всегда возвращаем копию оригинала при ошибке
 
 def _apply_mask_for_png_save(img):
     """
@@ -3482,17 +3408,23 @@ def _apply_mask_for_png_save(img):
     Returns:
         RGBA изображение с чистой прозрачностью (без полутонов)
     """
+    if img is None:
+        return None
+        
     try:
-        if 'transparency_mask' in img.info:
+        # Создаем копию для работы
+        img_copy = img.copy()
+        
+        if 'transparency_mask' in img_copy.info:
             # Получаем маску
-            mask = img.info['transparency_mask']
+            mask = img_copy.info['transparency_mask']
             
             # Проверяем совпадение размеров
-            if mask.size != img.size:
-                mask = mask.resize(img.size, Image.Resampling.NEAREST)
+            if mask.size != img_copy.size:
+                mask = mask.resize(img_copy.size, Image.Resampling.NEAREST)
             
             # Создаем RGBA изображение
-            rgba_img = img.convert("RGBA")
+            rgba_img = img_copy.convert("RGBA")
             
             # Применяем маску к альфа-каналу с полностью бинарным подходом
             r, g, b, _ = rgba_img.split()
@@ -3502,15 +3434,29 @@ def _apply_mask_for_png_save(img):
             binary_mask = mask.point(lambda x: 0 if x == 0 else 255)
             final_a = binary_mask.point(lambda x: 0 if x > 0 else 255)  # Инвертируем для RGBA
             
-            # Объединяем каналы обратно
-            return Image.merge("RGBA", (r, g, b, final_a))
-        elif img.mode == 'RGBA':
-            # Если нет сохраненной маски, но есть альфа-канал, создаем бинарную прозрачность
-            r, g, b, alpha = img.split()
-            binary_alpha = alpha.point(lambda x: 255 if x > 240 else 0)
-            return Image.merge("RGBA", (r, g, b, binary_alpha))
+            # Объединяем каналы обратно в новое изображение
+            result = Image.merge("RGBA", (r, g, b, final_a))
             
-        return img
+            # Закрываем временные объекты
+            image_utils.safe_close(rgba_img)
+            image_utils.safe_close(img_copy)
+            
+            return result
+        elif img_copy.mode == 'RGBA':
+            # Если нет сохраненной маски, но есть альфа-канал, создаем бинарную прозрачность
+            r, g, b, alpha = img_copy.split()
+            binary_alpha = alpha.point(lambda x: 255 if x > 240 else 0)
+            
+            # Создаем новое изображение
+            result = Image.merge("RGBA", (r, g, b, binary_alpha))
+            
+            # Закрываем исходную копию
+            image_utils.safe_close(img_copy)
+            
+            return result
+            
+        # Возвращаем копию без изменений
+        return img_copy
     except Exception as e:
         log.error(f"Error applying mask for PNG save: {e}")
-        return img
+        return img.copy()  # Всегда возвращаем копию при ошибке
