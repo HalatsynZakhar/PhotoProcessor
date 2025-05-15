@@ -1819,6 +1819,22 @@ if start_button_pressed_this_run:
     if not input_path or not os.path.isdir(abs_input_path):
         validation_errors.append(f"Папка с исходными файлами не найдена или не указана: '{input_path}'")
         paths_ok = False
+    else:
+        # Проверяем, есть ли в папке изображения для обработки
+        try:
+            image_extensions = ('.png', '.jpg', '.jpeg', '.bmp', '.gif', '.tiff', '.webp', '.tif')
+            has_image_files = False
+            for file in os.listdir(abs_input_path):
+                if file.lower().endswith(image_extensions) and os.path.isfile(os.path.join(abs_input_path, file)):
+                    has_image_files = True
+                    break
+            
+            if not has_image_files:
+                validation_errors.append(f"Папка с исходными файлами '{input_path}' не содержит изображений для обработки")
+                paths_ok = False
+        except Exception as e:
+            log.warning(f"Не удалось проверить содержимое папки: {e}")
+            # Продолжаем без ошибки в случае проблем с чтением папки
 
     # Проверка пути шаблона, если включено слияние
     if get_setting('merge_settings.enable_merge', False):
