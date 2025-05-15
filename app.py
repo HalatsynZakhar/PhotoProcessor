@@ -1922,23 +1922,28 @@ if start_button_pressed_this_run:
         st.session_state.result_message_placeholder = result_message_placeholder
         
         if workflow_success:
-            # Проверяем наличие файлов в папке ввода
-            found_files = False
-            try:
-                input_folder = get_setting('paths.input_folder_path', '')
-                if input_folder and os.path.isdir(input_folder):
-                    # Проверяем, есть ли подходящие файлы в папке
-                    image_extensions = ('.png', '.jpg', '.jpeg', '.bmp', '.gif', '.tiff', '.webp', '.tif')
-                    for file in os.listdir(input_folder):
-                        if file.lower().endswith(image_extensions) and os.path.isfile(os.path.join(input_folder, file)):
-                            found_files = True
-                            break
-            except Exception as e:
-                log.warning(f"Не удалось проверить содержимое папки: {e}")
-                found_files = True  # В случае ошибки предполагаем, что файлы есть
+            # Проверяем, были ли удалены оригиналы в ходе обработки
+            delete_originals = get_setting('individual_mode.delete_originals', False)
             
-            # Если папка пуста, выводим предупреждение вместо сообщения об успехе
-            if not found_files:
+            # Проверяем наличие файлов в папке ввода только если не удаляли оригиналы
+            found_files = True  # По умолчанию считаем, что файлы есть
+            if not delete_originals:  # Проверяем только если не удаляли оригиналы
+                try:
+                    input_folder = get_setting('paths.input_folder_path', '')
+                    if input_folder and os.path.isdir(input_folder):
+                        # Проверяем, есть ли подходящие файлы в папке
+                        image_extensions = ('.png', '.jpg', '.jpeg', '.bmp', '.gif', '.tiff', '.webp', '.tif')
+                        found_files = False
+                        for file in os.listdir(input_folder):
+                            if file.lower().endswith(image_extensions) and os.path.isfile(os.path.join(input_folder, file)):
+                                found_files = True
+                                break
+                except Exception as e:
+                    log.warning(f"Не удалось проверить содержимое папки: {e}")
+                    found_files = True  # В случае ошибки предполагаем, что файлы есть
+            
+            # Если папка пуста и мы не удаляли оригиналы, выводим предупреждение вместо сообщения об успехе
+            if not found_files and not delete_originals:
                 # Используем mode_from_state для сообщения
                 result_message_placeholder.warning("⚠️ Папка не содержит файлов для обработки!", icon="⚠️")
                 st.session_state.result_message = {"type": "warning", "text": "⚠️ Папка не содержит файлов для обработки!"}
