@@ -1096,14 +1096,13 @@ def run_collage_processing(**all_settings: Dict[str, Any]) -> bool:
     # --- 4. Поиск Файлов ---
     log.info(f"Searching for images (excluding output file)...")
     input_files_found = []
-    SUPPORTED_EXTENSIONS = ('.png', '.jpg', '.jpeg', '.bmp', '.gif', '.tiff', '.webp', '.tif')
     norm_output_path = os.path.normcase(output_file_path)
     try:
         for entry in os.listdir(abs_source_dir):
             entry_path = os.path.join(abs_source_dir, entry)
             # Сравниваем с нормализованным путем выходного файла
             if os.path.isfile(entry_path) and \
-               entry.lower().endswith(SUPPORTED_EXTENSIONS) and \
+               entry.lower().endswith(SUPPORTED_IMAGE_EXTENSIONS) and \
                os.path.normcase(entry_path) != norm_output_path:
                 input_files_found.append(entry_path)
 
