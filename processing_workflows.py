@@ -1050,7 +1050,7 @@ def run_collage_processing(**all_settings: Dict[str, Any]) -> bool:
         # Формируем имя файла с расширением
         output_filename_with_ext = f"{os.path.splitext(output_filename_base)[0]}.{output_format}"
 
-        if output_format not in SUPPORTED_IMAGE_EXTENSIONS: raise ValueError(f"Unsupported collage output format: {output_format}")
+        if f".{output_format}" not in SUPPORTED_IMAGE_EXTENSIONS: raise ValueError(f"Unsupported collage output format: {output_format}")
 
         valid_collage_aspect_ratio = tuple(force_collage_aspect_ratio) if force_collage_aspect_ratio and len(force_collage_aspect_ratio) == 2 else None
 
