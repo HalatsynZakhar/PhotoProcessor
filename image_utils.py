@@ -27,6 +27,7 @@ except ImportError:
 ImageFile.LOAD_TRUNCATED_IMAGES = True
 log.debug("ImageFile.LOAD_TRUNCATED_IMAGES set to True.")
 
+SUPPORTED_IMAGE_EXTENSIONS = ('.png', '.jpg', '.jpeg', '.bmp', '.gif', '.tiff', '.webp', '.tif', '.psd')
 
 # === Функции Обработки Изображений ===
 

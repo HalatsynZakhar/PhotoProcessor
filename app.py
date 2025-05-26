@@ -1822,10 +1822,10 @@ if start_button_pressed_this_run:
     else:
         # Проверяем, есть ли в папке изображения для обработки
         try:
-            image_extensions = ('.png', '.jpg', '.jpeg', '.bmp', '.gif', '.tiff', '.webp', '.tif')
+            from image_utils import SUPPORTED_IMAGE_EXTENSIONS
             has_image_files = False
             for file in os.listdir(abs_input_path):
-                if file.lower().endswith(image_extensions) and os.path.isfile(os.path.join(abs_input_path, file)):
+                if file.lower().endswith(SUPPORTED_IMAGE_EXTENSIONS) and os.path.isfile(os.path.join(abs_input_path, file)):
                     has_image_files = True
                     break
             
@@ -1948,10 +1948,10 @@ if start_button_pressed_this_run:
                     input_folder = get_setting('paths.input_folder_path', '')
                     if input_folder and os.path.isdir(input_folder):
                         # Проверяем, есть ли подходящие файлы в папке
-                        image_extensions = ('.png', '.jpg', '.jpeg', '.bmp', '.gif', '.tiff', '.webp', '.tif')
+                        from image_utils import SUPPORTED_IMAGE_EXTENSIONS
                         found_files = False
                         for file in os.listdir(input_folder):
-                            if file.lower().endswith(image_extensions) and os.path.isfile(os.path.join(input_folder, file)):
+                            if file.lower().endswith(SUPPORTED_IMAGE_EXTENSIONS) and os.path.isfile(os.path.join(input_folder, file)):
                                 found_files = True
                                 break
                 except Exception as e:
