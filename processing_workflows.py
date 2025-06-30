@@ -1998,11 +1998,10 @@ def get_image_files(folder_path: str) -> List[str]:
             log.error(f"Folder does not exist: {folder_path}")
             return []
 
-        # Добавляем поддержку PSD файлов
-        image_extensions = ('.jpg', '.jpeg', '.png', '.webp', '.tiff', '.bmp', '.gif', '.psd')
+        # Используем полный список поддерживаемых расширений
         files = []
         for file in os.listdir(folder_path):
-            if file.lower().endswith(image_extensions):
+            if file.lower().endswith(SUPPORTED_IMAGE_EXTENSIONS):
                 files.append(os.path.join(folder_path, file))
 
         # Сортируем файлы в естественном порядке
