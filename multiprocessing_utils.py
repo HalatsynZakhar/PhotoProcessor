@@ -18,6 +18,11 @@ import io
 
 ImageFile.LOAD_TRUNCATED_IMAGES = True
 
+# Настройки для работы с очень большими изображениями
+Image.MAX_IMAGE_PIXELS = 500000000  # 500 миллионов пикселей
+import warnings
+warnings.filterwarnings("ignore", "(Possible|Image size).*exceeds limit", UserWarning)
+
 # Настройка логирования
 log = logging.getLogger(__name__)
 
@@ -100,8 +105,17 @@ def init_worker():
         worker_logger.info(f"Worker process {os.getpid()} set PYTHONNOWINDOW=1")
     
     # Устанавливаем обработчик LOAD_TRUNCATED_IMAGES для PIL
-    from PIL import ImageFile
+    from PIL import Image, ImageFile
     ImageFile.LOAD_TRUNCATED_IMAGES = True
+    # Настройки для больших изображений
+    Image.MAX_IMAGE_PIXELS = 500000000
+    import warnings
+    warnings.filterwarnings("ignore", "(Possible|Image size).*exceeds limit", UserWarning)
+    
+    # Настройки для работы с очень большими изображениями в воркере
+    Image.MAX_IMAGE_PIXELS = 500000000  # 500 миллионов пикселей
+    import warnings
+    warnings.filterwarnings("ignore", "(Possible|Image size).*exceeds limit", UserWarning)
     
     # Добавляем дополнительную диагностику
     worker_logger.info(f"Worker process {os.getpid()} running on CPU cores: {multiprocessing.cpu_count()}")
@@ -232,6 +246,10 @@ def mp_process_individual_file(args):
     
     # Устанавливаем параметр для работы с усечёнными изображениями
     ImageFile.LOAD_TRUNCATED_IMAGES = True
+    # Настройки для больших изображений
+    Image.MAX_IMAGE_PIXELS = 500000000
+    import warnings
+    warnings.filterwarnings("ignore", "(Possible|Image size).*exceeds limit", UserWarning)
     
     # Получаем логгер процесса
     log = logging.getLogger(f"Process-{os.getpid()}")
@@ -479,6 +497,10 @@ def mp_process_collage_image(args):
     
     # Устанавливаем параметр для работы с усечёнными изображениями
     ImageFile.LOAD_TRUNCATED_IMAGES = True
+    # Настройки для больших изображений
+    Image.MAX_IMAGE_PIXELS = 500000000
+    import warnings
+    warnings.filterwarnings("ignore", "(Possible|Image size).*exceeds limit", UserWarning)
     
     # Получаем логгер процесса
     log = logging.getLogger(f"Process-{os.getpid()}")
@@ -596,4 +618,4 @@ def mp_process_collage_image(args):
     except Exception as e:
         log.error(f"Error in mp_process_collage_image: {e}")
         log.error(traceback.format_exc())
-        return None 
+        return None

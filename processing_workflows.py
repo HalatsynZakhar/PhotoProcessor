@@ -55,6 +55,11 @@ except ImportError:
 from PIL import Image, UnidentifiedImageError, ImageFile
 ImageFile.LOAD_TRUNCATED_IMAGES = True
 
+# Настройки для работы с очень большими изображениями
+Image.MAX_IMAGE_PIXELS = 500000000  # 500 миллионов пикселей
+import warnings
+warnings.filterwarnings("ignore", "(Possible|Image size).*exceeds limit", UserWarning)
+
 log = logging.getLogger(__name__) # Используем логгер, настроенный в app.py
 
 

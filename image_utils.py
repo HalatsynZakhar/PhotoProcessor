@@ -27,6 +27,18 @@ except ImportError:
 ImageFile.LOAD_TRUNCATED_IMAGES = True
 log.debug("ImageFile.LOAD_TRUNCATED_IMAGES set to True.")
 
+# Увеличиваем лимит размера изображений для работы с очень большими файлами
+# По умолчанию PIL ограничивает размер до 178 миллионов пикселей
+# Устанавливаем лимит в 500 миллионов пикселей (например, 22360x22360)
+Image.MAX_IMAGE_PIXELS = 500000000
+log.debug(f"Image.MAX_IMAGE_PIXELS set to {Image.MAX_IMAGE_PIXELS}.")
+
+# Отключаем предупреждения о потенциальных "бомбах декомпрессии"
+# для очень больших изображений
+import warnings
+warnings.filterwarnings("ignore", "(Possible|Image size).*exceeds limit", UserWarning)
+log.debug("DecompressionBomb warnings suppressed for large images.")
+
 SUPPORTED_IMAGE_EXTENSIONS = ('.png', '.jpg', '.jpeg', '.bmp', '.gif', '.tiff', '.webp', '.tif', '.psd')
 
 # === Функции Обработки Изображений ===
