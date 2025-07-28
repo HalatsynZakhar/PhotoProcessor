@@ -712,8 +712,8 @@ def run_individual_processing(**all_settings: Dict[str, Any]) -> bool:
                     except Exception as date_err:
                         log.error(f"Failed to preserve file dates: {date_err}")
                 
-                # Удаляем оригиналы при необходимости
-                if individual_mode_settings.get('delete_originals', False) and not same_input_output:
+                # Удаляем оригиналы при необходимости (только при успешном завершении)
+                if individual_mode_settings.get('delete_originals', False) and not same_input_output and overall_success:
                     try:
                         log.info("Deleting original files...")
                         for file_path in files:
